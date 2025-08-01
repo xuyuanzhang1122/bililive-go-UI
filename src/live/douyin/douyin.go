@@ -80,7 +80,7 @@ func (l *Live) getLiveRoomWebPageResponse() (body string, err error) {
 		l.Url.String(),
 		live.CommonUserAgent,
 		requests.Cookies(cookieKVs),
-		requests.Headers(map[string]interface{}{
+		requests.Headers(map[string]any{
 			"Cache-Control": "no-cache",
 		}),
 	)
@@ -256,6 +256,8 @@ func (l *Live) getRoomInfoFromBody(body string) (info *live.Info, streamUrlInfos
 			return streamUrlInfos[i].Vbitrate > streamUrlInfos[j].Vbitrate
 		}
 	})
+	// TODO: fix inefficient code
+	//nolint:ineffassign
 	stepNumberForLog++
 
 	return
@@ -356,7 +358,7 @@ func (l *Live) legacy_getRoomInfo(body string) (*gjson.Result, error) {
 		roomInfoApi,
 		live.CommonUserAgent,
 		requests.Cookies(cookieKVs),
-		requests.Headers(map[string]interface{}{
+		requests.Headers(map[string]any{
 			"Cache-Control": "no-cache",
 		}))
 	if err != nil {
