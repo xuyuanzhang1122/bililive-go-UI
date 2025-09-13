@@ -34,6 +34,12 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	info := obj.(*live.Info)
 	info.Listening = inst.ListenerManager.(listeners.Manager).HasListener(ctx, l.GetLiveId())
 	info.Recording = inst.RecorderManager.(recorders.Manager).HasRecorder(ctx, l.GetLiveId())
+	if info.HostName == "" {
+		info.HostName = "获取失败"
+	}
+	if info.RoomName == "" {
+		info.RoomName = l.GetRawUrl()
+	}
 	return info
 }
 

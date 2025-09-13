@@ -2,6 +2,7 @@ FROM alpine
 
 ARG tag
 
+ENV IS_DOCKER=true
 ENV WORKDIR="/srv/bililive"
 ENV OUTPUT_DIR="/srv/bililive" \
     CONF_DIR="/etc/bililive-go" \
