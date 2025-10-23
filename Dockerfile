@@ -51,7 +51,7 @@ RUN mkdir -p $OUTPUT_DIR && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # 使用本地产物或从发布页下载对应架构的二进制（使用 BuildKit 挂载本地 bin/，不会写入镜像层）
-RUN --mount=type=bind,source=bin,target=/tmp/localbin,ro \
+RUN --mount=type=bind,source=./bin,target=/tmp/localbin,ro \
     set -eux; \
     case $(arch) in \
     aarch64) go_arch=arm64 ;; \

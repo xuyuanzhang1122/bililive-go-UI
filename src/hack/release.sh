@@ -30,18 +30,25 @@ package() {
   echo $BIN_PATH/$res
 }
 
-for dist in $(go tool dist list); do
-  case $dist in
-  linux/loong64 | android/* | ios/* | js/wasm )
-    continue
-    ;;
-  *) ;;
+# Build all targets in parallel on a single runner to speed up CI
+# Determine concurrency (fallback to 2 if detection fails)
+JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
 
+# Generate target list and filter unsupported ones
+TARGETS=$(go tool dist list | awk '!/^(linux\/loong64|android\/|ios\/|js\/wasm)/')
+
+printf "%s\n" "$TARGETS" | xargs -n1 -P "$JOBS" -I {} sh -c '
+  dist="$1"
+  case "$dist" in
+    linux/loong64|android/*|ios/*|js/wasm)
+      exit 0 ;; # filtered above, keep safe-guard
+    *) ;;
   esac
-  platform=$(echo ${dist} | cut -d'/' -f1)
-  arch=$(echo ${dist} | cut -d'/' -f2)
-  make PLATFORM=${platform} ARCH=${arch} bililive
-done
+  platform="${dist%/*}"
+  arch="${dist#*/}"
+  echo "[build] PLATFORM=$platform ARCH=$arch"
+  make PLATFORM="$platform" ARCH="$arch" bililive
+' _ {}
 
 for file in $(ls $BIN_PATH); do
   case $file in
