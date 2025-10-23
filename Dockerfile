@@ -20,9 +20,6 @@ RUN echo "Using ffmpeg for 386"
 
 FROM ffmpeg_${TARGETARCH}
 ARG TARGETARCH
-
-# 控制是否使用本地已编译好的二进制；默认为从发布页下载
-ARG USE_LOCAL=false
 ARG tag
 
 ENV IS_DOCKER=true
@@ -50,9 +47,7 @@ RUN mkdir -p $OUTPUT_DIR && \
     cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 使用本地产物或从发布页下载对应架构的二进制（使用 BuildKit 挂载本地 bin/，不会写入镜像层）
-RUN --mount=type=bind,source=./bin,target=/tmp/localbin,ro \
-    set -eux; \
+RUN set -eux; \
     case $(arch) in \
     aarch64) go_arch=arm64 ;; \
     arm*)    go_arch=arm   ;; \
@@ -60,20 +55,13 @@ RUN --mount=type=bind,source=./bin,target=/tmp/localbin,ro \
     x86_64)  go_arch=amd64 ;; \
     *) echo "Unsupported arch: $(arch)"; exit 1 ;; \
     esac; \
-    if [ "${USE_LOCAL}" = "true" ] && [ -f "/tmp/localbin/bililive-linux-${go_arch}" ]; then \
-    echo "Using local binary: /tmp/localbin/bililive-linux-${go_arch}"; \
-    install -m 0755 "/tmp/localbin/bililive-linux-${go_arch}" /usr/bin/bililive-go; \
-    else \
     echo "Downloading release ${tag} for arch ${go_arch}"; \
     cd /tmp && curl -sSLO "https://github.com/bililive-go/bililive-go/releases/download/${tag}/bililive-linux-${go_arch}.tar.gz" && \
     tar zxvf "bililive-linux-${go_arch}.tar.gz" "bililive-linux-${go_arch}" && \
     chmod +x "bililive-linux-${go_arch}" && \
     mv "./bililive-linux-${go_arch}" /usr/bin/bililive-go && \
     rm "./bililive-linux-${go_arch}.tar.gz"; \
-    fi; \
-    if [ "${USE_LOCAL}" != "true" ]; then \
-    if [ "${tag}" != "$(/usr/bin/bililive-go --version | tr -d '\n')" ]; then exit 1; fi; \
-    fi
+    if [ "${tag}" != "$(/usr/bin/bililive-go --version | tr -d '\n')" ]; then exit 1; fi
 
 COPY config.docker.yml $CONF_DIR/config.yml
 

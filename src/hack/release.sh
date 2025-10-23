@@ -34,10 +34,15 @@ package() {
 # Determine concurrency (fallback to 2 if detection fails)
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
 
+echo "[deps] Warming Go module cache..."
+go mod download
+
 # Generate target list and filter unsupported ones
 TARGETS=$(go tool dist list | awk '!/^(linux\/loong64|android\/|ios\/|js\/wasm)/')
 
-printf "%s\n" "$TARGETS" | xargs -n1 -P "$JOBS" -I {} sh -c '
+# 说明：此前同时使用了 -n1/--max-args 与 -I/--replace，会触发 xargs 互斥参数 warning。
+# 这里去掉 -I，占位通过 sh -c 的参数传递完成，保留 -n1 和 -P 以保持一条记录一次执行且并行。
+printf "%s\n" "$TARGETS" | xargs -n1 -P "$JOBS" sh -c '
   dist="$1"
   case "$dist" in
     linux/loong64|android/*|ios/*|js/wasm)
@@ -48,7 +53,7 @@ printf "%s\n" "$TARGETS" | xargs -n1 -P "$JOBS" -I {} sh -c '
   arch="${dist#*/}"
   echo "[build] PLATFORM=$platform ARCH=$arch"
   make PLATFORM="$platform" ARCH="$arch" bililive
-' _ {}
+' _
 
 for file in $(ls $BIN_PATH); do
   case $file in
