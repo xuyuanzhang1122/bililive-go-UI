@@ -9,15 +9,15 @@
     }
   },
   "ffmpeg": {
-    "n8.0-gpl": {
+    "n8.0-latest": {
       "downloadUrl": {
         "linux": {
-          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-linux64-gpl-8.0.tar.xz",
-          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-linuxarm64-gpl-8.0.tar.xz"
+          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linux64-gpl-8.0.tar.xz",
+          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linuxarm64-gpl-8.0.tar.xz"
         },
         "windows": {
-          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-win64-gpl-8.0.zip",
-          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-winarm64-gpl-8.0.zip"
+          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip",
+          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-winarm64-gpl-8.0.zip"
         }
       },
       "pathToEntry": {

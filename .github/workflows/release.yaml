@@ -9,9 +9,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard_index: [0, 1, 2, 3, 4]
+        shard_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     env:
-      SHARD_TOTAL: 5
+      SHARD_TOTAL: 10
       SHARD_INDEX: ${{ matrix.shard_index }}
     steps:
       - uses: actions/checkout@v2
