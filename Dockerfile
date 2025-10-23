@@ -61,7 +61,7 @@ RUN set -x; \
     chmod +x "bililive-linux-${go_arch}" && \
     mv "./bililive-linux-${go_arch}" /usr/bin/bililive-go && \
     rm "./bililive-linux-${go_arch}.tar.gz"; \
-    if [ "${tag}" != "$(/usr/bin/bililive-go --version | tr -d '\n')" ]; then exit 1; fi
+    if [ "${tag}" != "$(/usr/bin/bililive-go --version 2>&1 | tr -d '\n')" ]; then exit 1; fi
 
 COPY config.docker.yml $CONF_DIR/config.yml
 
