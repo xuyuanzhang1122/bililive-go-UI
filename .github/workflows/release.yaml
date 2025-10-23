@@ -4,8 +4,15 @@ on:
     tags:
       - 'v*'
 jobs:
-  release-bins:
+  release-bins-sharded:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [0, 1, 2, 3, 4]
+    env:
+      SHARD_TOTAL: 5
+      SHARD_INDEX: ${{ matrix.shard_index }}
     steps:
       - uses: actions/checkout@v2
       - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
@@ -45,16 +52,41 @@ jobs:
             node-modules-${{ env.IMAGE_OS }}-${{ env.NODE_VERSION }}-${{ env.NODE_ARCH }}-
       - name: Build Web Page
         run: make build-web
-      - name: Build go binaries
+      - name: Build go binaries (shard ${{ matrix.shard_index }}/5)
         run: make release
-      - uses: softprops/action-gh-release@v1
+      - name: Upload packaged artifacts only
+        uses: actions/upload-artifact@v4
         with:
-          files: 'bin/*'
+          name: bililive-bins-shard-${{ matrix.shard_index }}
+          path: |
+            bin/*.tar.gz
+            bin/*.zip
+            bin/*.7z
+          if-no-files-found: ignore
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: [release-bins-sharded]
+    steps:
+      - uses: actions/checkout@v2
+      - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Publish GitHub Release with all packaged files
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.zip
+            dist/**/*.7z
           prerelease: ${{ contains(env.GIT_TAG, 'rc') }}
+
   release-docker-images:
     runs-on: ubuntu-latest
     needs:
-      - release-bins
+      - publish-release
     steps:
       - uses: actions/checkout@v2
       - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
@@ -63,8 +95,6 @@ jobs:
         uses: docker/setup-qemu-action@v1
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v1.5.1
-      - name: Ensure empty bin directory exists for BuildKit bind mount
-        run: mkdir -p bin
       - name: Log in to Docker Hub
         uses: docker/login-action@v1
         with:

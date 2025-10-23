@@ -47,7 +47,7 @@ RUN mkdir -p $OUTPUT_DIR && \
     cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN set -eux; \
+RUN set -x; \
     case $(arch) in \
     aarch64) go_arch=arm64 ;; \
     arm*)    go_arch=arm   ;; \
