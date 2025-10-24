@@ -52,7 +52,7 @@ jobs:
             node-modules-${{ env.IMAGE_OS }}-${{ env.NODE_VERSION }}-${{ env.NODE_ARCH }}-
       - name: Build Web Page
         run: make build-web
-      - name: Build go binaries (shard ${{ matrix.shard_index }}/5)
+      - name: Build go binaries (shard ${{ matrix.shard_index }}/10)
         run: make release
       - name: Upload packaged artifacts only
         uses: actions/upload-artifact@v4
