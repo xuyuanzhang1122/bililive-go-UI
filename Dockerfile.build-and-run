@@ -52,9 +52,14 @@ RUN mkdir -p $OUTPUT_DIR && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
-    gosu \
     tzdata \
     ca-certificates && \
+    sh -c '\
+    if [ "$(dpkg --print-architecture)" = "armhf" ]; then \
+    echo "skip gosu for armhf"; \
+    else \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gosu; \
+    fi' && \
     cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 

@@ -35,9 +35,14 @@ RUN mkdir -p $OUTPUT_DIR && \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl \
-    gosu \
     tzdata \
     ca-certificates && \
+    sh -c '\
+    if [ "$TARGETARCH" = "arm" ]; then \
+    echo "skip gosu for arm (armv7/armhf)"; \
+    else \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gosu; \
+    fi' && \
     sh -c '\
     if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then \
     echo "skip apt ffmpeg for $TARGETARCH"; \
