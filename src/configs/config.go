@@ -102,6 +102,8 @@ type Config struct {
 	TimeoutInUs          int                  `yaml:"timeout_in_us"`
 	Notify               Notify               `yaml:"notify"` // 通知服务配置
 	AppDataPath          string               `yaml:"app_data_path"`
+	// 只读工具目录：如果指定，则优先从该目录查找外部工具（适用于 Docker 镜像内预置工具）
+	ReadOnlyToolFolder string `yaml:"read_only_tool_folder"`
 
 	liveRoomIndexCache map[string]int
 }
@@ -200,7 +202,8 @@ var defaultConfig = Config{
 			RecipientEmail: "",
 		},
 	},
-	AppDataPath: "./.appdata/",
+	AppDataPath:        "./.appdata/",
+	ReadOnlyToolFolder: "",
 }
 
 func NewConfig() *Config {

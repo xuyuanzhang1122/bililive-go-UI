@@ -37,6 +37,58 @@ func AsyncInit() {
 	}()
 }
 
+func SyncBuiltInTools(targetToolFolder string) (err error) {
+	// 初始化 remotetools API 配置，避免未加载配置时获取工具失败
+	api := tools.Get()
+	if api == nil {
+		return errors.New("failed to get remotetools API instance")
+	}
+	cfgData, cfgErr := getConfigData()
+	if cfgErr != nil || cfgData == nil {
+		if cfgErr == nil {
+			cfgErr = errors.New("failed to get config data")
+		}
+		return cfgErr
+	}
+	if err = api.LoadConfigFromBytes(cfgData); err != nil {
+		return err
+	}
+
+	tools.SetRootFolder(targetToolFolder)
+	toolsToKeep := []tools.Tool{}
+	for _, toolName := range []string{
+		"ffmpeg",
+		"dotnet",
+		"bililive-recorder",
+		"node",
+		"biliLive-tools",
+	} {
+		var tool tools.Tool
+		tool, err = api.GetTool(toolName)
+		if err != nil {
+			return
+		}
+		if !tool.DoesToolExist() {
+			logrus.Infoln("Installing built-in tool:", toolName)
+			err = tool.Install()
+			if err != nil {
+				return err
+			}
+		}
+		logrus.Infoln("Built-in tool is ready:", toolName, "version:", tool.GetVersion())
+		toolsToKeep = append(toolsToKeep, tool)
+	}
+
+	_, err = api.DeleteAllExceptToolsInRoot(toolsToKeep)
+	if err != nil {
+		logrus.WithError(err).Warn("failed to clean up unused built-in tools")
+		return
+	}
+	logrus.Infoln("Built-in tools synchronized to", targetToolFolder)
+
+	return err
+}
+
 func Init() (err error) {
 	// 已初始化直接返回
 	if toolStatusValue(currentToolStatus.Load()) == toolStatusValueInitialized {
@@ -74,7 +126,12 @@ func Init() (err error) {
 		return errors.New("failed to get app config")
 	}
 
-	tools.SetToolFolder(filepath.Join(appConfig.AppDataPath, "external_tools"))
+	// 配置只读工具目录（若有），并设置可写工具目录到 appData/external_tools
+	if ro := strings.TrimSpace(appConfig.ReadOnlyToolFolder); ro != "" {
+		tools.SetReadOnlyRootFolders([]string{ro})
+	}
+	writable := filepath.Join(appConfig.AppDataPath, "external_tools")
+	tools.SetRootFolder(writable)
 
 	err = api.StartWebUI(0)
 	if err != nil {

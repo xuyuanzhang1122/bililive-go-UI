@@ -64,6 +64,15 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 }
 
 func main() {
+	// 如果提供了 --sync-built-in-tools-to-path，则进行同步（下载容器内置工具并清理其他版本/其他工具）后退出
+	if flag.SyncBuiltInToolsToPath != nil && *flag.SyncBuiltInToolsToPath != "" {
+		if err := tools.SyncBuiltInTools(*flag.SyncBuiltInToolsToPath); err != nil {
+			fmt.Fprint(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	config, err := getConfig()
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error())

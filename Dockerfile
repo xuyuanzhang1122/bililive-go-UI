@@ -1,25 +1,6 @@
-ARG TARGETARCH
+# syntax=docker/dockerfile:1.7
 
-FROM ubuntu:22.04 AS ffmpeg_amd64
-RUN echo "Using static-ffmpeg for amd64"
-COPY --from=mwader/static-ffmpeg:8.0 /ffmpeg /usr/local/bin/
-COPY --from=mwader/static-ffmpeg:8.0 /ffprobe /usr/local/bin/
-
-FROM ubuntu:22.04 AS ffmpeg_arm64
-RUN echo "Using static-ffmpeg for arm64"
-COPY --from=mwader/static-ffmpeg:8.0 /ffmpeg /usr/local/bin/
-COPY --from=mwader/static-ffmpeg:8.0 /ffprobe /usr/local/bin/
-
-FROM ubuntu:22.04 AS ffmpeg_arm
-# FFmpeg will be installed later via Ubuntu packages (apt-get install ffmpeg) for arm architecture.
-RUN echo "Using ffmpeg for arm"
-
-FROM ubuntu:22.04 AS ffmpeg_386
-# FFmpeg will be installed later via Ubuntu packages (apt-get install ffmpeg) for 386 architecture.
-RUN echo "Using ffmpeg for 386"
-
-FROM ffmpeg_${TARGETARCH}
-ARG TARGETARCH
+FROM ubuntu:22.04
 ARG tag
 
 ENV IS_DOCKER=true
@@ -68,7 +49,17 @@ RUN set -x; \
     rm "./bililive-linux-${go_arch}.tar.gz"; \
     if [ "${tag}" != "$(/usr/bin/bililive-go --version 2>&1 | tr -d '\n')" ]; then exit 1; fi
 
+# For local testing: copy pre-built binary from build context instead of downloading
+# COPY bin/bililive-linux-amd64 /usr/bin/bililive-go
+# RUN chmod +x /usr/bin/bililive-go
+
 COPY config.docker.yml $CONF_DIR/config.yml
+
+RUN --mount=type=cache,id=bililive-tools-${TARGETARCH},sharing=locked,target=/cache/bililive/tools \
+    set -eux; \
+    mkdir -p /opt/bililive/tools /cache/bililive/tools; \
+    /usr/bin/bililive-go --sync-built-in-tools-to-path /cache/bililive/tools || true; \
+    cp -a /cache/bililive/tools/. /opt/bililive/tools/
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

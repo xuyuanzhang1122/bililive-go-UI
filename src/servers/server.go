@@ -8,6 +8,8 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -23,6 +25,23 @@ const (
 
 type Server struct {
 	server *http.Server
+}
+
+// dynamicHandler 持有一个可热切换的 http.Handler。
+// 初始为占位 handler（例如返回 503），当 tools WebUI 端口可用时切换为反向代理。
+type handlerHolder struct{ H http.Handler }
+
+// 使用 atomic.Value 存储统一的具体类型，避免不同具体类型导致的 panic。
+type dynamicHandler struct{ h atomic.Value }
+
+func (d *dynamicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if v := d.h.Load(); v != nil {
+		if hh, ok := v.(handlerHolder); ok && hh.H != nil {
+			hh.H.ServeHTTP(w, r)
+			return
+		}
+	}
+	http.Error(w, "Tools Web UI 未就绪", http.StatusServiceUnavailable)
 }
 
 func initMux(ctx context.Context) *mux.Router {
@@ -81,13 +100,46 @@ func initMux(ctx context.Context) *mux.Router {
 		http.Redirect(w, r, target, http.StatusMovedPermanently)
 	})
 
-	toolsWebUiUrl, _ := url.Parse("http://localhost:" + strconv.Itoa(tools.GetWebUIPort()))
+	// /tools/ 动态反向代理：当 tools WebUI 端口未就绪时返回 503，
+	// 一旦端口出现或变化，热更新为对应端口的反向代理。
+	dyn := &dynamicHandler{}
+	// 设置初始占位 handler（使用统一的包装类型）
+	dyn.h.Store(handlerHolder{H: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Tools Web UI 未就绪", http.StatusServiceUnavailable)
+	})})
 	m.PathPrefix("/tools/").Handler(
 		http.StripPrefix(
 			"/tools",
-			httputil.NewSingleHostReverseProxy(toolsWebUiUrl),
+			dyn,
 		),
 	)
+
+	// 监控 tools WebUI 端口变化并热更新反向代理
+	go func() {
+		var lastPort int
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				port := tools.GetWebUIPort()
+				if port == 0 || port == lastPort {
+					continue
+				}
+				lastPort = port
+				target, _ := url.Parse("http://localhost:" + strconv.Itoa(port))
+				proxy := httputil.NewSingleHostReverseProxy(target)
+				// 可选：当下游未就绪时给出明确错误
+				proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+					http.Error(w, "无法连接到 Tools Web UI: "+err.Error(), http.StatusBadGateway)
+				}
+				// 热切换为新的 proxy（保持与初始 Store 相同的具体类型）
+				dyn.h.Store(handlerHolder{H: http.Handler(proxy)})
+			}
+		}
+	}()
 
 	fs, err := webapp.FS()
 	if err != nil {
