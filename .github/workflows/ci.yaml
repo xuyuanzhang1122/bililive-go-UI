@@ -38,25 +38,25 @@ jobs:
         run: echo "Web build cache hit; skipping setup, caching and build steps."
 
       - uses: actions/setup-node@v4
-        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
+        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' && github.event.inputs.is_force != 'true'  }}
         with:
             node-version-file: '.node-version'
             cache: yarn
             cache-dependency-path: 'src/webapp/yarn.lock'
 
       - uses: actions/setup-go@v5
-        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
+        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' && github.event.inputs.is_force != 'true' }}
         with:
           go-version: '1.24'
           cache: true
           cache-dependency-path: '**/go.sum'
 
       - name: Build Web Page
-        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
+        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' || github.event.inputs.is_force == 'true' }}
         run: make build-web
 
       - name: Save built web to cache (src/webapp/build)
-        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
+        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' && github.event.inputs.is_force != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
