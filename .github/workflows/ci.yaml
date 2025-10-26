@@ -6,6 +6,14 @@ on:
   pull_request:
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      is_force:
+        description: "是否强制重新构建缓存"
+        required: false
+        type: boolean
+        default: false
+
 
 permissions:
   contents: read
@@ -26,7 +34,7 @@ jobs:
           key: web-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.node-version', 'src/webapp/yarn.lock', 'src/webapp/package.json', 'src/webapp/tsconfig.json', 'src/webapp/src/**', 'src/webapp/public/**') }}
 
       - name: Web build cache hit — end early
-        if: ${{ steps.cache_web_build.outputs.cache-hit == 'true' }}
+        if: ${{ steps.cache_web_build.outputs.cache-hit == 'true' && github.event.inputs.is_force != 'true' }}  
         run: echo "Web build cache hit; skipping setup, caching and build steps."
 
       - uses: actions/setup-node@v4
