@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -206,7 +207,7 @@ var defaultConfig = Config{
 			RecipientEmail: "",
 		},
 	},
-	AppDataPath:        "./.appdata/",
+	AppDataPath:        "",
 	ReadOnlyToolFolder: "",
 	ToolRootFolder:     "",
 }
@@ -214,11 +215,18 @@ var defaultConfig = Config{
 func NewConfig() *Config {
 	config := defaultConfig
 	config.liveRoomIndexCache = map[string]int{}
-	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
-	if isInContainer() && strings.TrimSpace(config.ReadOnlyToolFolder) == "" {
-		config.ReadOnlyToolFolder = "/opt/bililive/tools"
-	}
+	newConfigPostProcess(&config)
 	return &config
+}
+
+func newConfigPostProcess(c *Config) {
+	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
+	if isInContainer() && strings.TrimSpace(c.ReadOnlyToolFolder) == "" {
+		c.ReadOnlyToolFolder = "/opt/bililive/tools"
+	}
+	if c.AppDataPath == "" {
+		c.AppDataPath = filepath.Join(c.OutPutPath, ".appdata")
+	}
 }
 
 // Verify will return an error when this config has problem.
@@ -288,11 +296,8 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 	if err := yaml.Unmarshal(b, &config); err != nil {
 		return nil, err
 	}
-	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
-	if isInContainer() && strings.TrimSpace(config.ReadOnlyToolFolder) == "" {
-		config.ReadOnlyToolFolder = "/opt/bililive/tools"
-	}
 	config.RefreshLiveRoomIndexCache()
+	newConfigPostProcess(&config)
 	return &config, nil
 }
 
@@ -306,6 +311,10 @@ func NewConfigWithFile(file string) (*Config, error) {
 		return nil, err
 	}
 	config.File = file
+	// 可能会修改配置文件（添加缺失字段等），保存回去
+	if err := config.Marshal(); err != nil {
+		return nil, err
+	}
 	return config, nil
 }
 
