@@ -6,6 +6,9 @@ on:
 jobs:
   release-bins-sharded:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -22,38 +25,23 @@ jobs:
           cache: true
           cache-dependency-path: '**/go.sum'
       - run: go install github.com/golang/mock/mockgen@v1.6.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20.10.0'
-          cache: 'yarn'
-          cache-dependency-path: 'src/webapp/yarn.lock'
-      - name: Compute platform dimensions for cache key
-        shell: bash
-        run: |
-          echo "NODE_VERSION=$(node -v)" >> $GITHUB_ENV
-          echo "NODE_ARCH=$(node -p \"process.arch\")" >> $GITHUB_ENV
-          if [ -n "${ImageOS:-}" ]; then
-            echo "IMAGE_OS=${ImageOS}" >> $GITHUB_ENV
-          else
-            if [ "$(uname -s)" = "Linux" ] && [ -f /etc/os-release ]; then
-              . /etc/os-release
-              echo "IMAGE_OS=${ID}${VERSION_ID:+$VERSION_ID}" >> $GITHUB_ENV
-            else
-              echo "IMAGE_OS=$(uname -s)-$(uname -r)" >> $GITHUB_ENV
-            fi
-          fi
-      - name: Cache node_modules (src/webapp)
-        uses: actions/cache@v4
+      - name: Restore cache of built web (src/webapp/build)
+        id: cache_web_build_restore
+        uses: actions/cache/restore@v4
         with:
           path: |
-            src/webapp/node_modules
-          key: node-modules-${{ env.IMAGE_OS }}-${{ env.NODE_VERSION }}-${{ env.NODE_ARCH }}-${{ hashFiles('src/webapp/yarn.lock') }}
-          restore-keys: |
-            node-modules-${{ env.IMAGE_OS }}-${{ env.NODE_VERSION }}-${{ env.NODE_ARCH }}-
-      - name: Build Web Page
-        run: make build-web
+            src/webapp/build
+          key: web-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles( '.node-version', 'src/webapp/yarn.lock', 'src/webapp/package.json', 'src/webapp/tsconfig.json', 'src/webapp/src/**', 'src/webapp/public/**') }}
+      - name: Build Web Page (fallback if cache miss)
+        if: ${{ steps.cache_web_build_restore.outputs.cache-hit != 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+      - name: Build Web Page (fallback if cache miss) - run build without web
+        if: ${{ steps.cache_web_build_restore.outputs.cache-hit != 'true' }}
+        run: make release-no-web
       - name: Build go binaries (shard ${{ matrix.shard_index }}/10)
-        run: make release
+        run: make release-no-web
       - name: Upload packaged artifacts only
         uses: actions/upload-artifact@v4
         with:

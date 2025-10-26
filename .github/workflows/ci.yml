@@ -1,0 +1,49 @@
+name: Warmup Cache
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # First, check if web build cache exists (restore-only);
+      # if hit, we'll skip the rest of the job
+      - name: Restore cache of built web (src/webapp/build)
+        id: cache_web_build
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            src/webapp/build
+          key: web-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.node-version', 'src/webapp/yarn.lock', 'src/webapp/package.json', 'src/webapp/tsconfig.json', 'src/webapp/src/**', 'src/webapp/public/**') }}
+
+      - name: Web build cache hit — end early
+        if: ${{ steps.cache_web_build.outputs.cache-hit == 'true' }}
+        run: echo "Web build cache hit; skipping setup, caching and build steps."
+
+      - uses: actions/setup-node@v4
+        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
+        with:
+            node-version-file: '.node-version'
+            cache: true
+            cache-dependency-path: 'src/webapp/yarn.lock'
+      
+      - name: Build Web Page
+        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
+        run: make build-web
+
+      - name: Save built web to cache (src/webapp/build)
+        if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            src/webapp/build
+          key: web-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.node-version', 'src/webapp/yarn.lock', 'src/webapp/package.json', 'src/webapp/tsconfig.json', 'src/webapp/src/**', 'src/webapp/public/**') }}
