@@ -104,6 +104,9 @@ type Config struct {
 	AppDataPath          string               `yaml:"app_data_path"`
 	// 只读工具目录：如果指定，则优先从该目录查找外部工具（适用于 Docker 镜像内预置工具）
 	ReadOnlyToolFolder string `yaml:"read_only_tool_folder"`
+	// 可写工具目录：若指定，则外部工具将下载到该目录。
+	// 场景：当 OutPutPath/AppDataPath 位于 exfat/ntfs/cifs 等不支持可执行权限的卷上时，可以将此目录单独挂载到 ext4/xfs 卷。
+	ToolRootFolder string `yaml:"tool_root_folder"`
 
 	liveRoomIndexCache map[string]int
 }
@@ -204,6 +207,7 @@ var defaultConfig = Config{
 	},
 	AppDataPath:        "./.appdata/",
 	ReadOnlyToolFolder: "",
+	ToolRootFolder:     "",
 }
 
 func NewConfig() *Config {
