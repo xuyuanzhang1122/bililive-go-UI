@@ -37,6 +37,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: '.node-version'
+          cache: yarn
+          cache-dependency-path: 'src/webapp/yarn.lock'
       - name: Build Web Page (fallback if cache miss) - run build without web
         if: ${{ steps.cache_web_build_restore.outputs.cache-hit != 'true' }}
         run: make release-no-web
