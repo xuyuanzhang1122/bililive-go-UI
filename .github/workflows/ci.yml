@@ -33,7 +33,7 @@ jobs:
         if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' }}
         with:
             node-version-file: '.node-version'
-            cache: true
+            cache: yarn
             cache-dependency-path: 'src/webapp/yarn.lock'
       
       - name: Build Web Page
