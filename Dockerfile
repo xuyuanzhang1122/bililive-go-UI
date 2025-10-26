@@ -2,6 +2,10 @@
 
 FROM ubuntu:22.04
 ARG tag
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG TARGETPLATFORM
 
 ENV IS_DOCKER=true
 ENV WORKDIR="/srv/bililive"
@@ -17,7 +21,8 @@ RUN mkdir -p $OUTPUT_DIR && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl \
     tzdata \
-    ca-certificates && \
+    ca-certificates \
+    libatomic1 && \
     sh -c '\
     if [ "$TARGETARCH" = "arm" ]; then \
     echo "skip gosu for arm (armv7/armhf)"; \
@@ -55,9 +60,11 @@ RUN set -x; \
 
 COPY config.docker.yml $CONF_DIR/config.yml
 
-RUN --mount=type=cache,id=bililive-tools-${TARGETARCH},sharing=locked,target=/cache/bililive/tools \
+RUN --mount=type=cache,id=bililive-tools-$TARGETOS-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/cache/bililive/tools \
     set -eux; \
+    echo "Preparing bililive tools cache for bililive-tools-$TARGETOS-$TARGETARCH$TARGETVARIANT..."; \
     mkdir -p /opt/bililive/tools /cache/bililive/tools; \
+    ls -lR /cache/bililive/tools || true; \
     /usr/bin/bililive-go --sync-built-in-tools-to-path /cache/bililive/tools || true; \
     cp -a /cache/bililive/tools/. /opt/bililive/tools/
 

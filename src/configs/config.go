@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/types"
@@ -213,6 +214,10 @@ var defaultConfig = Config{
 func NewConfig() *Config {
 	config := defaultConfig
 	config.liveRoomIndexCache = map[string]int{}
+	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
+	if isInContainer() && strings.TrimSpace(config.ReadOnlyToolFolder) == "" {
+		config.ReadOnlyToolFolder = "/opt/bililive/tools"
+	}
 	return &config
 }
 
@@ -282,6 +287,10 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 	config := defaultConfig
 	if err := yaml.Unmarshal(b, &config); err != nil {
 		return nil, err
+	}
+	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
+	if isInContainer() && strings.TrimSpace(config.ReadOnlyToolFolder) == "" {
+		config.ReadOnlyToolFolder = "/opt/bililive/tools"
 	}
 	config.RefreshLiveRoomIndexCache()
 	return &config, nil

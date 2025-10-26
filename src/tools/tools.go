@@ -66,7 +66,8 @@ func SyncBuiltInTools(targetToolFolder string) (err error) {
 		var tool tools.Tool
 		tool, err = api.GetTool(toolName)
 		if err != nil {
-			return
+			logrus.WithError(err).Warn("failed to get built-in tool:", toolName)
+			continue
 		}
 		if !tool.DoesToolExist() {
 			logrus.Infoln("Installing built-in tool:", toolName)
