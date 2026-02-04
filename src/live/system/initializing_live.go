@@ -120,9 +120,13 @@ func (l *InitializingLive) GetInfo() (info *live.Info, err error) {
 }
 
 func (l *InitializingLive) GetStreamUrls() (us []*url.URL, err error) {
-	us = make([]*url.URL, 0)
-	err = nil
-	return
+	// 委托给原始 Live 而不是返回空列表
+	return l.OriginalLive.GetStreamUrls()
+}
+
+func (l *InitializingLive) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
+	// 委托给原始 Live
+	return l.OriginalLive.GetStreamInfos()
 }
 
 func (l *InitializingLive) GetPlatformCNName() string {

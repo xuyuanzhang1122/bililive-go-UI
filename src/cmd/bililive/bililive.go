@@ -316,6 +316,12 @@ func main() {
 		} else {
 			logger.Info("klive 工具已启动")
 		}
+
+		// 启动自动更新器（如果配置启用）
+		if config.Update.AutoCheck {
+			servers.StartAutoUpdater(ctx)
+			logger.Info("自动更新检查器已启动")
+		}
 	}
 
 	// 启动 manager
@@ -581,6 +587,8 @@ func main() {
 		if openlistManager != nil {
 			openlistManager.Stop()
 		}
+		// 停止自动更新器
+		servers.StopAutoUpdater()
 		logger.Info("Shutdown complete")
 	})
 

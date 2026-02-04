@@ -190,13 +190,14 @@ func (l *Live) fetchAvailableStreams(roomName string) ([]*live.StreamUrlInfo, er
 	}
 
 	var availableStreams []struct {
-		URL     string `json:"url"`
-		Format  string `json:"format"`
-		Quality string `json:"quality"`
-		Codec   string `json:"codec"`
-		Width   int    `json:"width"`
-		Height  int    `json:"height"`
-		Bitrate int    `json:"bitrate"`
+		URL        string            `json:"url"`
+		Format     string            `json:"format"`
+		Quality    string            `json:"quality"`
+		Codec      string            `json:"codec"`
+		Width      int               `json:"width"`
+		Height     int               `json:"height"`
+		Bitrate    int               `json:"bitrate"`
+		Attributes map[string]string `json:"attributes"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&availableStreams); err != nil {
@@ -211,15 +212,16 @@ func (l *Live) fetchAvailableStreams(roomName string) ([]*live.StreamUrlInfo, er
 		}
 
 		infos = append(infos, &live.StreamUrlInfo{
-			Url:         u,
-			Name:        fmt.Sprintf("%s - %s", s.Quality, s.Format),
-			Description: fmt.Sprintf("%s %s (%s)", s.Quality, s.Format, s.Codec),
-			Quality:     s.Quality,
-			Format:      s.Format,
-			Codec:       s.Codec,
-			Width:       s.Width,
-			Height:      s.Height,
-			Bitrate:     s.Bitrate,
+			Url:                       u,
+			Name:                      fmt.Sprintf("%s - %s", s.Quality, s.Format),
+			Description:               fmt.Sprintf("%s %s (%s)", s.Quality, s.Format, s.Codec),
+			Quality:                   s.Quality,
+			Format:                    s.Format,
+			Codec:                     s.Codec,
+			Width:                     s.Width,
+			Height:                    s.Height,
+			Bitrate:                   s.Bitrate,
+			AttributesForStreamSelect: s.Attributes,
 			HeadersForDownloader: map[string]string{
 				"User-Agent": "bililive-go-test",
 			},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/bililive-go/bililive-go/src/pkg/ipc"
@@ -45,6 +46,9 @@ type ManagerConfig struct {
 	CurrentVersion string
 	DownloadDir    string
 	InstanceID     string
+	// VersionAPIURL 自定义版本检测 API URL（留空使用默认值）
+	// 可设置为本地 HTTP 服务器地址用于测试自动升级逻辑
+	VersionAPIURL string
 }
 
 // NewManager 创建新的更新管理器
@@ -56,8 +60,17 @@ func NewManager(config ManagerConfig) *Manager {
 		config.InstanceID = ipc.GetInstanceID()
 	}
 
+	checker := NewChecker(config.CurrentVersion)
+
+	// 版本检测 API 地址优先级：配置值 > 环境变量 > 默认值
+	if config.VersionAPIURL != "" {
+		checker.SetVersionAPIURL(config.VersionAPIURL)
+	} else if envAPIURL := os.Getenv("VERSION_API_URL"); envAPIURL != "" {
+		checker.SetVersionAPIURL(envAPIURL)
+	}
+
 	return &Manager{
-		checker:     NewChecker(config.CurrentVersion),
+		checker:     checker,
 		downloader:  NewDownloader(config.DownloadDir),
 		notifier:    NewNotifier(config.InstanceID),
 		downloadDir: config.DownloadDir,
@@ -101,13 +114,15 @@ func (m *Manager) SetProgressCallback(ch chan DownloadProgress) {
 }
 
 // CheckForUpdate 检查是否有新版本
+// 优先使用 bililive-go.com API，失败时回退到 GitHub API
 func (m *Manager) CheckForUpdate(ctx context.Context, includePrerelease bool) (*ReleaseInfo, error) {
 	m.mu.Lock()
 	m.state = UpdateStateChecking
 	m.lastError = ""
 	m.mu.Unlock()
 
-	info, err := m.checker.CheckForUpdate(includePrerelease)
+	// 使用带回退的版本检查方法
+	info, err := m.checker.CheckForUpdateWithFallback(includePrerelease)
 	if err != nil {
 		m.mu.Lock()
 		m.state = UpdateStateFailed
@@ -130,6 +145,7 @@ func (m *Manager) CheckForUpdate(ctx context.Context, includePrerelease bool) (*
 }
 
 // DownloadUpdate 下载可用的更新
+// 按优先级顺序尝试 DownloadURLs 中的链接，第一个成功即停止
 func (m *Manager) DownloadUpdate(ctx context.Context) error {
 	m.mu.RLock()
 	info := m.availableInfo
@@ -139,18 +155,37 @@ func (m *Manager) DownloadUpdate(ctx context.Context) error {
 		return fmt.Errorf("没有可用的更新")
 	}
 
+	if len(info.DownloadURLs) == 0 {
+		return fmt.Errorf("没有可用的下载链接")
+	}
+
 	m.mu.Lock()
 	m.state = UpdateStateDownloading
 	m.lastError = ""
 	m.mu.Unlock()
 
-	result, err := m.downloader.Download(ctx, info.DownloadURL, info.SHA256)
-	if err != nil {
+	// 按顺序尝试每个下载链接
+	var lastErr error
+	var errors []string
+	var result *DownloadResult
+
+	for i, url := range info.DownloadURLs {
+		result, lastErr = m.downloader.Download(ctx, url, info.SHA256)
+		if lastErr == nil {
+			// 下载成功
+			break
+		}
+		// 记录失败信息
+		errors = append(errors, fmt.Sprintf("链接%d: %v", i+1, lastErr))
+	}
+
+	// 所有链接都失败
+	if lastErr != nil {
 		m.mu.Lock()
 		m.state = UpdateStateFailed
-		m.lastError = err.Error()
+		m.lastError = fmt.Sprintf("所有下载链接均失败: %s", strings.Join(errors, "; "))
 		m.mu.Unlock()
-		return err
+		return fmt.Errorf("下载失败: %s", strings.Join(errors, "; "))
 	}
 
 	if result.Status == DownloadStatusCancelled {

@@ -1,0 +1,55 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "shell": {
+      "executable": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "chcp 65001 >nul &&"
+      ]
+    }
+  },
+  "windows": {
+    "options": {
+      "shell": {
+        "executable": "cmd.exe",
+        "args": [
+          "/d",
+          "/c",
+          "chcp 65001 >nul &&"
+        ]
+      }
+    }
+  },
+  "tasks": [
+    {
+      "label": "build-web-dev",
+      "type": "shell",
+      "command": "make build-web dev",
+      "isBackground": false,
+      "problemMatcher": [
+        "$tsc",
+        "$eslint-stylish"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "dev-incremental",
+      "detail": "增量编译：只在源码变化时重新编译开发版本",
+      "type": "shell",
+      "command": "make dev-incremental",
+      "isBackground": false,
+      "problemMatcher": "$go",
+      "options": {
+        "env": {
+          "GOEXPERIMENT": "nodwarf5"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

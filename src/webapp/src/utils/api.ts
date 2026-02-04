@@ -319,6 +319,73 @@ class API {
     switchStream(liveId: string, streamConfig: StreamPreferenceV2 | { format?: string; quality?: string }) {
         return utils.requestPost(`${BASE_URL}/lives/${liveId}/switchStream`, streamConfig);
     }
+
+    // ==================== 程序更新 API ====================
+
+    /**
+     * 检查程序更新
+     * @param includePrerelease 是否包含预发布版本
+     */
+    checkProgramUpdate(includePrerelease: boolean = false) {
+        return utils.requestGet(`${BASE_URL}/update/check?prerelease=${includePrerelease}`);
+    }
+
+    /**
+     * 获取最新版本信息
+     * @param includePrerelease 是否包含预发布版本
+     */
+    getLatestRelease(includePrerelease: boolean = false) {
+        return utils.requestGet(`${BASE_URL}/update/latest?prerelease=${includePrerelease}`);
+    }
+
+    /**
+     * 开始下载程序更新
+     */
+    downloadProgramUpdate() {
+        return utils.requestPost(`${BASE_URL}/update/download`, {});
+    }
+
+    /**
+     * 获取更新状态和下载进度
+     */
+    getUpdateStatus() {
+        return utils.requestGet(`${BASE_URL}/update/status`);
+    }
+
+    /**
+     * 应用更新
+     * @param options 更新选项
+     * @param options.gracefulWait 是否等待所有录制结束后再更新
+     * @param options.forceNow 是否立即强制更新（会中断录制）
+     */
+    applyUpdate(options: { gracefulWait?: boolean; forceNow?: boolean } = {}) {
+        return utils.requestPost(`${BASE_URL}/update/apply`, {
+            graceful_wait: options.gracefulWait || false,
+            force_now: options.forceNow || false
+        });
+    }
+
+    /**
+     * 取消更新下载或优雅更新等待
+     */
+    cancelUpdate() {
+        return utils.requestPost(`${BASE_URL}/update/cancel`, {});
+    }
+
+    /**
+     * 获取启动器状态
+     */
+    getLauncherStatus() {
+        return utils.requestGet(`${BASE_URL}/update/launcher`);
+    }
+
+    /**
+     * 设置更新通道
+     * @param channel 更新通道：stable 或 prerelease
+     */
+    setUpdateChannel(channel: 'stable' | 'prerelease') {
+        return utils.requestPut(`${BASE_URL}/update/channel`, { channel });
+    }
 }
 
 export default API;

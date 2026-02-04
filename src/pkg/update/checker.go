@@ -23,15 +23,15 @@ const (
 
 // ReleaseInfo 包含版本发布信息
 type ReleaseInfo struct {
-	Version     string    `json:"version"`
-	TagName     string    `json:"tag_name"`
-	ReleaseDate time.Time `json:"release_date"`
-	DownloadURL string    `json:"download_url"`
-	SHA256      string    `json:"sha256,omitempty"`
-	Changelog   string    `json:"changelog"`
-	Prerelease  bool      `json:"prerelease"`
-	AssetName   string    `json:"asset_name"`
-	AssetSize   int64     `json:"asset_size"`
+	Version      string    `json:"version"`
+	TagName      string    `json:"tag_name"`
+	ReleaseDate  time.Time `json:"release_date"`
+	DownloadURLs []string  `json:"download_urls"` // 下载链接数组，按优先级排序（第一个优先尝试）
+	SHA256       string    `json:"sha256,omitempty"`
+	Changelog    string    `json:"changelog"`
+	Prerelease   bool      `json:"prerelease"`
+	AssetName    string    `json:"asset_name"`
+	AssetSize    int64     `json:"asset_size"`
 }
 
 // githubRelease GitHub API 返回的 Release 结构
@@ -141,14 +141,14 @@ func (c *Checker) CheckForUpdate(includePrerelease bool) (*ReleaseInfo, error) {
 	}
 
 	return &ReleaseInfo{
-		Version:     strings.TrimPrefix(latestRelease.TagName, "v"),
-		TagName:     latestRelease.TagName,
-		ReleaseDate: latestRelease.PublishedAt,
-		DownloadURL: matchedAsset.BrowserDownloadURL,
-		Changelog:   latestRelease.Body,
-		Prerelease:  latestRelease.Prerelease,
-		AssetName:   matchedAsset.Name,
-		AssetSize:   matchedAsset.Size,
+		Version:      strings.TrimPrefix(latestRelease.TagName, "v"),
+		TagName:      latestRelease.TagName,
+		ReleaseDate:  latestRelease.PublishedAt,
+		DownloadURLs: []string{matchedAsset.BrowserDownloadURL},
+		Changelog:    latestRelease.Body,
+		Prerelease:   latestRelease.Prerelease,
+		AssetName:    matchedAsset.Name,
+		AssetSize:    matchedAsset.Size,
 	}, nil
 }
 
@@ -197,14 +197,14 @@ func (c *Checker) GetLatestRelease(includePrerelease bool) (*ReleaseInfo, error)
 	}
 
 	return &ReleaseInfo{
-		Version:     strings.TrimPrefix(latestRelease.TagName, "v"),
-		TagName:     latestRelease.TagName,
-		ReleaseDate: latestRelease.PublishedAt,
-		DownloadURL: matchedAsset.BrowserDownloadURL,
-		Changelog:   latestRelease.Body,
-		Prerelease:  latestRelease.Prerelease,
-		AssetName:   matchedAsset.Name,
-		AssetSize:   matchedAsset.Size,
+		Version:      strings.TrimPrefix(latestRelease.TagName, "v"),
+		TagName:      latestRelease.TagName,
+		ReleaseDate:  latestRelease.PublishedAt,
+		DownloadURLs: []string{matchedAsset.BrowserDownloadURL},
+		Changelog:    latestRelease.Body,
+		Prerelease:   latestRelease.Prerelease,
+		AssetName:    matchedAsset.Name,
+		AssetSize:    matchedAsset.Size,
 	}, nil
 }
 
@@ -295,17 +295,10 @@ type BililiveGoComResponse struct {
 	UpdateAvailable bool   `json:"update_available"`
 	UpdateRequired  bool   `json:"update_required"`
 	Download        *struct {
-		GitHub   string `json:"github"`
-		Proxy    string `json:"proxy"`
-		Filename string `json:"filename"`
-		SHA256   string `json:"sha256"`
+		URLs     []string `json:"urls"` // 下载链接数组，按优先级排序
+		Filename string   `json:"filename"`
+		SHA256   string   `json:"sha256"`
 	} `json:"download,omitempty"`
-	AllAssets map[string]struct {
-		GitHub   string `json:"github"`
-		Proxy    string `json:"proxy"`
-		Filename string `json:"filename"`
-		SHA256   string `json:"sha256"`
-	} `json:"all_assets,omitempty"`
 	ReleasePage string `json:"release_page"`
 }
 
@@ -366,13 +359,9 @@ func (c *Checker) CheckForUpdateViaBililiveGoCom(includePrerelease bool) (*Relea
 		Prerelease:  response.Prerelease,
 	}
 
-	// 优先使用 GitHub 直连下载链接（中转链接作为备用，由下载器在失败时自动回退）
-	if response.Download != nil {
-		if response.Download.GitHub != "" {
-			info.DownloadURL = response.Download.GitHub
-		} else {
-			info.DownloadURL = response.Download.Proxy
-		}
+	// urls 数组按优先级排序，直接使用
+	if response.Download != nil && len(response.Download.URLs) > 0 {
+		info.DownloadURLs = response.Download.URLs
 		info.SHA256 = response.Download.SHA256
 		info.AssetName = response.Download.Filename
 	}

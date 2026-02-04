@@ -185,6 +185,26 @@ var defaultOpenListConfig = OpenListConfig{
 	DataPath: "", // 默认使用 AppDataPath/openlist
 }
 
+// UpdateConfig 自动更新配置
+type UpdateConfig struct {
+	// AutoCheck 是否启用自动检查更新（默认 true）
+	AutoCheck bool `yaml:"auto_check" json:"auto_check"`
+	// CheckIntervalHours 检查更新间隔（小时，默认 6）
+	CheckIntervalHours int `yaml:"check_interval_hours" json:"check_interval_hours"`
+	// AutoDownload 是否自动下载更新（默认 true）
+	// false 时仅检查并通知，需用户手动触发下载
+	AutoDownload bool `yaml:"auto_download" json:"auto_download"`
+	// IncludePrerelease 是否包含预发布版本（默认 false）
+	IncludePrerelease bool `yaml:"include_prerelease" json:"include_prerelease"`
+}
+
+var defaultUpdateConfig = UpdateConfig{
+	AutoCheck:          true,
+	CheckIntervalHours: 6,
+	AutoDownload:       true,
+	IncludePrerelease:  false,
+}
+
 // StreamPreference 流偏好配置
 // 采用指针模式以区分"未设置"和"设置为零值"
 type StreamPreference struct {
@@ -272,6 +292,9 @@ type Config struct {
 
 	// OpenList 配置
 	OpenList OpenListConfig `yaml:"openlist" json:"openlist"`
+
+	// 自动更新配置
+	Update UpdateConfig `yaml:"update" json:"update"`
 
 	// 平台特定配置（层级覆盖，使用 OverridableConfig 中的指针模式）
 	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty" json:"platform_configs,omitempty"`
@@ -621,6 +644,7 @@ var defaultConfig = Config{
 	Sentry:             defaultSentry,
 	Proxy:              defaultProxy,
 	OpenList:           defaultOpenListConfig,
+	Update:             defaultUpdateConfig,
 	PlatformConfigs:    map[string]PlatformConfig{},
 }
 

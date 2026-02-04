@@ -230,20 +230,36 @@ go run ./build.go dev
 
 ### 使用 VSCode 开发
 
-项目提供了预配置的 VSCode 调试模板，快速上手：
+项目提供了预配置的 VSCode 调试模板。推荐的调试配置依赖任务配置，需要同时复制两个文件：
 
 ```bash
-# 复制调试配置模板
+# 复制调试配置模板（两个文件都需要）
 cp .vscode/launch.example.json .vscode/launch.json
+cp .vscode/tasks.example.json .vscode/tasks.json
 ```
+
+**文件依赖关系：**
+- `launch.json` - 定义调试配置（如何启动程序、断点等）
+- `tasks.json` - 定义构建任务（如增量编译）
+- **🚀 Debug Main Program** 配置的 `preLaunchTask` 依赖 `tasks.json` 中的 `dev-incremental` 任务
 
 然后：
 1. 用 VSCode 打开项目
 2. 按 `F5` 或打开 **Run and Debug** 面板
-3. 选择 **Debug Main Program** 配置即可开始调试
+3. 选择 **🚀 Debug Main Program** 配置即可开始调试
 
-> 💡 **提示**：`launch.json` 已被 gitignore 忽略，你可以自由添加自己的调试配置而不会影响仓库。
-> 模板更新时，可对比 `launch.example.json` 的变更手动合并。
+**调试配置说明：**
+
+| 配置 | 说明 |
+|------|------|
+| **🚀 Debug Main Program** | 推荐。使用增量编译，首次完整编译，后续只在源码变化时重新编译 |
+| **Debug Main Program (Source)** | 直接从源码调试，每次都会编译（无需 tasks.json） |
+
+> 💡 **提示**：增量编译会将二进制输出到 `bin/bililive-dev`（或 `bililive-dev.exe`），
+> 这个文件名跨平台统一，便于调试配置复用。
+
+> 💡 **提示**：`launch.json` 和 `tasks.json` 都已被 gitignore 忽略，你可以自由修改而不会影响仓库。
+> 模板更新时，可对比 `.example.json` 的变更手动合并。
 
 详细的调试配置说明见 [test/README.md](test/README.md)。
 

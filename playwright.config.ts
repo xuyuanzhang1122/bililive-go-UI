@@ -1,4 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// 在测试前复制配置模板到 test-output 目录
+// 这样配置文件的变化不会被 git 跟踪
+const configTemplate = path.join(__dirname, 'tests/e2e/fixtures/test-config.template.yml');
+const configRuntime = path.join(__dirname, 'test-output/test-config.yml');
+
+// 确保 test-output 目录存在并复制配置
+fs.mkdirSync(path.dirname(configRuntime), { recursive: true });
+fs.copyFileSync(configTemplate, configRuntime);
 
 /**
  * Bililive-Go E2E 测试配置
@@ -73,9 +84,11 @@ export default defineConfig({
   webServer: [
     // osrp-stream-tester 测试流服务器
     {
-      // 在 CI 中使用预安装的二进制，本地使用 go run
-      command: process.env.CI
-        ? 'stream-tester serve --port 8888'
+      // 本地开发可设置 OSRP_STREAM_TESTER_PATH 环境变量指向本地目录
+      // 例如: set OSRP_STREAM_TESTER_PATH=C:/path/to/osrp-stream-tester
+      // 如未设置（包括 CI），则从远程拉取最新版本
+      command: process.env.OSRP_STREAM_TESTER_PATH
+        ? `powershell -Command "cd ${process.env.OSRP_STREAM_TESTER_PATH}; go run ./cmd/stream-tester serve --port 8888"`
         : 'go run github.com/kira1928/osrp-stream-tester/cmd/stream-tester@latest serve --port 8888',
       url: 'http://127.0.0.1:8888/health',
       reuseExistingServer: !process.env.CI,
@@ -86,9 +99,10 @@ export default defineConfig({
     // bililive-go 主程序（使用 dev 构建标签）
     {
       // 在 CI 中使用预构建的二进制，本地使用 go run
+      // 配置文件从模板复制到 test-output 目录（避免 git 跟踪动态变化）
       command: process.env.CI
-        ? './bililive-go --config tests/e2e/fixtures/test-config.yml'
-        : 'go run -tags dev ./src/cmd/bililive --config tests/e2e/fixtures/test-config.yml',
+        ? './bililive-go --config test-output/test-config.yml'
+        : 'go run -tags dev ./src/cmd/bililive --config test-output/test-config.yml',
       url: 'http://127.0.0.1:8080/api/info',
       reuseExistingServer: !process.env.CI,
       timeout: 60 * 1000,

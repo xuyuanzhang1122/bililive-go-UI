@@ -2,19 +2,20 @@
 .PHONY: help
 help:
 	@echo "Available commands:"
-	@echo "  make build        - Build release version"
-	@echo "  make dev          - Build development version (with debug info)"
-	@echo "  make test         - Run unit tests"
-	@echo "  make test-e2e     - Run E2E tests with Playwright"
-	@echo "  make test-e2e-ui  - Run E2E tests with Playwright UI mode"
-	@echo "  make show-report  - Open Playwright test report in browser"
-	@echo "  make serve-report - Start report server (fetches source from GitHub)"
-	@echo "  make install-e2e  - Install E2E test dependencies"
-	@echo "  make build-web    - Build frontend"
-	@echo "  make generate     - Run go generate"
-	@echo "  make clean        - Clean build artifacts"
-	@echo "  make lint         - Run linter"
-	@echo "  make release      - Build release for all platforms"
+	@echo "  make build            - Build release version"
+	@echo "  make dev              - Build development version (with debug info)"
+	@echo "  make dev-incremental  - Incremental dev build (only rebuild if sources changed)"
+	@echo "  make test             - Run unit tests"
+	@echo "  make test-e2e         - Run E2E tests with Playwright"
+	@echo "  make test-e2e-ui      - Run E2E tests with Playwright UI mode"
+	@echo "  make show-report      - Open Playwright test report in browser"
+	@echo "  make serve-report     - Start report server (fetches source from GitHub)"
+	@echo "  make install-e2e      - Install E2E test dependencies"
+	@echo "  make build-web        - Build frontend"
+	@echo "  make generate         - Run go generate"
+	@echo "  make clean            - Clean build artifacts"
+	@echo "  make lint             - Run linter"
+	@echo "  make release          - Build release for all platforms"
 
 build: bililive
 .PHONY: build
@@ -25,6 +26,27 @@ bililive:
 .PHONY: dev
 dev:
 	@go run build.go dev
+
+# 收集所有 Go 源文件作为依赖（使用通配符，兼容 Windows）
+GO_SOURCES := $(wildcard src/**/*.go src/**/**/*.go src/**/**/**/*.go)
+GO_MOD_FILES := go.mod go.sum
+
+# 开发版二进制输出路径（跨平台统一名称）
+ifeq ($(OS),Windows_NT)
+    DEV_BINARY := bin/bililive-dev.exe
+else
+    DEV_BINARY := bin/bililive-dev
+endif
+
+# 增量编译：只在源码变化时重新编译
+# Make 会比较目标文件和依赖文件的修改时间，只在需要时执行编译
+$(DEV_BINARY): $(GO_SOURCES) $(GO_MOD_FILES)
+	@go run build.go dev-incremental
+
+# dev-incremental 目标：便于记忆的别名
+.PHONY: dev-incremental
+dev-incremental: $(DEV_BINARY)
+
 
 .PHONY: release
 release: build-web generate

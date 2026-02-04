@@ -60,6 +60,8 @@ type Manager interface {
 	// GetRecorderStatus 获取指定直播间录制器的状态
 	// 实现 iostats.RecorderStatusProvider 接口
 	GetRecorderStatus(ctx context.Context, liveId types.LiveID) (map[string]interface{}, error)
+	// GetActiveRecordingsCount 获取当前活跃的录制数量
+	GetActiveRecordingsCount() int
 }
 
 // for test
@@ -288,4 +290,11 @@ func (m *manager) GetRecorderStatus(ctx context.Context, liveId types.LiveID) (m
 		return nil, err
 	}
 	return recorder.GetStatus()
+}
+
+// GetActiveRecordingsCount 获取当前活跃的录制数量
+func (m *manager) GetActiveRecordingsCount() int {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	return len(m.savers)
 }

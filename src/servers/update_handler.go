@@ -20,6 +20,7 @@ import (
 // 全局更新管理器
 var (
 	updateManager     *update.Manager
+	autoUpdater       *update.AutoUpdater
 	updateManagerOnce sync.Once
 
 	// 优雅更新相关状态
@@ -39,8 +40,80 @@ func getUpdateManager() *update.Manager {
 			DownloadDir:    downloadDir,
 			InstanceID:     "",
 		})
+
+		// 初始化自动更新器
+		autoUpdater = update.NewAutoUpdater(updateManager)
+		setupAutoUpdaterCallbacks(autoUpdater)
 	})
 	return updateManager
+}
+
+// GetAutoUpdater 获取自动更新器实例
+func GetAutoUpdater() *update.AutoUpdater {
+	getUpdateManager() // 确保已初始化
+	return autoUpdater
+}
+
+// StartAutoUpdater 启动自动更新器
+func StartAutoUpdater(ctx context.Context) {
+	updater := GetAutoUpdater()
+	if updater != nil {
+		updater.Start(ctx)
+	}
+}
+
+// StopAutoUpdater 停止自动更新器
+func StopAutoUpdater() {
+	if autoUpdater != nil {
+		autoUpdater.Stop()
+	}
+}
+
+// setupAutoUpdaterCallbacks 设置自动更新器的回调函数
+func setupAutoUpdaterCallbacks(updater *update.AutoUpdater) {
+	hub := GetSSEHub()
+
+	// 检测到更新时广播
+	updater.SetOnUpdateAvailable(func(info *update.ReleaseInfo) {
+		hub.BroadcastUpdateAvailable(map[string]interface{}{
+			"version":      info.Version,
+			"release_date": info.ReleaseDate,
+			"changelog":    info.Changelog,
+			"prerelease":   info.Prerelease,
+			"asset_name":   info.AssetName,
+			"asset_size":   info.AssetSize,
+		})
+	})
+
+	// 下载进度广播
+	updater.SetOnDownloadProgress(func(progress update.DownloadProgress) {
+		hub.BroadcastUpdateDownloading(map[string]interface{}{
+			"downloaded_bytes": progress.DownloadedBytes,
+			"total_bytes":      progress.TotalBytes,
+			"speed":            progress.Speed,
+			"percentage":       progress.Percentage,
+		})
+	})
+
+	// 更新准备就绪时广播
+	updater.SetOnUpdateReady(func(info *update.ReleaseInfo) {
+		activeRecordings := 0
+		cfg := configs.GetCurrentConfig()
+		if cfg != nil {
+			// 简单估算活跃录制数量（实际应从 recorder manager 获取）
+			activeRecordings = getActiveRecordingsCount(context.Background())
+		}
+		hub.BroadcastUpdateReady(map[string]interface{}{
+			"version":           info.Version,
+			"can_apply_now":     activeRecordings == 0,
+			"active_recordings": activeRecordings,
+		})
+	})
+
+	// 错误时广播
+	updater.SetOnError(func(err error) {
+		hub.BroadcastUpdateError(err)
+	})
 }
 
 // UpdateCheckResponse 更新检查响应
@@ -153,13 +226,7 @@ func getActiveRecordingsCount(ctx context.Context) int {
 		return 0
 	}
 
-	count := 0
-	for _, l := range inst.Lives {
-		if rm.HasRecorder(ctx, l.GetLiveId()) {
-			count++
-		}
-	}
-	return count
+	return rm.GetActiveRecordingsCount()
 }
 
 // ApplyUpdateRequest 应用更新请求

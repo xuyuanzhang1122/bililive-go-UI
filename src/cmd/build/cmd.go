@@ -14,7 +14,7 @@ import (
 var agentFiles = []string{
 	".github/copilot-instructions.md",
 	".agent/rules/gemini-guide.md",
-	".gemini/MEMORY.md",
+	".gemini/GEMINI.md",
 }
 
 const sourceAgentFile = "AGENTS.md"
@@ -22,6 +22,7 @@ const sourceAgentFile = "AGENTS.md"
 func RunCmd() int {
 	app := kingpin.New("Build tool", "bililive-go Build tool.")
 	app.Command("dev", "Build for development.").Action(devBuild)
+	app.Command("dev-incremental", "增量构建：只在源码变化时重新编译（用于调试）").Action(devIncrementalBuild)
 	app.Command("release", "Build for release.").Action(releaseBuild)
 	app.Command("release-docker", "Build for release docker.").Action(releaseDocker)
 	app.Command("test", "Run tests.").Action(goTest)
@@ -36,6 +37,11 @@ func RunCmd() int {
 
 func devBuild(c *kingpin.ParseContext) error {
 	BuildGoBinary(true)
+	return nil
+}
+
+func devIncrementalBuild(c *kingpin.ParseContext) error {
+	BuildDevIncremental()
 	return nil
 }
 

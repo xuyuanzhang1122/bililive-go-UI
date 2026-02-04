@@ -32,6 +32,14 @@ const (
 	SSEEventRateLimitUpdate SSEEventType = "rate_limit_update"
 	// SSEEventPipelineTaskUpdate Pipeline 任务更新
 	SSEEventPipelineTaskUpdate SSEEventType = "pipeline_task_update"
+	// SSEEventUpdateAvailable 发现可用更新
+	SSEEventUpdateAvailable SSEEventType = "update_available"
+	// SSEEventUpdateDownloading 更新正在下载
+	SSEEventUpdateDownloading SSEEventType = "update_downloading"
+	// SSEEventUpdateReady 更新已准备就绪
+	SSEEventUpdateReady SSEEventType = "update_ready"
+	// SSEEventUpdateError 更新过程中出错
+	SSEEventUpdateError SSEEventType = "update_error"
 )
 
 // SSEMessage SSE 消息结构
@@ -158,6 +166,44 @@ func (h *SSEHub) BroadcastPipelineTaskUpdate(task *pipeline.PipelineTask) {
 		Type:   SSEEventPipelineTaskUpdate,
 		RoomID: string(task.RecordInfo.LiveID),
 		Data:   task,
+	})
+}
+
+// BroadcastUpdateAvailable 广播发现可用更新
+func (h *SSEHub) BroadcastUpdateAvailable(data interface{}) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventUpdateAvailable,
+		RoomID: "",
+		Data:   data,
+	})
+}
+
+// BroadcastUpdateDownloading 广播更新下载进度
+func (h *SSEHub) BroadcastUpdateDownloading(data interface{}) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventUpdateDownloading,
+		RoomID: "",
+		Data:   data,
+	})
+}
+
+// BroadcastUpdateReady 广播更新已准备就绪
+func (h *SSEHub) BroadcastUpdateReady(data interface{}) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventUpdateReady,
+		RoomID: "",
+		Data:   data,
+	})
+}
+
+// BroadcastUpdateError 广播更新错误
+func (h *SSEHub) BroadcastUpdateError(err error) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventUpdateError,
+		RoomID: "",
+		Data: map[string]string{
+			"error": err.Error(),
+		},
 	})
 }
 

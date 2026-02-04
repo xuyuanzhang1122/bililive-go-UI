@@ -46,14 +46,7 @@ on_record_finished:
     delete_after_upload: false
   upload_timing: after_process
 timeout_in_us: 60000000
-live_rooms:
-  # quality参数目前仅B站启用，默认为0
-  # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
-  # 原画PRO会保存为.ts文件, 原画为.flv
-  # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩
-  - url: http://127.0.0.1:8888/live/test.flv
-    is_listening: true
-    scheme: ""
+live_rooms: []
 cookies: {}
 # 通知服务配置
 notify:
@@ -107,3 +100,8 @@ proxy:
 openlist:
   port: 5244
   data_path: ""
+update:
+  auto_check: false
+  check_interval_hours: 6
+  auto_download: false
+  include_prerelease: false

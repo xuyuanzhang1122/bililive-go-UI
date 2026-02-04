@@ -1,0 +1,26 @@
+/* 更新横幅样式 */
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  border-radius: 0;
+}
+
+.update-banner .ant-alert-message {
+  width: 100%;
+}
+
+.update-banner .ant-progress {
+  max-width: 300px;
+}
+
+/* 更新模态框内容 */
+.update-modal-content {
+  padding: 8px 0;
+}
+
+.update-modal-content .ant-typography {
+  margin-bottom: 0;
+}
