@@ -184,6 +184,7 @@ test/launcher-config-local.json
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+.env.local
 
 # E2E 测试输出（录制文件等）
 /test-output/

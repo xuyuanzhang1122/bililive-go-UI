@@ -1,6 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
+
+// 加载本地环境变量配置（.env.local 不会被 git 跟踪）
+dotenv.config({ path: path.join(__dirname, '.env.local') });
 
 // 在测试前复制配置模板到 test-output 目录
 // 这样配置文件的变化不会被 git 跟踪
