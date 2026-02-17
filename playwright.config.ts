@@ -86,6 +86,15 @@ export default defineConfig({
 
   // Web 服务器配置
   webServer: [
+    // update-mock-server 模拟版本 API 服务器
+    {
+      command: 'go run ./test/update-mock-server -version 99.0.0 -port 8889',
+      url: 'http://127.0.0.1:8889/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60 * 1000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
     // osrp-stream-tester 测试流服务器
     {
       // 本地开发可设置 OSRP_STREAM_TESTER_PATH 环境变量指向本地目录
@@ -105,7 +114,7 @@ export default defineConfig({
       // 在 CI 中使用预构建的二进制，本地使用 go run
       // 配置文件从模板复制到 test-output 目录（避免 git 跟踪动态变化）
       command: process.env.CI
-        ? './bililive-go --config test-output/test-config.yml'
+        ? './bin/bililive-dev --config test-output/test-config.yml'
         : 'go run -tags dev ./src/cmd/bililive --config test-output/test-config.yml',
       url: 'http://127.0.0.1:8080/api/info',
       reuseExistingServer: !process.env.CI,
