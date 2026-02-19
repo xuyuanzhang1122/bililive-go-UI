@@ -90,25 +90,23 @@ func GetDownloaderAvailability() DownloaderAvailability {
 		NativeAvailable: true, // 内置解析器永远可用
 	}
 
-	api := tools.Get()
-	if api == nil {
-		return result
-	}
-
-	// 检查 FFmpeg
-	ffmpeg, err := api.GetTool("ffmpeg")
-	if err == nil && ffmpeg.DoesToolExist() {
+	// 检查 FFmpeg —— 复用 utils.GetFFmpegPath 保持与录制器实际使用的查找逻辑一致
+	// （配置文件指定路径 → remotetools → 系统 PATH）
+	if ffmpegPath, err := utils.GetFFmpegPath(context.Background()); err == nil {
 		result.FFmpegAvailable = true
-		result.FFmpegPath = ffmpeg.GetToolPath()
+		result.FFmpegPath = ffmpegPath
 	}
 
 	// 检查 BililiveRecorder CLI
-	dotnet, err := api.GetTool("dotnet")
-	if err == nil && dotnet.DoesToolExist() {
-		recorder, err := api.GetTool("bililive-recorder-cli")
-		if err == nil && recorder.DoesToolExist() {
-			result.BililiveRecorderAvailable = true
-			result.BililiveRecorderPath = recorder.GetToolPath()
+	api := tools.Get()
+	if api != nil {
+		dotnet, err := api.GetTool("dotnet")
+		if err == nil && dotnet.DoesToolExist() {
+			recorder, err := api.GetTool("bililive-recorder-cli")
+			if err == nil && recorder.DoesToolExist() {
+				result.BililiveRecorderAvailable = true
+				result.BililiveRecorderPath = recorder.GetToolPath()
+			}
 		}
 	}
 

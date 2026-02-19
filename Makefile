@@ -3,8 +3,9 @@
 help:
 	@echo "Available commands:"
 	@echo "  make build            - Build release version"
+	@echo "                          Optional: VERSION, PLATFORM, ARCH, NO_TELEMETRY=1"
 	@echo "  make dev              - Build development version (with debug info)"
-	@echo "  make dev-version VERSION=x.x.x - Build dev with custom version"
+	@echo "                          Optional: VERSION, PLATFORM, ARCH, NO_TELEMETRY=1"
 	@echo "  make dev-incremental  - Incremental dev build (only rebuild if sources changed)"
 	@echo "  make test             - Run unit tests"
 	@echo "  make test-e2e         - Run E2E tests with Playwright"
@@ -22,20 +23,19 @@ build: bililive
 .PHONY: build
 
 bililive:
-	@go run build.go release
+	@go run build.go release $(if $(VERSION),--version $(VERSION),) $(if $(PLATFORM),--platform $(PLATFORM),) $(if $(ARCH),--arch $(ARCH),) $(if $(NO_TELEMETRY),--no-telemetry,)
 
+# 开发版构建（支持可选参数）
+# 用法:
+#   make dev                                                  - 普通开发构建
+#   make dev VERSION=v0.8.0-rc.1                              - 指定版本号
+#   make dev PLATFORM=linux ARCH=amd64                        - 交叉编译
+#   make dev PLATFORM=linux ARCH=amd64 VERSION=v0.8.0-rc.2.1  - 交叉编译 + 指定版本号
+#   make dev NO_TELEMETRY=1                                   - 禁用启动统计上报
 .PHONY: dev
 dev:
-	@go run build.go dev
+	@go run build.go dev $(if $(VERSION),--version $(VERSION),) $(if $(PLATFORM),--platform $(PLATFORM),) $(if $(ARCH),--arch $(ARCH),) $(if $(NO_TELEMETRY),--no-telemetry,)
 
-# 自定义版本号编译（用于本地测试升级功能）
-# 用法: make dev-version VERSION=v0.8.0-rc.1
-.PHONY: dev-version
-dev-version:
-ifndef VERSION
-	$(error VERSION is required. Usage: make dev-version VERSION=v0.8.0-rc.1)
-endif
-	@go run build.go dev --version $(VERSION)
 
 # 收集所有 Go 源文件作为依赖（使用通配符，兼容 Windows）
 GO_SOURCES := $(wildcard src/**/*.go src/**/**/*.go src/**/**/**/*.go)

@@ -40,6 +40,8 @@ const (
 	MemoryCategoryKlive = "klive"
 	// MemoryCategoryRecorder BililiveRecorder 子进程
 	MemoryCategoryRecorder = "bililive-recorder"
+	// MemoryCategoryLauncher 启动器进程
+	MemoryCategoryLauncher = "launcher"
 	// MemoryCategoryContainer 容器内存
 	MemoryCategoryContainer = "container"
 	// MemoryCategoryTotal 总内存（self + 所有子进程）

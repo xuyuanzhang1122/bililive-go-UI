@@ -31,6 +31,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
+	"github.com/bililive-go/bililive-go/src/pkg/streamprobe"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
 
@@ -177,6 +178,10 @@ type Recorder interface {
 	// GetParserPID 获取当前 parser 进程的 PID
 	// 如果 parser 未启动或不支持 PID 获取，返回 0
 	GetParserPID() int
+	// IsRecording 返回当前是否正在实际录制（输出文件已有数据写入）
+	// 与 HasRecorder 不同：HasRecorder 只要 recorder 存在就返回 true（包括重试等待中），
+	// IsRecording 仅在输出文件实际写入数据后才返回 true（排除 ffmpeg 因 404 等原因秒退的情况）
+	IsRecording() bool
 	// RequestSegment 请求在下一个关键帧处分段
 	// 仅在使用 FLV 代理时有效
 	// 返回 true 表示请求已接受，false 表示不支持或请求被拒绝
@@ -200,8 +205,15 @@ type recorder struct {
 	currentFileLock sync.RWMutex
 	currentFilePath string
 
-	// 当前录制的流信息
+	// 当前录制的流信息（来自平台 API）
 	currentStreamInfo *live.AvailableStreamInfo
+
+	// 当前录制使用的原始流 URL 和 Headers（供调试和前端展示）
+	currentStreamURL     string
+	currentStreamHeaders map[string]string
+
+	// 实际流头部信息（来自 StreamProbe 探测）
+	actualStreamInfo atomic.Pointer[streamprobe.StreamHeaderInfo]
 }
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
@@ -219,6 +231,10 @@ func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 }
 
 func (r *recorder) tryRecord(ctx context.Context) {
+	// 每次重试前重置探测状态，避免上次录制的旧数据残留
+	// （例如上次探测成功但本次流分辨率已变化）
+	r.actualStreamInfo.Store(nil)
+
 	cfg := configs.GetCurrentConfig()
 
 	// 获取层级配置
@@ -244,7 +260,12 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 	if err != nil || len(streamInfos) == 0 {
 		r.getLogger().WithError(err).Warn("failed to get stream url, will retry after 5s...")
-		time.Sleep(5 * time.Second)
+		// 使用可中断的等待，确保 Ctrl+C 能立即响应
+		select {
+		case <-ctx.Done():
+		case <-r.stop:
+		case <-time.After(5 * time.Second):
+		}
 		return
 	}
 
@@ -276,6 +297,12 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	url := streamInfo.Url
 
+	// 保存原始流 URL 和 Headers（供前端调试展示）
+	r.currentFileLock.Lock()
+	r.currentStreamURL = url.String()
+	r.currentStreamHeaders = streamInfo.HeadersForDownloader
+	r.currentFileLock.Unlock()
+
 	if strings.Contains(url.Path, "m3u8") {
 		fileName = fileName[:len(fileName)-4] + ".ts"
 	}
@@ -300,7 +327,98 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		parserCfg["use_flv_proxy"] = "true"
 	}
 
-	p, err := newParser(url, downloaderType, parserCfg, r.getLogger())
+	// StreamProbe 探测：仅对 FLV 流使用代理探测
+	// HLS 是分段 HTTP 请求协议，无法通过单一 HTTP 代理转发
+	//
+	// 保存原始流 URL：后续代理启动后 url 变量会被替换为 localhost 代理地址（路径固定为 /stream），
+	// 但 newParser 内部通过 URL 路径判断是否为 FLV 流来选择下载器类型。
+	// 如果用代理 URL 判断，所有 FLV 流都会被误判为"非 FLV"，导致 Native/录播姬下载器回退到 ffmpeg。
+	originalURL := url
+	isFLV := streamprobe.IsStreamFLV(url)
+	if isFLV {
+		// FLV 流：启动探测代理
+		probeConfig := streamprobe.Config{
+			UpstreamURL: url,
+			Headers:     streamInfo.HeadersForDownloader,
+			OnProbed: func(info *streamprobe.StreamHeaderInfo) {
+				r.actualStreamInfo.Store(info)
+				r.getLogger().Infof("流探测完成: 编码=%s, 分辨率=%s, 帧率=%.1f, 状态=%s",
+					info.VideoCodec, info.Resolution(), info.FrameRate, info.ProbeStatus())
+			},
+			OnProbeError: func(err error, msg string) {
+				if err != nil {
+					r.getLogger().Warnf("流探测警告: %s: %v", msg, err)
+				} else {
+					r.getLogger().Warnf("流探测警告: %s", msg)
+				}
+				// 探测出错时也设置状态，避免永远显示"探测中"
+				r.actualStreamInfo.CompareAndSwap(nil, &streamprobe.StreamHeaderInfo{
+					Unsupported:    true,
+					UnsupportedMsg: fmt.Sprintf("流探测失败: %s", msg),
+				})
+			},
+			Logger: r.getLogger(),
+		}
+
+		probe := streamprobe.New(probeConfig)
+		if probeErr := probe.Start(ctx); probeErr != nil {
+			// 探测代理启动失败不应影响录制，回退到直连上游
+			r.getLogger().WithError(probeErr).Warn("流探测代理启动失败，将直接连接上游")
+			r.actualStreamInfo.Store(&streamprobe.StreamHeaderInfo{
+				Unsupported:    true,
+				UnsupportedMsg: fmt.Sprintf("流探测代理启动失败: %v", probeErr),
+			})
+		} else {
+			// 代理启动成功，用代理 URL 替换原始 URL
+			defer probe.Stop()
+			streamInfo = &live.StreamUrlInfo{
+				Url:                  probe.LocalURL(),
+				HeadersForDownloader: nil, // 本地代理不需要 headers
+				Format:               streamInfo.Format,
+				Quality:              streamInfo.Quality,
+				Description:          streamInfo.Description,
+				Codec:                streamInfo.Codec,
+				Width:                streamInfo.Width,
+				Height:               streamInfo.Height,
+				Bitrate:              streamInfo.Bitrate,
+				Vbitrate:             streamInfo.Vbitrate,
+				FrameRate:            streamInfo.FrameRate,
+			}
+			url = probe.LocalURL()
+		}
+	} else if streamprobe.IsStreamHLS(url) {
+		// HLS 流：不使用代理，异步探测第一个 TS 分段的头部信息
+		// 使用 tryRecord 的 ctx，当录制结束/重试时自动取消探测
+		go func(probeCtx context.Context) {
+			hlsInfo, probeErr := streamprobe.ProbeHLS(probeCtx, url, streamInfo.HeadersForDownloader, r.getLogger())
+			if probeErr != nil {
+				// context 取消不算真正的错误，不需要打印
+				if probeCtx.Err() != nil {
+					return
+				}
+				r.getLogger().Warnf("HLS 流探测失败: %v", probeErr)
+				// 探测失败也设置一个状态，避免永远 pending
+				r.actualStreamInfo.Store(&streamprobe.StreamHeaderInfo{
+					Unsupported:    true,
+					UnsupportedMsg: fmt.Sprintf("HLS 探测失败: %v", probeErr),
+				})
+				return
+			}
+			r.actualStreamInfo.Store(hlsInfo)
+			r.getLogger().Infof("HLS 流探测完成: 编码=%s, 分辨率=%s, 帧率=%.1f",
+				hlsInfo.VideoCodec, hlsInfo.Resolution(), hlsInfo.FrameRate)
+		}(ctx)
+	} else {
+		// 其他格式：标记为不支持
+		r.actualStreamInfo.Store(&streamprobe.StreamHeaderInfo{
+			Unsupported:    true,
+			UnsupportedMsg: "该流格式暂不支持头部数据探测",
+		})
+	}
+
+	// 使用原始 URL 而非代理 URL 来判断下载器类型
+	// 代理 URL 路径为 /stream，无法正确判断是否为 FLV 流
+	p, err := newParser(originalURL, downloaderType, parserCfg, r.getLogger())
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
@@ -497,12 +615,32 @@ func (r *recorder) selectPreferredStream(streamInfos []*live.StreamUrlInfo) (ret
 }
 
 func (r *recorder) run(ctx context.Context) {
+	const minRetryInterval = 5 * time.Second
+
 	for {
 		select {
 		case <-r.stop:
 			return
 		default:
-			r.tryRecord(ctx)
+			// 每次 tryRecord 使用独立的子 context
+			// tryRecord 返回时 cancel 会停止所有异步操作（如 HLS 探测 goroutine）
+			tryCtx, tryCancel := context.WithCancel(ctx)
+			start := time.Now()
+			r.tryRecord(tryCtx)
+			tryCancel()
+
+			// 确保两次 tryRecord 之间至少间隔 minRetryInterval
+			// 防止快速失败（如 FFmpeg 秒退 404）导致紧密循环
+			if elapsed := time.Since(start); elapsed < minRetryInterval {
+				delay := minRetryInterval - elapsed
+				select {
+				case <-r.stop:
+					return
+				case <-ctx.Done():
+					return
+				case <-time.After(delay):
+				}
+			}
 		}
 	}
 }
@@ -539,6 +677,21 @@ func (r *recorder) StartTime() time.Time {
 	return r.startTime
 }
 
+// IsRecording 返回当前是否正在实际录制
+// 判断标准：输出文件已创建且有实际数据写入（size > 0）
+// 仅有 parser（如 ffmpeg 进程）不代表真正在录制 —— ffmpeg 可能因为流 URL 404 等原因
+// 启动后立即失败，没有写入任何视频数据
+func (r *recorder) IsRecording() bool {
+	filePath := r.getCurrentFilePath()
+	if filePath == "" {
+		return false
+	}
+	if fileInfo, err := os.Stat(filePath); err == nil {
+		return fileInfo.Size() > 0
+	}
+	return false
+}
+
 func (r *recorder) Close() {
 	if !atomic.CompareAndSwapUint32(&r.state, running, stopped) {
 		return
@@ -572,13 +725,18 @@ func (r *recorder) getCurrentFilePath() string {
 }
 
 func (r *recorder) GetStatus() (map[string]interface{}, error) {
+	var status map[string]interface{}
+
+	// 尝试从 parser 获取状态（FFmpeg 进度等）
+	// 如果 parser 还没创建或不支持 StatusParser，使用空 map 继续
+	// （流信息 stream_quality/stream_format 等仍然需要返回给前端）
 	statusP, ok := r.getParser().(parser.StatusParser)
-	if !ok {
-		return nil, ErrParserNotSupportStatus
-	}
-	status, err := statusP.Status()
-	if err != nil {
-		return nil, err
+	if ok {
+		var err error
+		status, err = statusP.Status()
+		if err != nil {
+			status = nil
+		}
 	}
 	if status == nil {
 		status = make(map[string]interface{})
@@ -619,6 +777,50 @@ func (r *recorder) GetStatus() (map[string]interface{}, error) {
 		}
 		status["stream_codec"] = streamInfo.Codec
 	}
+
+	// 添加实际流头部信息（来自 StreamProbe 探测）
+	if actualInfo := r.actualStreamInfo.Load(); actualInfo != nil {
+		status["probe_status"] = actualInfo.ProbeStatus()
+		if actualInfo.Resolution() != "" {
+			status["actual_resolution"] = actualInfo.Resolution()
+		}
+		if actualInfo.VideoCodec != "" {
+			status["actual_video_codec"] = actualInfo.VideoCodec
+		}
+		if actualInfo.AudioCodec != "" {
+			status["actual_audio_codec"] = actualInfo.AudioCodec
+		}
+		if actualInfo.VideoBitrate > 0 {
+			status["actual_video_bitrate"] = fmt.Sprintf("%d", actualInfo.VideoBitrate)
+		}
+		if actualInfo.FrameRate > 0 {
+			status["actual_frame_rate"] = fmt.Sprintf("%.1f", actualInfo.FrameRate)
+		}
+		if actualInfo.Unsupported {
+			status["probe_message"] = actualInfo.UnsupportedMsg
+		}
+
+		// 判断实际分辨率与平台声称的是否一致
+		if actualInfo.Width > 0 && actualInfo.Height > 0 && streamInfo != nil {
+			resolutionMatch := (streamInfo.Width == 0 && streamInfo.Height == 0) || // 平台未提供分辨率，视为一致
+				(actualInfo.Width == streamInfo.Width && actualInfo.Height == streamInfo.Height)
+			status["resolution_match"] = resolutionMatch
+		}
+	} else {
+		status["probe_status"] = "pending"
+	}
+
+	// 添加原始流 URL 和 Headers（供前端调试展示）
+	// 对敏感 Header（如 Cookie、Authorization）进行脱敏处理，
+	// 避免在 WebUI 无鉴权或被反代到公网时泄露凭据
+	r.currentFileLock.RLock()
+	if r.currentStreamURL != "" {
+		status["stream_url"] = r.currentStreamURL
+	}
+	if len(r.currentStreamHeaders) > 0 {
+		status["stream_headers"] = sanitizeHeaders(r.currentStreamHeaders)
+	}
+	r.currentFileLock.RUnlock()
 
 	return status, nil
 }
@@ -822,11 +1024,50 @@ func (r *recorder) saveAvailableStreamsToDatabase(ctx context.Context, streams [
 			})
 		}
 
-		saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		// 使用 context.Background() 而非传入的 ctx，避免因录制 context 被取消
+		// 导致数据库写入失败（context canceled）。数据库保存是独立的短暂操作，
+		// 不应受录制生命周期影响。
+		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := saver.SaveAvailableStreamsAny(saveCtx, string(r.Live.GetLiveId()), data); err != nil {
 			r.getLogger().Warnf("保存可用流信息到数据库失败: %v", err)
 		}
 	}
+}
+
+// sensitiveHeaders 包含需要脱敏的 HTTP header 名称（小写）
+var sensitiveHeaders = map[string]bool{
+	"cookie":        true,
+	"authorization": true,
+	"set-cookie":    true,
+	"x-api-key":     true,
+	"x-auth-token":  true,
+}
+
+// sanitizeHeaders 对 HTTP Headers 进行脱敏处理
+// 安全的 header（如 Referer、User-Agent）原样返回，
+// 敏感的 header（如 Cookie、Authorization）只显示前后各几个字符
+func sanitizeHeaders(headers map[string]string) map[string]string {
+	result := make(map[string]string, len(headers))
+	for k, v := range headers {
+		if sensitiveHeaders[strings.ToLower(k)] {
+			result[k] = maskValue(v)
+		} else {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// maskValue 对敏感值进行脱敏：保留前 4 位和后 4 位，中间用 *** 替换
+// 如果值太短（<= 12 字符），只显示前 4 位 + ***
+func maskValue(v string) string {
+	if len(v) <= 8 {
+		return "***"
+	}
+	if len(v) <= 12 {
+		return v[:4] + "***"
+	}
+	return v[:4] + "***" + v[len(v)-4:]
 }

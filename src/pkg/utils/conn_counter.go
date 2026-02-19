@@ -253,8 +253,8 @@ func CreateDefaultClient() *http.Client {
 	transport.DialContext = dialer.DialContext
 	transport.DialTLSContext = createTLSDialer(dialer, false, "")
 
-	// 应用代理设置
-	proxy.ApplyProxyToTransport(transport)
+	// 应用信息获取代理（这些客户端主要用于获取直播间信息等 API 请求）
+	proxy.ApplyInfoProxyToTransport(transport)
 
 	return &http.Client{Transport: transport}
 }
@@ -283,8 +283,8 @@ func CreateConnCounterClient() (*http.Client, error) {
 	// Use "tls:" prefix to distinguish from plain connections
 	transport.DialTLSContext = createTLSDialer(dialer, true, "tls:")
 
-	// 应用代理设置
-	proxy.ApplyProxyToTransport(transport)
+	// 应用信息获取代理（这些客户端主要用于获取直播间信息等 API 请求）
+	proxy.ApplyInfoProxyToTransport(transport)
 
 	return &http.Client{Transport: transport}, nil
 }

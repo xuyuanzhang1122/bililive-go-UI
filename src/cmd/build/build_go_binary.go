@@ -53,6 +53,11 @@ func GetBuildFlags(isDev bool) BuildFlags {
 		data["SentryDSN"] = sentryDSN
 	}
 
+	// 禁用遥测统计（用于本地测试，避免污染生产统计数据）
+	if os.Getenv("NO_TELEMETRY") == "1" {
+		ldFlagsTmpl += " -X main.DisableTelemetry=1"
+	}
+
 	t := template.Must(template.New("ldFlags").Parse(ldFlagsTmpl))
 	t.Execute(&buf, data)
 

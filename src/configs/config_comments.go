@@ -79,14 +79,24 @@ func DecorateConfigNode(node *yaml.Node) {
 	proxyNode := findNode(root, "proxy")
 	if proxyNode != nil {
 		setFieldComment(proxyNode, "enable",
-			`# 是否启用配置的代理
+			`# 通用代理开关
 # false: 使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)
 # true: 使用下方配置的代理地址`, "")
 		setFieldComment(proxyNode, "url",
-			`# 代理地址，支持以下格式：
+			`# 通用代理地址，支持以下格式：
 # HTTP 代理: http://host:port 或 http://user:pass@host:port
 # SOCKS5 代理: socks5://host:port 或 socks5://user:pass@host:port
-# 示例: socks5://127.0.0.1:1080 (翻墙软件常用端口)`, "")
+# 示例: socks5://127.0.0.1:1080 (翻墙软件常用端口)
+# 此地址同时用于信息获取和下载，除非下方单独配置了专用代理`, "")
+		setFieldComment(proxyNode, "info_proxy",
+			`# 信息获取专用代理（可选，覆盖通用代理设置）
+# 仅用于获取直播间信息、平台 API 请求等
+# 注意：通过 bililive-tools 间接获取信息的平台（如抖音）暂不受此代理设置影响
+# 如果只想为信息获取使用代理（例如解决临时 IP 封禁），可以只配置此项`, "")
+		setFieldComment(proxyNode, "download_proxy",
+			`# 下载专用代理（可选，覆盖通用代理设置）
+# 仅用于下载直播流数据
+# 如果不想让下载流量走代理，可以将此项的 enable 设为 false`, "")
 	}
 
 	// Feature 功能配置注释

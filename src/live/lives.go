@@ -315,11 +315,15 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 
 	if err != nil {
 		if info, err2 := w.cache.Get(w); err2 == nil {
-			info.(*Info).RoomName = err.Error()
+			// 将错误信息存到 LastError 而非 RoomName
+			// 避免错误文本出现在录制文件名中
+			info.(*Info).LastError = err.Error()
 		}
 		return nil, err
 	}
 	if w.cache != nil {
+		// 成功获取信息，清除之前的错误
+		i.LastError = ""
 		w.cache.Set(w, i)
 	}
 

@@ -156,6 +156,10 @@ var (
 	SentryDSN = ""
 	// SentryEnv Sentry Environment (编译时注入)
 	SentryEnv = "production"
+	// DisableTelemetry 禁用遥测统计（编译时注入）
+	// 使用 NO_TELEMETRY=1 make dev 或 -ldflags="-X main.DisableTelemetry=1" 注入
+	// 用于本地开发/测试，避免污染生产统计数据
+	DisableTelemetry = ""
 )
 
 func main() {
@@ -219,7 +223,9 @@ func main() {
 	// 初始化匿名遥测（用于统计各版本的使用情况）
 	// 仅发送版本号、平台和架构信息，不收集任何个人数据
 	// 默认启用，用户可通过 telemetry.GetInstance().SetEnabled(false) 禁用
-	telemetry.Init(consts.AppVersion, true)
+	// 编译时可通过 NO_TELEMETRY=1 或 -ldflags="-X main.DisableTelemetry=1" 禁用
+	telemetryEnabled := DisableTelemetry != "1"
+	telemetry.Init(consts.AppVersion, telemetryEnabled)
 
 	inst := new(instance.Instance)
 	// TODO: Replace gcache with hashmap.

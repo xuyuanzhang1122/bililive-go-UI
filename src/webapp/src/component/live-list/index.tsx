@@ -92,13 +92,21 @@ const StreamListWithFilter: React.FC<StreamListWithFilterProps> = ({
 
     // 渲染流列表项
     const renderStreamItem = (stream: any, index: number) => {
-        let isCurrentStream = detail.recording && detail.recorder_status?.stream_quality === stream.quality
-            && detail.recorder_status?.stream_format === stream.format;
-
-        if (isCurrentStream && detail.recorder_status?.stream_attributes_for_stream_select) {
-            isCurrentStream = Object.entries(detail.recorder_status.stream_attributes_for_stream_select).every(([k, v]) => {
-                return stream.attributes_for_stream_select[k] === v;
-            });
+        // 判断是否为当前录制使用的流（或录制准备中时用户选中的流偏好）
+        // 优先通过 recorder_status 中的实际录制属性匹配（录制中），
+        // 回退到 room_config 中的用户流偏好匹配（录制准备中 — 还没成功录制但用户已选中）
+        let isCurrentStream = false;
+        const streamAttrs = stream.attributes_for_stream_select;
+        if (streamAttrs) {
+            // 来源 1：实际录制中的流属性
+            const recorderAttrs = detail.recording && detail.recorder_status?.stream_attributes_for_stream_select;
+            // 来源 2：用户配置的流偏好（录制准备中时 fallback）
+            const preferenceAttrs = !recorderAttrs && detail.recording_preparing && detail.room_config?.stream_preference?.attributes;
+            const targetAttrs = recorderAttrs || preferenceAttrs;
+            if (targetAttrs) {
+                isCurrentStream = Object.keys(targetAttrs).length === Object.keys(streamAttrs).length
+                    && Object.entries(targetAttrs).every(([k, v]) => streamAttrs[k] === v);
+            }
         }
 
         const handleSwitchStream = async () => {
@@ -165,7 +173,7 @@ const StreamListWithFilter: React.FC<StreamListWithFilterProps> = ({
                         )}
                     </div>
                     {!isCurrentStream && (
-                        detail.recording ? (
+                        (detail.recording || detail.recording_preparing) ? (
                             <Popconfirm
                                 title="切换录制流"
                                 description={
@@ -326,6 +334,7 @@ interface CookieItemData {
 interface Room {
     roomName: string;
     url: string;
+    lastError?: string;
 }
 
 class LiveList extends React.Component<Props, IState> {
@@ -358,6 +367,9 @@ class LiveList extends React.Component<Props, IState> {
                     if (tag === '录制中') {
                         color = 'red';
                     }
+                    if (tag === '录制准备中') {
+                        color = 'volcano';
+                    }
                     if (tag === '初始化') {
                         color = 'orange';
                     }
@@ -371,15 +383,13 @@ class LiveList extends React.Component<Props, IState> {
             </span>
         ),
         sorter: (a: ItemData, b: ItemData) => {
-            const isRecordingA = a.tags.includes('录制中');
-            const isRecordingB = b.tags.includes('录制中');
-            if (isRecordingA === isRecordingB) {
+            // 录制中 > 录制准备中 > 其他
+            const getRecordingPriority = (tags: string[]) => {
+                if (tags.includes('录制中')) return 2;
+                if (tags.includes('录制准备中')) return 1;
                 return 0;
-            } else if (isRecordingA) {
-                return 1;
-            } else {
-                return -1;
-            }
+            };
+            return getRecordingPriority(a.tags) - getRecordingPriority(b.tags);
         },
         defaultSortOrder: 'descend',
     };
@@ -463,7 +473,16 @@ class LiveList extends React.Component<Props, IState> {
             title: '直播间名称',
             dataIndex: 'room',
             key: 'room',
-            render: (room: Room) => <a href={room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{room.roomName}</a>
+            render: (room: Room) => (
+                <span>
+                    <a href={room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{room.roomName}</a>
+                    {room.lastError && (
+                        <Tooltip title={room.lastError}>
+                            <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginLeft: 6, fontSize: 14 }} />
+                        </Tooltip>
+                    )}
+                </span>
+            )
         },
         {
             title: '直播平台',
@@ -483,7 +502,16 @@ class LiveList extends React.Component<Props, IState> {
             title: '主播名称',
             dataIndex: 'name',
             key: 'name',
-            render: (name: string, data: ItemData) => <a href={data.room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{name}</a>
+            render: (name: string, data: ItemData) => (
+                <span>
+                    <a href={data.room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{name}</a>
+                    {data.room.lastError && (
+                        <Tooltip title={data.room.lastError}>
+                            <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginLeft: 6, fontSize: 14 }} />
+                        </Tooltip>
+                    )}
+                </span>
+            )
         },
         this.runStatus,
         this.runAction
@@ -868,6 +896,8 @@ class LiveList extends React.Component<Props, IState> {
 
                     if (item.recording === true) {
                         tags = ['录制中'];
+                    } else if (item.recording_preparing === true) {
+                        tags = ['录制准备中'];
                     }
 
                     if (item.initializing === true) {
@@ -879,7 +909,8 @@ class LiveList extends React.Component<Props, IState> {
                         name: item.nick_name || item.host_name,
                         room: {
                             roomName: item.room_name,
-                            url: item.live_url
+                            url: item.live_url,
+                            lastError: item.last_error
                         },
                         address: item.platform_cn_name,
                         tags,
@@ -1307,6 +1338,7 @@ class LiveList extends React.Component<Props, IState> {
             alignItems: 'center',
             padding: '6px 12px',
             borderBottom: '1px solid #f0f0f0',
+            minWidth: 0,
         };
 
         const configLabelStyle: React.CSSProperties = {
@@ -1410,8 +1442,8 @@ class LiveList extends React.Component<Props, IState> {
                                 </div>
                                 <div style={configRowStyle}>
                                     <span style={configLabelStyle}>录制状态</span>
-                                    <Tag color={detail.recording ? 'red' : undefined}>
-                                        {detail.recording ? '录制中' : '未录制'}
+                                    <Tag color={detail.recording ? 'red' : detail.recording_preparing ? 'volcano' : undefined}>
+                                        {detail.recording ? '录制中' : detail.recording_preparing ? '录制准备中' : '未录制'}
                                     </Tag>
                                 </div>
                                 {/* 当前录制画质信息 */}
@@ -1445,6 +1477,54 @@ class LiveList extends React.Component<Props, IState> {
                                         </Space>
                                     </div>
                                 )}
+                                {/* 实际分辨率信息（来自 StreamProbe 探测） */}
+                                {detail.recording && detail.recorder_status?.probe_status && (
+                                    <div style={{ ...configRowStyle, alignItems: 'flex-start' }}>
+                                        <span style={{ ...configLabelStyle, paddingTop: 2 }}>实际分辨率</span>
+                                        <Space size="small" wrap style={{ flex: 1, minWidth: 0 }}>
+                                            {detail.recorder_status.probe_status === 'success' && (
+                                                <>
+                                                    {detail.recorder_status.actual_resolution && (
+                                                        <Tag color={detail.recorder_status.resolution_match === false ? 'warning' : 'success'}>
+                                                            {detail.recorder_status.actual_resolution}
+                                                            {detail.recorder_status.resolution_match === false ? ' ⚠️' : ' ✓'}
+                                                        </Tag>
+                                                    )}
+                                                    {detail.recorder_status.actual_video_codec && (
+                                                        <Tag>{detail.recorder_status.actual_video_codec.toUpperCase()}</Tag>
+                                                    )}
+                                                    {detail.recorder_status.actual_video_bitrate && (
+                                                        <Tag>{detail.recorder_status.actual_video_bitrate} kbps</Tag>
+                                                    )}
+                                                    {detail.recorder_status.actual_frame_rate && (
+                                                        <Tag>{detail.recorder_status.actual_frame_rate}fps</Tag>
+                                                    )}
+                                                    {detail.recorder_status.resolution_match === false && detail.recorder_status.stream_resolution && (
+                                                        <span style={{ color: '#faad14', fontSize: '12px' }}>
+                                                            与声称的 {detail.recorder_status.stream_resolution} 不符
+                                                        </span>
+                                                    )}
+                                                </>
+                                            )}
+                                            {detail.recorder_status.probe_status === 'unsupported' && (
+                                                <Tag color="default">
+                                                    {detail.recorder_status.actual_video_codec ?
+                                                        `${detail.recorder_status.actual_video_codec.toUpperCase()} - 无法解析` :
+                                                        '无法解析'
+                                                    }
+                                                </Tag>
+                                            )}
+                                            {detail.recorder_status.probe_status === 'pending' && (
+                                                <Tag>探测中...</Tag>
+                                            )}
+                                            {detail.recorder_status.probe_message && (
+                                                <span style={{ color: '#999', fontSize: '12px', wordBreak: 'break-all', lineHeight: '1.4' }}>
+                                                    {detail.recorder_status.probe_message}
+                                                </span>
+                                            )}
+                                        </Space>
+                                    </div>
+                                )}
                                 {detail.recording && detail.recorder_status?.bitrate && (
                                     <div style={configRowStyle}>
                                         <span style={configLabelStyle}>下载速度</span>
@@ -1474,6 +1554,98 @@ class LiveList extends React.Component<Props, IState> {
                                             </span>
                                         </Tooltip>
                                     </div>
+                                )}
+                                {/* 录制流调试信息（可折叠） */}
+                                {detail.recording && detail.recorder_status?.stream_url && (
+                                    <details style={{ padding: '4px 12px', margin: '4px 0' }}>
+                                        <summary style={{
+                                            cursor: 'pointer',
+                                            color: '#1890ff',
+                                            fontSize: '12px',
+                                            userSelect: 'none',
+                                            outline: 'none',
+                                            padding: '4px 0',
+                                        }}>
+                                            📡 查看录制流 URL 和 Headers
+                                        </summary>
+                                        <div style={{
+                                            marginTop: 8,
+                                            padding: '8px 12px',
+                                            background: '#f5f5f5',
+                                            borderRadius: 6,
+                                            fontSize: '12px',
+                                            lineHeight: '1.6',
+                                            wordBreak: 'break-all',
+                                        }}>
+                                            <div style={{ marginBottom: 8 }}>
+                                                <strong>流 URL：</strong>
+                                                <div style={{
+                                                    fontFamily: 'monospace',
+                                                    background: '#fff',
+                                                    padding: '6px 8px',
+                                                    borderRadius: 4,
+                                                    border: '1px solid #e8e8e8',
+                                                    marginTop: 4,
+                                                    whiteSpace: 'pre-wrap',
+                                                }}>
+                                                    {detail.recorder_status.stream_url}
+                                                </div>
+                                            </div>
+                                            {detail.recorder_status.stream_headers && Object.keys(detail.recorder_status.stream_headers).length > 0 && (
+                                                <div style={{ marginBottom: 8 }}>
+                                                    <strong>Headers：</strong>
+                                                    <div style={{
+                                                        fontFamily: 'monospace',
+                                                        background: '#fff',
+                                                        padding: '6px 8px',
+                                                        borderRadius: 4,
+                                                        border: '1px solid #e8e8e8',
+                                                        marginTop: 4,
+                                                    }}>
+                                                        {Object.entries(detail.recorder_status.stream_headers as Record<string, string>).map(
+                                                            ([k, v]) => (
+                                                                <div key={k}>
+                                                                    <span style={{ color: '#1890ff' }}>{k}</span>: {v}
+                                                                </div>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <Space size="small" style={{ marginTop: 4 }}>
+                                                <Button
+                                                    size="small"
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(detail.recorder_status.stream_url)
+                                                            .then(() => message.success('URL 已复制'))
+                                                            .catch(() => message.error('复制失败'));
+                                                    }}
+                                                >
+                                                    📋 复制 URL
+                                                </Button>
+                                                <Button
+                                                    size="small"
+                                                    type="primary"
+                                                    ghost
+                                                    onClick={() => {
+                                                        const url = detail.recorder_status.stream_url;
+                                                        const headers = detail.recorder_status.stream_headers as Record<string, string> | undefined;
+                                                        let curlCmd = `curl '${url}'`;
+                                                        if (headers) {
+                                                            for (const [k, v] of Object.entries(headers)) {
+                                                                curlCmd += ` \\\n  -H '${k}: ${v}'`;
+                                                            }
+                                                        }
+                                                        navigator.clipboard.writeText(curlCmd)
+                                                            .then(() => message.success('curl 命令已复制'))
+                                                            .catch(() => message.error('复制失败'));
+                                                    }}
+                                                >
+                                                    🔧 复制为 curl
+                                                </Button>
+                                            </Space>
+                                        </div>
+                                    </details>
                                 )}
                                 <div style={configRowStyle}>
                                     <span style={configLabelStyle}>开播时间</span>
@@ -1697,7 +1869,7 @@ class LiveList extends React.Component<Props, IState> {
                 column.onFilter = (value: string | number | boolean, record: ItemData) => record.address === value;
             }
             if (column.key === 'tags') {
-                column.filters = ['初始化', '监控中', '录制中', '已停止'].map(text => ({ text, value: text }));
+                column.filters = ['初始化', '监控中', '录制中', '录制准备中', '已停止'].map(text => ({ text, value: text }));
                 column.onFilter = (value: string | number | boolean, record: ItemData) => record.tags.includes(value as string);
             }
         })

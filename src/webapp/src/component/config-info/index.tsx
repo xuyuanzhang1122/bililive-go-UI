@@ -27,6 +27,10 @@ import CloudUploadSettings from './CloudUploadSettings';
 
 const api = new API();
 const { TextArea } = Input;
+
+// 功能开关：代理配置（开发中，设为 false 隐藏 UI）
+// 与后端 configs.EnableProxyConfig 对应
+const ENABLE_PROXY_CONFIG = false;
 const { Panel } = Collapse;
 
 // 配置项类型定义
@@ -687,27 +691,71 @@ const GlobalSettings: React.FC<{
           </ConfigField>
         </Card>
 
-        {/* 代理设置 */}
-        <Card title="代理设置" size="small" style={{ marginBottom: 16 }}>
-          <ConfigField
-            label="启用代理配置"
-            description="关闭时使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)"
-            valueDisplay={config.proxy?.enable ? '已启用' : '使用系统环境变量'}
-          >
-            <Form.Item name={['proxy', 'enable']} valuePropName="checked" noStyle>
-              <Switch />
-            </Form.Item>
-          </ConfigField>
-          <ConfigField
-            label="代理地址"
-            description="支持 HTTP 代理 (http://host:port) 和 SOCKS5 代理 (socks5://host:port)"
-            valueDisplay={config.proxy?.url || '(未设置)'}
-          >
-            <Form.Item name={['proxy', 'url']} noStyle>
-              <Input placeholder="例如: socks5://127.0.0.1:1080 或 http://127.0.0.1:7890" style={{ width: 400 }} />
-            </Form.Item>
-          </ConfigField>
-        </Card>
+        {/* 代理设置（功能开关控制，开发中） */}
+        {ENABLE_PROXY_CONFIG && (
+          <Card title="代理设置" size="small" style={{ marginBottom: 16 }}>
+            <ConfigField
+              label="通用代理"
+              description="关闭时使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)"
+              valueDisplay={config.proxy?.enable ? '已启用' : '使用系统环境变量'}
+            >
+              <Form.Item name={['proxy', 'enable']} valuePropName="checked" noStyle>
+                <Switch />
+              </Form.Item>
+            </ConfigField>
+            <ConfigField
+              label="通用代理地址"
+              description="同时用于信息获取和下载，除非下方单独配置了专用代理"
+              valueDisplay={config.proxy?.url || '(未设置)'}
+            >
+              <Form.Item name={['proxy', 'url']} noStyle>
+                <Input placeholder="例如: socks5://127.0.0.1:1080 或 http://127.0.0.1:7890" style={{ width: 400 }} />
+              </Form.Item>
+            </ConfigField>
+
+            <Divider style={{ margin: '12px 0', fontSize: 12 }}>专用代理（可选覆盖）</Divider>
+
+            <ConfigField
+              label="信息获取代理"
+              description="用于获取直播间信息、平台 API 请求等。启用后覆盖通用代理。"
+            >
+              <Form.Item name={['proxy', 'info_proxy', 'enable']} valuePropName="checked" noStyle>
+                <Switch />
+              </Form.Item>
+            </ConfigField>
+            <ConfigField
+              label="信息获取代理地址"
+            >
+              <Form.Item name={['proxy', 'info_proxy', 'url']} noStyle>
+                <Input placeholder="留空则使用通用代理" style={{ width: 400 }} />
+              </Form.Item>
+            </ConfigField>
+
+            <ConfigField
+              label="下载代理"
+              description="用于下载直播流数据。启用后覆盖通用代理。"
+            >
+              <Form.Item name={['proxy', 'download_proxy', 'enable']} valuePropName="checked" noStyle>
+                <Switch />
+              </Form.Item>
+            </ConfigField>
+            <ConfigField
+              label="下载代理地址"
+            >
+              <Form.Item name={['proxy', 'download_proxy', 'url']} noStyle>
+                <Input placeholder="留空则使用通用代理" style={{ width: 400 }} />
+              </Form.Item>
+            </ConfigField>
+
+            <Alert
+              message="代理限制说明"
+              description="通过 bililive-tools 间接获取信息的平台（如抖音）暂不受代理设置影响。对于这些平台，需要在操作系统层面配置代理。"
+              type="info"
+              showIcon
+              style={{ marginTop: 12 }}
+            />
+          </Card>
+        )}
 
         {/* 自动更新设置 */}
         <Card title="自动更新设置" size="small" style={{ marginBottom: 16 }} id="global-update">

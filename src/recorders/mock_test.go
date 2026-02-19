@@ -98,6 +98,20 @@ func (mr *MockRecorderMockRecorder) HasFlvProxy() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasFlvProxy", reflect.TypeOf((*MockRecorder)(nil).HasFlvProxy))
 }
 
+// IsRecording mocks base method.
+func (m *MockRecorder) IsRecording() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsRecording")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsRecording indicates an expected call of IsRecording.
+func (mr *MockRecorderMockRecorder) IsRecording() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRecording", reflect.TypeOf((*MockRecorder)(nil).IsRecording))
+}
+
 // RequestSegment mocks base method.
 func (m *MockRecorder) RequestSegment() bool {
 	m.ctrl.T.Helper()
@@ -188,6 +202,20 @@ func (m *MockManager) Close(ctx context.Context) {
 func (mr *MockManagerMockRecorder) Close(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockManager)(nil).Close), ctx)
+}
+
+// GetActiveRecordingsCount mocks base method.
+func (m *MockManager) GetActiveRecordingsCount() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveRecordingsCount")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetActiveRecordingsCount indicates an expected call of GetActiveRecordingsCount.
+func (mr *MockManagerMockRecorder) GetActiveRecordingsCount() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveRecordingsCount", reflect.TypeOf((*MockManager)(nil).GetActiveRecordingsCount))
 }
 
 // GetAllParserPIDs mocks base method.

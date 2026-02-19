@@ -56,9 +56,12 @@ type Info struct {
 	HostName, RoomName   string
 	Status               bool // means isLiving, maybe better to rename it
 	Listening, Recording bool
+	RecordingPreparing   bool // 有 recorder 但尚未真正开始录制（重试中）
 	Initializing         bool
 	CustomLiveId         string
 	AudioOnly            bool
+	// 最近一次 API 请求的错误信息（用于前端显示错误提示）
+	LastError string
 	// 可用流列表（最近一次获取的）
 	AvailableStreams []*AvailableStreamInfo
 	// 可用流更新时间
@@ -81,11 +84,13 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Status                    bool                   `json:"status"`
 		Listening                 bool                   `json:"listening"`
 		Recording                 bool                   `json:"recording"`
+		RecordingPreparing        bool                   `json:"recording_preparing,omitempty"`
 		Initializing              bool                   `json:"initializing"`
 		LastStartTime             string                 `json:"last_start_time,omitempty"`
 		LastStartTimeUnix         int64                  `json:"last_start_time_unix,omitempty"`
 		AudioOnly                 bool                   `json:"audio_only"`
 		NickName                  string                 `json:"nick_name"`
+		LastError                 string                 `json:"last_error,omitempty"`
 		AvailableStreams          []*AvailableStreamInfo `json:"available_streams,omitempty"`
 		AvailableStreamsUpdatedAt int64                  `json:"available_streams_updated_at,omitempty"`
 	}{
@@ -97,9 +102,11 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Status:                    i.Status,
 		Listening:                 i.Listening,
 		Recording:                 i.Recording,
+		RecordingPreparing:        i.RecordingPreparing,
 		Initializing:              i.Initializing,
 		AudioOnly:                 i.AudioOnly,
 		NickName:                  i.Live.GetOptions().NickName,
+		LastError:                 i.LastError,
 		AvailableStreams:          i.AvailableStreams,
 		AvailableStreamsUpdatedAt: i.AvailableStreamsUpdatedAt,
 	}

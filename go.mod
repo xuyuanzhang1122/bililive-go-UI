@@ -8,6 +8,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/alecthomas/kingpin v2.2.7-0.20180312062423-a39589180ebd+incompatible
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
+	github.com/bluenviron/mediacommon/v2 v2.7.2
 	github.com/getsentry/sentry-go v0.31.1
 	github.com/go-delve/delve v1.26.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
@@ -20,7 +21,7 @@ require (
 	github.com/satori/go.uuid v1.2.1-0.20181028125025-b2ce2384e17b
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/gjson v1.9.3
 	go.uber.org/mock v0.5.2
 	golang.org/x/net v0.48.0

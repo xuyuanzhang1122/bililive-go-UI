@@ -191,6 +191,7 @@ type Runner struct {
 	mainPID     int
 	startupOK   bool
 	startupCh   chan struct{} // startup_success 收到时关闭此 channel
+	processDone chan struct{} // 子进程退出时关闭此 channel
 	verbose     bool
 }
 
@@ -277,6 +278,28 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 			// 启动成功确认，立即进入等待阶段
 			startupTimer.Stop()
 			r.log("收到启动确认，进入运行等待")
+		case <-r.processDone:
+			// 子进程在发送 startup_success 之前就退出了（如 Fatal 错误）
+			startupTimer.Stop()
+			if !r.startupOK {
+				r.log("主程序在启动确认前退出")
+
+				// 增加失败计数
+				r.state.FailureCount++
+				r.state.Save(r.statePath)
+
+				// 如果失败次数超过限制，尝试回滚
+				if r.state.FailureCount >= r.state.MaxRetries && r.state.BackupBinaryPath != "" {
+					r.log("启动失败次数过多（%d/%d），尝试回滚...", r.state.FailureCount, r.state.MaxRetries)
+					if err := r.rollback(); err != nil {
+						r.log("回滚失败: %v", err)
+					}
+				} else {
+					r.log("启动失败 %d/%d 次，等待后重试...", r.state.FailureCount, r.state.MaxRetries)
+					time.Sleep(2 * time.Second) // 短暂等待后重试，避免快速循环
+				}
+				continue
+			}
 		case <-startupTimer.C:
 			if !r.startupOK {
 				r.log("主程序启动超时")
@@ -288,7 +311,7 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 
 				// 如果失败次数超过限制，尝试回滚
 				if r.state.FailureCount >= r.state.MaxRetries && r.state.BackupBinaryPath != "" {
-					r.log("启动失败次数过多，尝试回滚...")
+					r.log("启动失败次数过多（%d/%d），尝试回滚...", r.state.FailureCount, r.state.MaxRetries)
 					if err := r.rollback(); err != nil {
 						r.log("回滚失败: %v", err)
 					}
@@ -358,6 +381,16 @@ func (r *Runner) startMainProgram(ctx context.Context, args []string) error {
 
 	r.mainPID = r.mainProcess.Process.Pid
 	r.startupOK = false
+
+	// 启动一个 goroutine 监听子进程退出
+	// 这样在 Run() 的 select 中可以立即检测到子进程崩溃
+	r.processDone = make(chan struct{})
+	go func() {
+		defer bilisentry.Recover()
+		r.mainProcess.Wait()
+		close(r.processDone)
+	}()
+
 	r.log("主程序已启动，PID: %d", r.mainPID)
 
 	return nil
@@ -376,16 +409,21 @@ func (r *Runner) stopMainProgram() {
 	})
 	r.server.Broadcast(msg)
 
-	// 等待进程退出
-	done := make(chan struct{})
-	go func() {
-		defer bilisentry.Recover()
-		r.mainProcess.Wait()
-		close(done)
-	}()
+	// 复用 processDone channel（由 startMainProgram 的 goroutine 统一管理 Wait()）
+	// 避免多次调用 Wait() 导致 panic
+	waitCh := r.processDone
+	if waitCh == nil {
+		// 兜底：如果 processDone 不存在（不应该发生），直接 Wait
+		waitCh = make(chan struct{})
+		go func() {
+			defer bilisentry.Recover()
+			r.mainProcess.Wait()
+			close(waitCh)
+		}()
+	}
 
 	select {
-	case <-done:
+	case <-waitCh:
 		r.log("主程序已正常退出")
 	case <-time.After(35 * time.Second):
 		r.log("主程序未响应，强制终止")
@@ -398,7 +436,12 @@ func (r *Runner) waitForMainProgram() {
 	if r.mainProcess == nil {
 		return
 	}
-	r.mainProcess.Wait()
+	// 等待 processDone channel 关闭（由 startMainProgram 中的 goroutine 负责）
+	if r.processDone != nil {
+		<-r.processDone
+	} else {
+		r.mainProcess.Wait()
+	}
 	r.log("主程序已退出")
 }
 

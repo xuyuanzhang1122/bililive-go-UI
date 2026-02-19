@@ -13,16 +13,26 @@
   align-items: center;
   gap: 4px;
   z-index: 10;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.85);
   padding: 4px 8px;
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  opacity: 0.7;
+  opacity: 0.4;
   transition: opacity 0.2s ease;
+  /* 默认不拦截鼠标事件，让后面的日志行可以被悬浮选中 */
+  pointer-events: none;
 }
 
-.log-panel:hover .log-toolbar {
+/* 只在鼠标直接悬浮在工具栏上时提高不透明度，
+   而不是 .log-panel:hover（那样悬浮日志行也会触发工具栏变实） */
+.log-toolbar:hover {
   opacity: 1;
+  pointer-events: auto;
+}
+
+/* 恢复工具栏内所有交互元素的鼠标事件 */
+.log-toolbar>* {
+  pointer-events: auto;
 }
 
 .log-toolbar-btn {
@@ -106,7 +116,7 @@
 }
 
 .log-item:hover {
-  z-index: 100;
+  z-index: 11;
 }
 
 .log-item-text {

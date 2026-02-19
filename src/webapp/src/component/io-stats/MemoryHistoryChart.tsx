@@ -40,6 +40,7 @@ const CATEGORY_CONFIG: Record<string, { name: string; color: string }> = {
   'bililive-tools': { name: 'bililive-tools', color: '#722ed1' },
   klive: { name: 'klive', color: '#eb2f96' },
   'bililive-recorder': { name: '录播姬', color: '#fa8c16' },
+  launcher: { name: '启动器', color: '#2f54eb' },
   container: { name: '容器总内存', color: '#fa541c' },
   total: { name: '总内存', color: '#13c2c2' },
   other: { name: '其他', color: '#8c8c8c' },
