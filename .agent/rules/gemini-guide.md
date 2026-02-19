@@ -16,6 +16,7 @@
 1. **编译验证**：修改代码后必须运行 `make dev` 验证编译通过
 2. **不要使用** `go build ./...`，必须使用 Make 命令（`make dev` 或 `make build-web dev`）
 3. **提交前检查**：确保 `make build-web dev`、`make lint`、`make test` 全部通过
+4. **禁止擅自提交**：不要主动执行 `git commit`、`git push` 等 git 操作，除非用户明确要求
 
 ## 详细指南（Skills）
 
