@@ -726,6 +726,7 @@ func parseH264NALUnits(data []byte, info *StreamHeaderInfo) {
 				if fps := sps.FPS(); fps > 0 && fps < 300 {
 					info.FrameRate = fps
 				}
+				info.ParsedFromSPS = true
 			}
 			return
 		}
@@ -748,6 +749,7 @@ func parseH265NALUnits(data []byte, info *StreamHeaderInfo) {
 				if fps := sps.FPS(); fps > 0 && fps < 300 {
 					info.FrameRate = fps
 				}
+				info.ParsedFromSPS = true
 			}
 			return
 		}
@@ -807,7 +809,12 @@ func extractNALUnits(data []byte) [][]byte {
 // 流程：下载 m3u8 → 解析第一个 TS 分段 URL → 下载 TS 头部 → 解析 SPS
 func ProbeHLS(ctx context.Context, m3u8URL *url.URL, headers map[string]string, logger *livelogger.LiveLogger) (*StreamHeaderInfo, error) {
 	if logger != nil {
-		logger.Debugf("HLS 探测开始: URL=%s, Headers=%v", m3u8URL.String(), headers)
+		// 只打印 header 键名列表，避免泄露 Cookie/Authorization 等敏感信息到日志
+		headerKeys := make([]string, 0, len(headers))
+		for k := range headers {
+			headerKeys = append(headerKeys, k)
+		}
+		logger.Debugf("HLS 探测开始: URL=%s, HeaderKeys=%v", m3u8URL.String(), headerKeys)
 	}
 	// 1. 下载 m3u8 内容
 	transport := &http.Transport{

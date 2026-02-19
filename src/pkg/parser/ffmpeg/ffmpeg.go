@@ -132,9 +132,23 @@ func (p *Parser) scheduler() {
 }
 
 func (p *Parser) Status() (map[string]interface{}, error) {
-	// TODO: check parser is running
-	p.statusReq <- struct{}{}
-	return <-p.statusResp, nil
+	// 非阻塞发送状态请求：如果 scheduler 已退出或 buffer 已满，直接返回 nil
+	select {
+	case p.statusReq <- struct{}{}:
+	default:
+		return nil, nil
+	}
+	// 等待响应，带超时保护：如果 scheduler 已退出（statusResp 被关闭），
+	// 读取会立即返回零值；如果 scheduler 卡住，3 秒后超时返回
+	select {
+	case resp, ok := <-p.statusResp:
+		if !ok {
+			return nil, nil
+		}
+		return resp, nil
+	case <-time.After(3 * time.Second):
+		return nil, nil
+	}
 }
 
 // ParseLiveStream 启动 FFmpeg 进程录制直播流。
@@ -334,11 +348,14 @@ func (p *Parser) Stop() (err error) {
 				}
 				// 启动强制退出 goroutine：如果 FFmpeg 3 秒内未响应 "q" 命令退出
 				// （例如正在等待 HLS m3u8 网络超时），则强制杀掉进程
-				cmd := p.cmd
+				process := p.cmd.Process
 				go func() {
 					time.Sleep(3 * time.Second)
-					if cmd.ProcessState == nil {
-						_ = cmd.Process.Kill()
+					// 直接尝试 Kill，不读 ProcessState（会与 Wait() 数据竞争）
+					// 如果进程已退出，Kill 会返回 os.ErrProcessDone 之类的错误，安全忽略即可
+					if killErr := process.Kill(); killErr != nil {
+						// 进程已正常退出，无需额外处理
+						_ = killErr
 					}
 				}()
 			} else if p.cmdStdIn == nil {

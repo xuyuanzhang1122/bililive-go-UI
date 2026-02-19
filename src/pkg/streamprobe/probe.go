@@ -281,8 +281,13 @@ func (p *StreamProbe) startLocalServer() error {
 
 // handleStreamRequest 处理下载器的 HTTP 请求
 // 将探测阶段缓冲的数据 + 后续上游数据一起返回
+// 注意：只允许一个下载器连接，多个连接会导致 upstreamBody 数据竞争
 func (p *StreamProbe) handleStreamRequest(w http.ResponseWriter, r *http.Request) {
-	p.connected.Store(true)
+	// 使用 CAS 确保只有一个客户端可以消费上游数据
+	if !p.connected.CompareAndSwap(false, true) {
+		http.Error(w, "此代理已被另一个下载器连接", http.StatusConflict)
+		return
+	}
 
 	// 通知客户端已连接
 	select {

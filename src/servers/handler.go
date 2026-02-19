@@ -63,7 +63,23 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	}
 
 	info.Listening = inst.ListenerManager.(listeners.Manager).HasListener(ctx, l.GetLiveId())
-	info.Recording = inst.RecorderManager.(recorders.Manager).HasRecorder(ctx, l.GetLiveId())
+	// 区分"有 recorder"和"真正在录制"
+	// HasRecorder=true 但输出文件没有数据时，说明在重试（获取流 URL、连接失败等）
+	// 前端应显示"录制准备中"而非"录制中"，避免用户误以为正在正常录制
+	//
+	// 注意：info 是从缓存获取的共享对象，必须先重置两个互斥字段，
+	// 否则前一次调用的残留值会导致 recording=true + recording_preparing=true 同时返回
+	info.Recording = false
+	info.RecordingPreparing = false
+	recorderMgr := inst.RecorderManager.(recorders.Manager)
+	if recorderMgr.HasRecorder(ctx, l.GetLiveId()) {
+		if recorder, err := recorderMgr.GetRecorder(ctx, l.GetLiveId()); err == nil && recorder.IsRecording() {
+			info.Recording = true
+		} else {
+			// 有 recorder 但尚未真正开始录制（例如流 URL 404 导致不断重试）
+			info.RecordingPreparing = true
+		}
+	}
 	if info.HostName == "" {
 		info.HostName = "获取失败"
 	}
@@ -168,8 +184,8 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 
 	// 获取录制状态和下载速度
 	var recorderStatus map[string]interface{}
-	if info.Recording {
-		// 如果正在录制，尝试获取recorder状态
+	if info.Recording || info.RecordingPreparing {
+		// 正在录制或录制准备中，获取 recorder 状态（流信息等）
 		if recorderMgr, ok := inst.RecorderManager.(recorders.Manager); ok {
 			recorder, err := recorderMgr.GetRecorder(r.Context(), info.Live.GetLiveId())
 			if err == nil {
@@ -184,7 +200,7 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 
 	// 获取录制开始时间
 	var recordStartTime string
-	if info.Recording {
+	if info.Recording || info.RecordingPreparing {
 		if recorderMgr, ok := inst.RecorderManager.(recorders.Manager); ok {
 			recorder, err := recorderMgr.GetRecorder(r.Context(), info.Live.GetLiveId())
 			if err == nil {
@@ -203,14 +219,15 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	// 构造详细响应
 	detailedInfo := map[string]interface{}{
 		// 基本信息
-		"host_name": info.HostName,
-		"room_name": info.RoomName,
-		"status":    info.Status,
-		"listening": info.Listening,
-		"recording": info.Recording,
-		"live_id":   info.Live.GetLiveId(),
-		"raw_url":   info.Live.GetRawUrl(),
-		"platform":  info.Live.GetPlatformCNName(),
+		"host_name":           info.HostName,
+		"room_name":           info.RoomName,
+		"status":              info.Status,
+		"listening":           info.Listening,
+		"recording":           info.Recording,
+		"recording_preparing": info.RecordingPreparing,
+		"live_id":             info.Live.GetLiveId(),
+		"raw_url":             info.Live.GetRawUrl(),
+		"platform":            info.Live.GetPlatformCNName(),
 
 		// 有效配置信息
 		"platform_key":          platformKey,

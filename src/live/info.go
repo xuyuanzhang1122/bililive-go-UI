@@ -56,6 +56,7 @@ type Info struct {
 	HostName, RoomName   string
 	Status               bool // means isLiving, maybe better to rename it
 	Listening, Recording bool
+	RecordingPreparing   bool // 有 recorder 但尚未真正开始录制（重试中）
 	Initializing         bool
 	CustomLiveId         string
 	AudioOnly            bool
@@ -83,6 +84,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Status                    bool                   `json:"status"`
 		Listening                 bool                   `json:"listening"`
 		Recording                 bool                   `json:"recording"`
+		RecordingPreparing        bool                   `json:"recording_preparing,omitempty"`
 		Initializing              bool                   `json:"initializing"`
 		LastStartTime             string                 `json:"last_start_time,omitempty"`
 		LastStartTimeUnix         int64                  `json:"last_start_time_unix,omitempty"`
@@ -100,6 +102,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Status:                    i.Status,
 		Listening:                 i.Listening,
 		Recording:                 i.Recording,
+		RecordingPreparing:        i.RecordingPreparing,
 		Initializing:              i.Initializing,
 		AudioOnly:                 i.AudioOnly,
 		NickName:                  i.Live.GetOptions().NickName,

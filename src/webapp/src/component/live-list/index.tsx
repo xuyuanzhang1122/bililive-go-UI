@@ -92,14 +92,21 @@ const StreamListWithFilter: React.FC<StreamListWithFilterProps> = ({
 
     // 渲染流列表项
     const renderStreamItem = (stream: any, index: number) => {
-        // 判断是否为当前录制使用的流
-        // 仅通过 attributes_for_stream_select 全量比较（包含 format_name、codec、quality 等所有区分字段）
+        // 判断是否为当前录制使用的流（或录制准备中时用户选中的流偏好）
+        // 优先通过 recorder_status 中的实际录制属性匹配（录制中），
+        // 回退到 room_config 中的用户流偏好匹配（录制准备中 — 还没成功录制但用户已选中）
         let isCurrentStream = false;
-        if (detail.recording && detail.recorder_status?.stream_attributes_for_stream_select && stream.attributes_for_stream_select) {
-            const recorderAttrs = detail.recorder_status.stream_attributes_for_stream_select;
-            const streamAttrs = stream.attributes_for_stream_select;
-            isCurrentStream = Object.keys(recorderAttrs).length === Object.keys(streamAttrs).length
-                && Object.entries(recorderAttrs).every(([k, v]) => streamAttrs[k] === v);
+        const streamAttrs = stream.attributes_for_stream_select;
+        if (streamAttrs) {
+            // 来源 1：实际录制中的流属性
+            const recorderAttrs = detail.recording && detail.recorder_status?.stream_attributes_for_stream_select;
+            // 来源 2：用户配置的流偏好（录制准备中时 fallback）
+            const preferenceAttrs = !recorderAttrs && detail.recording_preparing && detail.room_config?.stream_preference?.attributes;
+            const targetAttrs = recorderAttrs || preferenceAttrs;
+            if (targetAttrs) {
+                isCurrentStream = Object.keys(targetAttrs).length === Object.keys(streamAttrs).length
+                    && Object.entries(targetAttrs).every(([k, v]) => streamAttrs[k] === v);
+            }
         }
 
         const handleSwitchStream = async () => {
@@ -166,7 +173,7 @@ const StreamListWithFilter: React.FC<StreamListWithFilterProps> = ({
                         )}
                     </div>
                     {!isCurrentStream && (
-                        detail.recording ? (
+                        (detail.recording || detail.recording_preparing) ? (
                             <Popconfirm
                                 title="切换录制流"
                                 description={
@@ -360,6 +367,9 @@ class LiveList extends React.Component<Props, IState> {
                     if (tag === '录制中') {
                         color = 'red';
                     }
+                    if (tag === '录制准备中') {
+                        color = 'volcano';
+                    }
                     if (tag === '初始化') {
                         color = 'orange';
                     }
@@ -373,15 +383,13 @@ class LiveList extends React.Component<Props, IState> {
             </span>
         ),
         sorter: (a: ItemData, b: ItemData) => {
-            const isRecordingA = a.tags.includes('录制中');
-            const isRecordingB = b.tags.includes('录制中');
-            if (isRecordingA === isRecordingB) {
+            // 录制中 > 录制准备中 > 其他
+            const getRecordingPriority = (tags: string[]) => {
+                if (tags.includes('录制中')) return 2;
+                if (tags.includes('录制准备中')) return 1;
                 return 0;
-            } else if (isRecordingA) {
-                return 1;
-            } else {
-                return -1;
-            }
+            };
+            return getRecordingPriority(a.tags) - getRecordingPriority(b.tags);
         },
         defaultSortOrder: 'descend',
     };
@@ -888,6 +896,8 @@ class LiveList extends React.Component<Props, IState> {
 
                     if (item.recording === true) {
                         tags = ['录制中'];
+                    } else if (item.recording_preparing === true) {
+                        tags = ['录制准备中'];
                     }
 
                     if (item.initializing === true) {
@@ -1328,6 +1338,7 @@ class LiveList extends React.Component<Props, IState> {
             alignItems: 'center',
             padding: '6px 12px',
             borderBottom: '1px solid #f0f0f0',
+            minWidth: 0,
         };
 
         const configLabelStyle: React.CSSProperties = {
@@ -1431,8 +1442,8 @@ class LiveList extends React.Component<Props, IState> {
                                 </div>
                                 <div style={configRowStyle}>
                                     <span style={configLabelStyle}>录制状态</span>
-                                    <Tag color={detail.recording ? 'red' : undefined}>
-                                        {detail.recording ? '录制中' : '未录制'}
+                                    <Tag color={detail.recording ? 'red' : detail.recording_preparing ? 'volcano' : undefined}>
+                                        {detail.recording ? '录制中' : detail.recording_preparing ? '录制准备中' : '未录制'}
                                     </Tag>
                                 </div>
                                 {/* 当前录制画质信息 */}
@@ -1468,9 +1479,9 @@ class LiveList extends React.Component<Props, IState> {
                                 )}
                                 {/* 实际分辨率信息（来自 StreamProbe 探测） */}
                                 {detail.recording && detail.recorder_status?.probe_status && (
-                                    <div style={configRowStyle}>
-                                        <span style={configLabelStyle}>实际分辨率</span>
-                                        <Space size="small">
+                                    <div style={{ ...configRowStyle, alignItems: 'flex-start' }}>
+                                        <span style={{ ...configLabelStyle, paddingTop: 2 }}>实际分辨率</span>
+                                        <Space size="small" wrap style={{ flex: 1, minWidth: 0 }}>
                                             {detail.recorder_status.probe_status === 'success' && (
                                                 <>
                                                     {detail.recorder_status.actual_resolution && (
@@ -1507,7 +1518,7 @@ class LiveList extends React.Component<Props, IState> {
                                                 <Tag>探测中...</Tag>
                                             )}
                                             {detail.recorder_status.probe_message && (
-                                                <span style={{ color: '#999', fontSize: '12px' }}>
+                                                <span style={{ color: '#999', fontSize: '12px', wordBreak: 'break-all', lineHeight: '1.4' }}>
                                                     {detail.recorder_status.probe_message}
                                                 </span>
                                             )}
@@ -1858,7 +1869,7 @@ class LiveList extends React.Component<Props, IState> {
                 column.onFilter = (value: string | number | boolean, record: ItemData) => record.address === value;
             }
             if (column.key === 'tags') {
-                column.filters = ['初始化', '监控中', '录制中', '已停止'].map(text => ({ text, value: text }));
+                column.filters = ['初始化', '监控中', '录制中', '录制准备中', '已停止'].map(text => ({ text, value: text }));
                 column.onFilter = (value: string | number | boolean, record: ItemData) => record.tags.includes(value as string);
             }
         })
