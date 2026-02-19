@@ -1,6 +1,8 @@
 package instance
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/bililive-go/bililive-go/src/live"
@@ -129,4 +131,115 @@ func TestLiveMap_ReplaceKey(t *testing.T) {
 	if lm.Len() != 1 {
 		t.Errorf("Len should be 1 after ReplaceKey, got %d", lm.Len())
 	}
+}
+
+// TestLiveMap_Concurrent 验证 LiveMap 在多 goroutine 并发访问下的线程安全性。
+// 需要配合 `go test -race` 运行以触发 Go 的 race detector。
+// 这是解决 "concurrent map iteration and map write" panic 的核心测试。
+func TestLiveMap_Concurrent(t *testing.T) {
+	var lm LiveMap
+	const goroutines = 10
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines * 5) // 5 种操作
+
+	// 并发 Set
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				id := types.LiveID(fmt.Sprintf("live-%d-%d", g, i))
+				lm.Set(id, nil)
+			}
+		}(g)
+	}
+
+	// 并发 Get
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				id := types.LiveID(fmt.Sprintf("live-%d-%d", g, i))
+				lm.Get(id)
+			}
+		}(g)
+	}
+
+	// 并发 Delete
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				id := types.LiveID(fmt.Sprintf("live-%d-%d", g, i))
+				lm.Delete(id)
+			}
+		}(g)
+	}
+
+	// 并发 Range（读操作与写操作同时进行）
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				lm.Range(func(id types.LiveID, l live.Live) bool {
+					return true
+				})
+			}
+		}()
+	}
+
+	// 并发 Snapshot
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				_ = lm.Snapshot()
+			}
+		}()
+	}
+
+	wg.Wait()
+	// 如果没有 panic 或 race condition，测试通过
+}
+
+// TestLiveMap_ConcurrentReplaceKey 验证 ReplaceKey 在并发场景下的原子性。
+func TestLiveMap_ConcurrentReplaceKey(t *testing.T) {
+	var lm LiveMap
+	const goroutines = 10
+	const iterations = 50
+
+	// 预置数据
+	for i := 0; i < goroutines*iterations; i++ {
+		lm.Set(types.LiveID(fmt.Sprintf("old-%d", i)), nil)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines * 2) // ReplaceKey + 并发读
+
+	// 并发 ReplaceKey
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				idx := g*iterations + i
+				oldID := types.LiveID(fmt.Sprintf("old-%d", idx))
+				newID := types.LiveID(fmt.Sprintf("new-%d", idx))
+				lm.ReplaceKey(oldID, newID, nil)
+			}
+		}(g)
+	}
+
+	// 并发 Snapshot（与 ReplaceKey 同时）
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				snap := lm.Snapshot()
+				_ = snap // 只验证不 panic
+			}
+		}()
+	}
+
+	wg.Wait()
 }
