@@ -202,7 +202,7 @@ func main() {
 	if sentryDSN == "" {
 		sentryDSN = os.Getenv("SENTRY_DSN")
 	}
-	if config.Sentry.Enable && sentryDSN != "" {
+	if sentryDSN != "" {
 		environment := SentryEnv
 		// 允许 debug 模式覆盖环境配置
 		if config.Debug {
