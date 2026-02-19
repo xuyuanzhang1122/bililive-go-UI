@@ -63,13 +63,22 @@ func (c *MemoryCollector) run() {
 // RecorderManagerProvider 录制器管理器提供者
 type RecorderManagerProvider func() recorders.Manager
 
+// LauncherPIDProvider 启动器 PID 提供者
+type LauncherPIDProvider func() int
+
 var (
 	recorderManagerProvider RecorderManagerProvider
+	launcherPIDProvider     LauncherPIDProvider
 )
 
 // SetRecorderManagerProvider 设置录制器管理器提供者
 func SetRecorderManagerProvider(provider RecorderManagerProvider) {
 	recorderManagerProvider = provider
+}
+
+// SetLauncherPIDProvider 设置启动器 PID 提供者
+func SetLauncherPIDProvider(provider LauncherPIDProvider) {
+	launcherPIDProvider = provider
 }
 
 // collect 执行一次内存数据采集
@@ -152,7 +161,22 @@ func (c *MemoryCollector) collect() {
 		}
 	}
 
-	// 4. 收集容器内存（仅 Linux 容器环境）
+	// 4. 收集 launcher 进程内存（如果由启动器管理）
+	if launcherPIDProvider != nil {
+		if launcherPID := launcherPIDProvider(); launcherPID > 0 {
+			if procMem, err := memstats.GetProcessMemory(launcherPID); err == nil {
+				stats = append(stats, &MemoryStat{
+					Timestamp: timestamp,
+					Category:  MemoryCategoryLauncher,
+					RSS:       procMem.RSS,
+					VMS:       procMem.VMS,
+				})
+				totalRSS += procMem.RSS
+			}
+		}
+	}
+
+	// 5. 收集容器内存（仅 Linux 容器环境）
 	if memstats.IsInContainer() {
 		containerMem, err := memstats.GetContainerMemory()
 		if err == nil && containerMem != nil {
@@ -161,10 +185,16 @@ func (c *MemoryCollector) collect() {
 				Category:  MemoryCategoryContainer,
 				RSS:       containerMem.Used,
 			})
+			// 在容器环境中，使用 cgroup 报告的内存作为“总内存”
+			// cgroup memory.current 包含了容器内所有进程的实际内存使用
+			// 比简单累加各进程 RSS 更准确（避免共享内存重复计算）
+			if containerMem.Used > 0 {
+				totalRSS = containerMem.Used
+			}
 		}
 	}
 
-	// 5. 记录总内存
+	// 6. 记录总内存
 	stats = append(stats, &MemoryStat{
 		Timestamp: timestamp,
 		Category:  MemoryCategoryTotal,

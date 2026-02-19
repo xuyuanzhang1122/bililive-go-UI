@@ -137,6 +137,18 @@ func (p *Parser) Status() (map[string]interface{}, error) {
 	return <-p.statusResp, nil
 }
 
+// ParseLiveStream 启动 FFmpeg 进程录制直播流。
+//
+// ⚠️ 已知问题（负负得正）：
+// 本函数的 ctx 参数实际上无法取消函数执行——核心阻塞点 cmd.Wait()（第 272 行）不监听 ctx.Done()，
+// FFmpeg 进程的终止完全依赖外部调用 Stop() 方法。
+//
+// 然而这个"bug"意外地保护了录制行为：调用链中的 ctx 可能源自 HTTP handler 的 request context
+// （handler → AddRecorder → recorder.Start → run → tryRecord → ParseLiveStream），
+// 若 ParseLiveStream 正确响应 ctx 取消，录制会在 HTTP 请求结束后被意外终止。
+//
+// 正确修复需要同时解决整条 context 传播链路（将 request context 替换为应用级 context），
+// 影响范围广，暂不在此处理。当前录制的停止完全由 recorder.Close() → parser.Stop() 控制。
 func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.StreamUrlInfo, live live.Live, file string) (err error) {
 	url := streamUrlInfo.Url
 	ffmpegPath, err := utils.GetFFmpegPathForLive(ctx, live)
@@ -269,6 +281,8 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	}
 
 	bilisentry.Go(p.scheduler)
+	// 注意：cmd.Wait() 不监听 ctx.Done()，见函数顶部注释。
+	// 停止 FFmpeg 的唯一途径是通过 Stop() 方法。
 	err = p.cmd.Wait()
 
 	// 停止 FLV 代理
@@ -318,6 +332,15 @@ func (p *Parser) Stop() (err error) {
 				if _, err = p.cmdStdIn.Write([]byte("q")); err != nil {
 					err = fmt.Errorf("error sending stop command to ffmpeg: %v", err)
 				}
+				// 启动强制退出 goroutine：如果 FFmpeg 3 秒内未响应 "q" 命令退出
+				// （例如正在等待 HLS m3u8 网络超时），则强制杀掉进程
+				cmd := p.cmd
+				go func() {
+					time.Sleep(3 * time.Second)
+					if cmd.ProcessState == nil {
+						_ = cmd.Process.Kill()
+					}
+				}()
 			} else if p.cmdStdIn == nil {
 				err = fmt.Errorf("p.cmdStdIn == nil")
 			} else if p.cmd.Process == nil {

@@ -152,12 +152,29 @@ var defaultTaskQueue = TaskQueue{
 	MaxConcurrent: 3,
 }
 
+// ProxyEntry 单个代理配置项
+type ProxyEntry struct {
+	Enable bool   `yaml:"enable" json:"enable"`
+	URL    string `yaml:"url" json:"url"`
+}
+
 // Proxy 代理配置
+// 支持通用代理、信息获取代理和下载代理三个层级
+// 优先级：专用代理（如果设置）> 通用代理 > 系统环境变量
 type Proxy struct {
 	// Enable 是否启用配置的代理（false 时使用系统环境变量 HTTP_PROXY 等）
 	Enable bool `yaml:"enable" json:"enable"`
 	// URL 代理地址，支持 http://host:port 或 socks5://host:port
 	URL string `yaml:"url" json:"url"`
+
+	// InfoProxy 信息获取专用代理（覆盖通用设置）
+	// 用于获取直播间信息、平台 API 请求等
+	// 注意：通过 bililive-tools 间接获取信息的平台（如抖音）暂不受此代理设置影响
+	InfoProxy *ProxyEntry `yaml:"info_proxy,omitempty" json:"info_proxy,omitempty"`
+
+	// DownloadProxy 下载专用代理（覆盖通用设置）
+	// 用于下载直播流数据
+	DownloadProxy *ProxyEntry `yaml:"download_proxy,omitempty" json:"download_proxy,omitempty"`
 }
 
 var defaultProxy = Proxy{

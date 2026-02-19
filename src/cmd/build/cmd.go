@@ -21,6 +21,9 @@ const sourceAgentFile = "AGENTS.md"
 
 // 全局变量，用于存储命令行参数
 var customVersion string
+var customPlatform string
+var customArch string
+var customNoTelemetry bool
 
 func RunCmd() int {
 	app := kingpin.New("Build tool", "bililive-go Build tool.")
@@ -28,10 +31,20 @@ func RunCmd() int {
 	// dev 命令支持 --version 参数
 	devCmd := app.Command("dev", "Build for development.")
 	devCmd.Flag("version", "自定义版本号（用于测试升级功能）").StringVar(&customVersion)
+	devCmd.Flag("platform", "目标平台（如 linux、darwin、windows）").StringVar(&customPlatform)
+	devCmd.Flag("arch", "目标架构（如 amd64、arm64）").StringVar(&customArch)
+	devCmd.Flag("no-telemetry", "禁用启动统计上报").BoolVar(&customNoTelemetry)
 	devCmd.Action(devBuild)
 
 	app.Command("dev-incremental", "增量构建：只在源码变化时重新编译（用于调试）").Action(devIncrementalBuild)
-	app.Command("release", "Build for release.").Action(releaseBuild)
+
+	// release 命令也支持自定义参数（用于本地编译测试版本）
+	releaseCmd := app.Command("release", "Build for release.")
+	releaseCmd.Flag("version", "自定义版本号").StringVar(&customVersion)
+	releaseCmd.Flag("platform", "目标平台（如 linux、darwin、windows）").StringVar(&customPlatform)
+	releaseCmd.Flag("arch", "目标架构（如 amd64、arm64）").StringVar(&customArch)
+	releaseCmd.Flag("no-telemetry", "禁用启动统计上报").BoolVar(&customNoTelemetry)
+	releaseCmd.Action(releaseBuild)
 	app.Command("release-docker", "Build for release docker.").Action(releaseDocker)
 	app.Command("test", "Run tests.").Action(goTest)
 	app.Command("generate", "go generate ./...").Action(goGenerate)
@@ -44,11 +57,24 @@ func RunCmd() int {
 	return 0
 }
 
-func devBuild(c *kingpin.ParseContext) error {
-	// 如果指定了自定义版本号，设置环境变量供 GetBuildFlags 使用
+// applyCustomFlags 将命令行参数设置为环境变量供构建函数使用
+func applyCustomFlags() {
 	if customVersion != "" {
 		os.Setenv("APP_VERSION", customVersion)
 	}
+	if customPlatform != "" {
+		os.Setenv("PLATFORM", customPlatform)
+	}
+	if customArch != "" {
+		os.Setenv("ARCH", customArch)
+	}
+	if customNoTelemetry {
+		os.Setenv("NO_TELEMETRY", "1")
+	}
+}
+
+func devBuild(c *kingpin.ParseContext) error {
+	applyCustomFlags()
 	BuildGoBinary(true)
 	return nil
 }
@@ -59,6 +85,7 @@ func devIncrementalBuild(c *kingpin.ParseContext) error {
 }
 
 func releaseBuild(c *kingpin.ParseContext) error {
+	applyCustomFlags()
 	BuildGoBinary(false)
 	return nil
 }
