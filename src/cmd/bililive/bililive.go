@@ -222,7 +222,6 @@ func main() {
 	telemetry.Init(consts.AppVersion, true)
 
 	inst := new(instance.Instance)
-	inst.Lives = instance.NewLiveMap()
 	// TODO: Replace gcache with hashmap.
 	// LRU seems not necessary here.
 	inst.Cache = gcache.New(4096).LRU().Build()

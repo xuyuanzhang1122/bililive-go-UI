@@ -9,7 +9,7 @@ import (
 
 type Instance struct {
 	WaitGroup        sync.WaitGroup
-	Lives            *LiveMap
+	Lives            LiveMap
 	Cache            gcache.Cache
 	Server           interfaces.Module
 	EventDispatcher  interfaces.Module
