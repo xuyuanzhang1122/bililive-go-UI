@@ -1,6 +1,10 @@
 // VS Code 调试配置模板
 // 使用方法：复制此文件为 launch.json（即去掉 .example 后缀）
 // 你可以在 launch.json 中自由添加或修改配置，不会影响仓库
+//
+// ⚠️ 调试器要求：Go 1.25+ 默认生成 DWARFv5 调试符号，需要更新 Delve：
+//    go install github.com/go-delve/delve/cmd/dlv@latest
+//    如果调试时报错 "DWARFv5 or later"，请运行上述命令更新 Delve。
 {
   "version": "0.1.0",
   "configurations": [

@@ -57,7 +57,7 @@ func bool2float64(b bool) float64 {
 
 func (c collector) Collect(ch chan<- prometheus.Metric) {
 	wg := sync.WaitGroup{}
-	for id, l := range c.inst.Lives {
+	for id, l := range c.inst.Lives.Snapshot() {
 		wg.Add(1)
 		bilisentry.Go(func() {
 			defer wg.Done()
