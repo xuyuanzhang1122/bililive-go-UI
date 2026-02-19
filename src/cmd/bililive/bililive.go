@@ -202,7 +202,7 @@ func main() {
 	if sentryDSN == "" {
 		sentryDSN = os.Getenv("SENTRY_DSN")
 	}
-	if config.Sentry.Enable && sentryDSN != "" {
+	if sentryDSN != "" {
 		environment := SentryEnv
 		// 允许 debug 模式覆盖环境配置
 		if config.Debug {
@@ -467,7 +467,7 @@ func main() {
 			}
 
 			var statuses []iostats.RecorderStatus
-			for liveID, l := range inst.Lives {
+			for liveID, l := range inst.Lives.Snapshot() {
 				status, err := rm.GetRecorderStatus(context.Background(), liveID)
 				if err != nil {
 					continue
@@ -501,7 +501,6 @@ func main() {
 
 	// 初始化 live rooms
 	// 第一步：立即为所有配置的直播间创建 InitializingLive，让前端可以看到
-	inst.Lives = make(map[types.LiveID]live.Live)
 	cfg := configs.GetCurrentConfig()
 
 	// 确保所有平台都有最小访问限制（用于控制并行初始化时的请求速度）
@@ -538,11 +537,11 @@ func main() {
 			logger.WithField("url", room).Error(liveErr.Error())
 			continue
 		}
-		if _, ok := inst.Lives[l.GetLiveId()]; ok {
+		if inst.Lives.Has(l.GetLiveId()) {
 			logger.Errorf("%v is exist!", room)
 			continue
 		}
-		inst.Lives[l.GetLiveId()] = l
+		inst.Lives.Set(l.GetLiveId(), l)
 		configs.SetLiveRoomId(room.Url, l.GetLiveId())
 
 		// 从数据库加载缓存的直播间信息，用于在初始化完成前显示
@@ -648,7 +647,7 @@ func main() {
 	})
 
 	logger.Infof("Created %d live rooms (%d listening, %d not listening)",
-		len(inst.Lives), len(listeningRooms), len(nonListeningRooms))
+		inst.Lives.Len(), len(listeningRooms), len(nonListeningRooms))
 
 	c := make(chan os.Signal, 1)
 	// 使用 os.Interrupt 更跨平台，在 Windows 上 SIGHUP 可能不被支持

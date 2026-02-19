@@ -93,9 +93,10 @@ func extractStreamAttributeCombinations(streams []*live.AvailableStreamInfo) []m
 func getAllLives(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	lives := liveSlice(make([]*live.Info, 0, 4))
-	for _, v := range inst.Lives {
+	inst.Lives.Range(func(_ types.LiveID, v live.Live) bool {
 		lives = append(lives, parseInfo(r.Context(), v))
-	}
+		return true
+	})
 	sort.Sort(lives)
 	writeJSON(writer, lives)
 }
@@ -103,7 +104,7 @@ func getAllLives(writer http.ResponseWriter, r *http.Request) {
 func getLive(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	vars := mux.Vars(r)
-	liveObj, ok := inst.Lives[types.LiveID(vars["id"])]
+	liveObj, ok := inst.Lives.Get(types.LiveID(vars["id"]))
 	if !ok {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
@@ -347,7 +348,7 @@ func getLiveLogs(writer http.ResponseWriter, r *http.Request) {
 	liveID := types.LiveID(vars["id"])
 
 	// 查找直播间
-	liveInstance, ok := inst.Lives[liveID]
+	liveInstance, ok := inst.Lives.Get(liveID)
 	if !ok {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
@@ -388,7 +389,7 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	vars := mux.Vars(r)
 	resp := commonResp{}
-	live, ok := inst.Lives[types.LiveID(vars["id"])]
+	live, ok := inst.Lives.Get(types.LiveID(vars["id"]))
 	if !ok {
 		resp.ErrNo = http.StatusNotFound
 		resp.ErrMsg = fmt.Sprintf("live id: %s can not find", vars["id"])
@@ -520,7 +521,7 @@ func switchStreamHandler(writer http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	resp := commonResp{}
 
-	live, ok := inst.Lives[types.LiveID(vars["id"])]
+	live, ok := inst.Lives.Get(types.LiveID(vars["id"]))
 	if !ok {
 		resp.ErrNo = http.StatusNotFound
 		resp.ErrMsg = fmt.Sprintf("直播间 ID: %s 未找到", vars["id"])
@@ -698,8 +699,7 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 	}
 	// 记录 LiveId 到全局配置（并发安全）
 	configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
-	if _, ok := inst.Lives[newLive.GetLiveId()]; !ok {
-		inst.Lives[newLive.GetLiveId()] = newLive
+	if inst.Lives.SetIfAbsent(newLive.GetLiveId(), newLive) {
 		if isListen {
 			inst.ListenerManager.(listeners.Manager).AddListener(ctx, newLive)
 		}
@@ -727,7 +727,7 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 func removeLive(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	vars := mux.Vars(r)
-	live, ok := inst.Lives[types.LiveID(vars["id"])]
+	live, ok := inst.Lives.Get(types.LiveID(vars["id"]))
 	if !ok {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
@@ -756,7 +756,7 @@ func removeLiveImpl(ctx context.Context, live live.Live) error {
 			return err
 		}
 	}
-	delete(inst.Lives, liveId)
+	inst.Lives.Delete(liveId)
 	if _, err := configs.RemoveLiveRoomByUrl(live.GetRawUrl()); err != nil {
 		return err
 	}
@@ -863,7 +863,7 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 				return err
 			}
 		} else {
-			live, ok := inst.Lives[types.LiveID(room.LiveId)]
+			live, ok := inst.Lives.Get(types.LiveID(room.LiveId))
 			if !ok {
 				return fmt.Errorf("live id: %s can not find", room.LiveId)
 			}
@@ -887,7 +887,7 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 	for _, room := range loopRooms {
 		if _, ok := newUrlMap[room.Url]; !ok {
 			// remove live
-			live, ok := inst.Lives[types.LiveID(room.LiveId)]
+			live, ok := inst.Lives.Get(types.LiveID(room.LiveId))
 			if !ok {
 				return fmt.Errorf("live id: %s can not find", room.LiveId)
 			}
@@ -1037,7 +1037,7 @@ func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
 		}
 
 		// 从缓存获取直播间信息（不触发网络请求）
-		if liveInstance, ok := inst.Lives[room.LiveId]; ok {
+		if liveInstance, ok := inst.Lives.Get(room.LiveId); ok {
 			if obj, err := inst.Cache.Get(liveInstance); err == nil {
 				if info, ok := obj.(*live.Info); ok && info != nil {
 					roomInfo["host_name"] = info.HostName
@@ -2196,10 +2196,10 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	hostCookieMap := make(map[string]*live.InfoCookie)
 	keys := make([]string, 0)
-	for _, v := range inst.Lives {
+	inst.Lives.Range(func(_ types.LiveID, v live.Live) bool {
 		urltmp, _ := url.Parse(v.GetRawUrl())
 		if _, ok := hostCookieMap[urltmp.Host]; ok {
-			continue
+			return true
 		}
 		host := urltmp.Host
 		platformName := v.GetPlatformCNName()
@@ -2211,7 +2211,8 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 			hostCookieMap[host] = tmp
 		}
 		keys = append(keys, host)
-	}
+		return true
+	})
 	sort.Strings(keys)
 	result := make([]*live.InfoCookie, 0)
 	for _, v := range keys {
@@ -2261,22 +2262,23 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		if tmpurl.Host != host {
 			continue
 		}
-		live := inst.Lives[v.LiveId]
-		if live == nil {
+		liveObj, _ := inst.Lives.Get(v.LiveId)
+		if liveObj == nil {
 			// fallback search by URL
-			for _, l := range inst.Lives {
+			inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
 				if l.GetRawUrl() == v.Url {
-					live = l
-					break
+					liveObj = l
+					return false
 				}
-			}
+				return true
+			})
 		}
 
-		if live == nil {
+		if liveObj == nil {
 			applog.GetLogger().Warn("can't find live by id or url: " + string(v.LiveId) + " " + v.Url)
 			continue
 		}
-		live.UpdateLiveOptionsbyConfig(ctx, &v)
+		liveObj.UpdateLiveOptionsbyConfig(ctx, &v)
 	}
 	if err := newCfg.Marshal(); err != nil {
 		applog.GetLogger().Error("failed to persistence config: " + err.Error())
@@ -2293,7 +2295,7 @@ func getLiveSessionHistory(writer http.ResponseWriter, r *http.Request) {
 	liveID := vars["id"]
 
 	// 检查直播间是否存在
-	if _, ok := inst.Lives[types.LiveID(liveID)]; !ok {
+	if !inst.Lives.Has(types.LiveID(liveID)) {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
 			ErrMsg: fmt.Sprintf("live id: %s can not find", liveID),
@@ -2336,7 +2338,7 @@ func getLiveNameHistory(writer http.ResponseWriter, r *http.Request) {
 	liveID := vars["id"]
 
 	// 检查直播间是否存在
-	if _, ok := inst.Lives[types.LiveID(liveID)]; !ok {
+	if !inst.Lives.Has(types.LiveID(liveID)) {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
 			ErrMsg: fmt.Sprintf("live id: %s can not find", liveID),
@@ -2387,7 +2389,7 @@ func getLiveHistory(writer http.ResponseWriter, r *http.Request) {
 	liveID := vars["id"]
 
 	// 检查直播间是否存在
-	if _, ok := inst.Lives[types.LiveID(liveID)]; !ok {
+	if !inst.Lives.Has(types.LiveID(liveID)) {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
 			ErrMsg: fmt.Sprintf("live id: %s can not find", liveID),

@@ -210,10 +210,11 @@ func osrpGetTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	inst := instance.GetInstance(ctx)
 
-	tasks := make([]OSRPTaskInfo, 0, len(inst.Lives))
-	for _, l := range inst.Lives {
+	tasks := make([]OSRPTaskInfo, 0, inst.Lives.Len())
+	inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
 		tasks = append(tasks, convertLiveToOSRPTask(ctx, l))
-	}
+		return true
+	})
 
 	osrpWriteSuccess(w, OSRPTaskListResponse{
 		Tasks: tasks,
@@ -228,7 +229,7 @@ func osrpGetTask(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	l, ok := inst.Lives[types.LiveID(id)]
+	l, ok := inst.Lives.Get(types.LiveID(id))
 	if !ok {
 		osrpWriteError(w, http.StatusNotFound, "TASK_NOT_FOUND", "任务不存在")
 		return
@@ -267,7 +268,7 @@ func osrpAddTask(w http.ResponseWriter, r *http.Request) {
 
 	// 获取刚添加的 live
 	inst := instance.GetInstance(ctx)
-	l, ok := inst.Lives[info.Live.GetLiveId()]
+	l, ok := inst.Lives.Get(info.Live.GetLiveId())
 	if !ok {
 		osrpWriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "添加成功但无法获取任务")
 		return
@@ -286,7 +287,7 @@ func osrpDeleteTask(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	l, ok := inst.Lives[types.LiveID(id)]
+	l, ok := inst.Lives.Get(types.LiveID(id))
 	if !ok {
 		osrpWriteError(w, http.StatusNotFound, "TASK_NOT_FOUND", "任务不存在")
 		return
@@ -318,7 +319,7 @@ func osrpTaskAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	l, ok := inst.Lives[types.LiveID(id)]
+	l, ok := inst.Lives.Get(types.LiveID(id))
 	if !ok {
 		osrpWriteError(w, http.StatusNotFound, "TASK_NOT_FOUND", "任务不存在")
 		return

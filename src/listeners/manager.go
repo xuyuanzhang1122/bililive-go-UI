@@ -48,17 +48,13 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 		inst := instance.GetInstance(ctx)
 		logger := originalLive.GetLogger()
 
-		// 删除旧的 InitializingLive
-		oldLiveId := initializingLive.GetLiveId()
-		delete(inst.Lives, oldLiveId)
-
 		// 将原始 Live 包装为 WrappedLive（使用全局缓存）
-		// 这样 parseInfo 可以通过缓存获取信息
 		// 传入 ctx 以便调度器可以被统一取消
+		oldLiveId := initializingLive.GetLiveId()
 		wrappedLive := live.NewWrappedLive(ctx, originalLive, inst.Cache)
 
-		// 添加新的 Live 对象到 Lives map
-		inst.Lives[wrappedLive.GetLiveId()] = wrappedLive
+		// 原子地替换 Lives map 中的条目（删除旧 InitializingLive，添加新 wrappedLive）
+		inst.Lives.ReplaceKey(oldLiveId, wrappedLive.GetLiveId(), wrappedLive)
 
 		// 直接将已有的 info 存入缓存，避免再次调用 GetInfo() 触发 API 请求
 		// info.Live 需要更新为新的 wrappedLive，确保后续 JSON 序列化正确
@@ -88,7 +84,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 func (m *manager) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
-	if cfg := configs.GetCurrentConfig(); (cfg != nil && cfg.RPC.Enable) || len(inst.Lives) > 0 {
+	if cfg := configs.GetCurrentConfig(); (cfg != nil && cfg.RPC.Enable) || inst.Lives.Len() > 0 {
 		inst.WaitGroup.Add(1)
 	}
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))

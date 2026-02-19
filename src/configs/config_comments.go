@@ -74,15 +74,6 @@ func DecorateConfigNode(node *yaml.Node) {
 # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩`
 	}
 
-	// Sentry 配置注释
-	setFieldHeadComment(root, "sentry", "# Sentry 错误监控配置（用于收集崩溃日志）")
-	sentryNode := findNode(root, "sentry")
-	if sentryNode != nil {
-		setFieldComment(sentryNode, "enable", "# 是否启用 Sentry 错误监控", "")
-		setFieldComment(sentryNode, "dsn", "# Sentry DSN，留空则禁用。申请地址：https://sentry.io/", "")
-		setFieldComment(sentryNode, "environment", "# 环境标识：production 或 development", "")
-	}
-
 	// Proxy 代理配置注释
 	setFieldHeadComment(root, "proxy", "# 代理配置（支持 HTTP 和 SOCKS5 代理）")
 	proxyNode := findNode(root, "proxy")

@@ -92,10 +92,6 @@ read_only_tool_folder: ""
 tool_root_folder: ""
 task_queue:
   max_concurrent: 3
-# Sentry 错误监控配置（用于收集崩溃日志）
-sentry:
-  # 是否启用 Sentry 错误监控
-  enable: false
 # 代理配置（支持 HTTP 和 SOCKS5 代理）
 proxy:
   # 是否启用配置的代理

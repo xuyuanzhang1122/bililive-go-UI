@@ -110,7 +110,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 func (m *manager) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
-	if cfg := configs.GetCurrentConfig(); (cfg != nil && cfg.RPC.Enable) || len(inst.Lives) > 0 {
+	if cfg := configs.GetCurrentConfig(); (cfg != nil && cfg.RPC.Enable) || inst.Lives.Len() > 0 {
 		inst.WaitGroup.Add(1)
 	}
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))

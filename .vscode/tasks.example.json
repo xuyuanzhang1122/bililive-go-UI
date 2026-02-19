@@ -41,11 +41,6 @@
       "command": "make dev-incremental",
       "isBackground": false,
       "problemMatcher": "$go",
-      "options": {
-        "env": {
-          "GOEXPERIMENT": "nodwarf5"
-        }
-      },
       "group": {
         "kind": "build",
         "isDefault": true

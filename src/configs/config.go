@@ -152,15 +152,6 @@ var defaultTaskQueue = TaskQueue{
 	MaxConcurrent: 3,
 }
 
-// Sentry 错误监控配置
-type Sentry struct {
-	Enable bool `yaml:"enable" json:"enable"` // 是否启用 Sentry
-}
-
-var defaultSentry = Sentry{
-	Enable: false,
-}
-
 // Proxy 代理配置
 type Proxy struct {
 	// Enable 是否启用配置的代理（false 时使用系统环境变量 HTTP_PROXY 等）
@@ -283,9 +274,6 @@ type Config struct {
 
 	// 任务队列配置
 	TaskQueue TaskQueue `yaml:"task_queue" json:"task_queue"`
-
-	// Sentry 错误监控配置
-	Sentry Sentry `yaml:"sentry" json:"sentry"`
 
 	// 代理配置
 	Proxy Proxy `yaml:"proxy" json:"proxy"`
@@ -641,11 +629,11 @@ var defaultConfig = Config{
 	ReadOnlyToolFolder: "",
 	ToolRootFolder:     "",
 	TaskQueue:          defaultTaskQueue,
-	Sentry:             defaultSentry,
-	Proxy:              defaultProxy,
-	OpenList:           defaultOpenListConfig,
-	Update:             defaultUpdateConfig,
-	PlatformConfigs:    map[string]PlatformConfig{},
+
+	Proxy:           defaultProxy,
+	OpenList:        defaultOpenListConfig,
+	Update:          defaultUpdateConfig,
+	PlatformConfigs: map[string]PlatformConfig{},
 }
 
 func NewConfig() *Config {
