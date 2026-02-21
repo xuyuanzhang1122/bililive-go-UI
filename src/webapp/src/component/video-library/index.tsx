@@ -69,9 +69,8 @@ function extractUrls(text: string): string[] {
     return Array.from(new Set(text.match(reg) || []));
 }
 const isShortUrl = (u: string) => /v\.douyin\.com|iesdouyin\.com/i.test(u);
-// webcast.amemv.com 不在列表内：bililive-go 无法解析该格式地址
 const isLiveUrl = (u: string) => /live\.(douyin|bilibili|huya|douyu|twitch|kuaishou)\.com/i.test(u)
-    || /cc\.163\.com|live\.acfun\.cn/.test(u);
+    || /cc\.163\.com|live\.acfun\.cn|webcast\.(amemv|douyin)\.com/i.test(u);
 
 function normalizeRoomUrl(raw: string): string {
     const v = raw.trim();
@@ -79,23 +78,7 @@ function normalizeRoomUrl(raw: string): string {
     try {
         const u = new URL(v);
         const host = u.hostname.toLowerCase();
-        // 只处理 live.douyin.com（直接清理 query 保留纯海外地址）
-        // webcast.amemv.com 的路径 ID 是 webcast_id，不是 live room_id，两者数字不同，不能直接转换。
-        if (host === 'live.douyin.com') {
-            const pathSegs = u.pathname.split('/').filter(Boolean);
-            let roomId = '';
-            for (const seg of pathSegs) {
-                if (/^\d{6,}$/.test(seg)) roomId = seg;
-            }
-            if (!roomId) {
-                for (const k of ['room_id', 'web_rid', 'roomId']) {
-                    const candidate = u.searchParams.get(k) || '';
-                    if (/^\d{6,}$/.test(candidate)) { roomId = candidate; break; }
-                }
-            }
-            if (roomId) return `https://live.douyin.com/${roomId}`;
-        } else if (host.includes('douyin.com') && !host.includes('webcast') && !host.includes('amemv')) {
-            // v.douyin.com 等其他 douyin 子域名，尝试提取数字 ID
+        if (host.includes('douyin.com') || host.includes('amemv.com')) {
             let roomId = '';
             const pathSegs = u.pathname.split('/').filter(Boolean);
             for (const seg of pathSegs) {
@@ -137,15 +120,7 @@ const AddRoomModal: React.FC<AddRoomModalProps> = ({ visible, onClose, onAdded }
             setResolving(true);
             try {
                 const r = await api.resolveUrl(short) as { url: string };
-                const nr = normalizeRoomUrl(r.url);
-                // webcast.amemv.com URL 或超长数字（可能是 webcast stream ID 而非 room ID）
-                const isWebcast = /webcast\.(amemv|douyin)\.com/i.test(nr);
-                const isStreamId = /live\.douyin\.com\/\d{16,}$/.test(nr); // webcast ID 通常 18-19 位
-                if (isWebcast || isStreamId) {
-                    setError('短链已跳转至直播流地址，无法自动提取直播间号。请在抖音 App 中打开该主播直播间，复制地址栏 live.douyin.com/XXXXX 格式的地址后手动粘贴。');
-                } else {
-                    setResolved(nr);
-                }
+                setResolved(normalizeRoomUrl(r.url));
             } catch { setError('短链解析失败，请手动输入标准地址'); }
             setResolving(false);
             setCandidates(urls);
@@ -898,25 +873,7 @@ const VideoLibrary: React.FC = () => {
 
     useEffect(() => {
         loadRooms();
-        const rec = loadPlayRecord();
-        if (rec) {
-            // 校验历史内的文件是否仍存在，如已删除则清除记录
-            const fileUrl = `/files/${rec.relPath.split('/').map(encodeURIComponent).join('/')}`;
-            fetch(fileUrl, { method: 'HEAD' })
-                .then(r => {
-                    if (r.ok) {
-                        setLastRecord(rec);
-                    } else {
-                        // 文件不存在（404），清除历史记录
-                        localStorage.removeItem(HISTORY_KEY);
-                        setLastRecord(null);
-                    }
-                })
-                .catch(() => {
-                    // 网络错误时保留记录，避免误删
-                    setLastRecord(rec);
-                });
-        }
+        setLastRecord(loadPlayRecord());
     }, [loadRooms]);
 
     const getThumbnailUrl = (latestVideo: string) => latestVideo ? `/api/thumbnail/${latestVideo.split('/').map(encodeURIComponent).join('/')}` : '';
