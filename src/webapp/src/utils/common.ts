@@ -87,6 +87,21 @@ class Utils {
     }
 
     /**
+     * Delete request with body
+     * @param url URL
+     * @param body Request body
+     */
+    requestDeleteWithBody(url: string, body?: object) {
+        return customFetch(url, {
+            method: 'DELETE',
+            body: JSON.stringify(body),
+            headers: new Headers({
+                'Content-Type': 'application/json'
+            })
+        });
+    }
+
+    /**
      * Patch request
      * @param url URL
      * @param body Request body

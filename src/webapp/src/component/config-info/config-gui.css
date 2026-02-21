@@ -276,7 +276,28 @@
 }
 
 /* 响应式调整 */
-@media screen and (max-width: 768px) {
+@media screen and (max-width: 900px) {
+  .config-gui-header {
+    padding: 12px 14px;
+  }
+
+  .config-gui-title {
+    font-size: 18px;
+  }
+
+  .config-gui-subtitle {
+    display: none;
+  }
+
+  .config-mode-tabs {
+    padding: 0 8px !important;
+  }
+
+  .config-content {
+    margin: 10px;
+    padding: 12px;
+  }
+
   .config-item {
     flex-direction: column;
   }
@@ -288,6 +309,25 @@
 
   .config-item-input {
     max-width: 100%;
+  }
+
+  .config-item-input .ant-input,
+  .config-item-input .ant-input-password,
+  .config-item-input .ant-input-number,
+  .config-item-input .ant-select {
+    width: 100% !important;
+  }
+
+  .config-mobile-section-tabs > .ant-tabs-nav {
+    margin-bottom: 12px;
+  }
+
+  .config-mobile-section-tabs > .ant-tabs-nav .ant-tabs-nav-wrap {
+    overflow-x: auto;
+  }
+
+  .config-mobile-section-tabs > .ant-tabs-content-holder {
+    border-left: none !important;
   }
 }
 

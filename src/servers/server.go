@@ -105,6 +105,12 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/bilibili/qrcode/poll", pollBilibiliQRCode).Methods("GET")
 	apiRoute.HandleFunc("/bilibili/cookie/verify", verifyBilibiliCookie).Methods("POST")
 	apiRoute.HandleFunc("/sse", sseHandler).Methods("GET") // SSE 实时推送端点
+	// 短链解析 API
+	apiRoute.HandleFunc("/resolve-url", resolveUrl).Methods("GET") // 解析抓鼿分享短链
+	// 视频库 API
+	apiRoute.HandleFunc("/video-library", getVideoLibrary).Methods("GET")
+	apiRoute.HandleFunc("/thumbnail/{path:.*}", getThumbnail).Methods("GET")
+	apiRoute.HandleFunc("/video-files/{path:.*}", getVideoFiles).Methods("GET")
 	// 远程 WebUI 路由
 	apiRoute.HandleFunc("/webui/remote/status", getRemoteWebuiStatus).Methods("GET")  // 获取远程 WebUI 状态
 	apiRoute.HandleFunc("/webui/remote/check", checkRemoteWebuiUpdate).Methods("GET") // 检查远程 WebUI 更新

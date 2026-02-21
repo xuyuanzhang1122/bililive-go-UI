@@ -43,9 +43,36 @@ class API {
     /**
      * 删除直播间
      * @param id 直播间id
+     * @param deleteFiles 是否同时删除录制视频
      */
-    deleteRoom(id: string) {
+    deleteRoom(id: string, deleteFiles?: boolean) {
+        if (deleteFiles) {
+            return utils.requestDeleteWithBody(`${BASE_URL}/lives/${id}`, { delete_files: true });
+        }
         return utils.requestDelete(`${BASE_URL}/lives/${id}`);
+    }
+
+    /**
+     * 解析短链（如抖音分享短链 v.douyin.com/xxx）为标准直播间地址
+     * @param url 原始 URL（可为短链）
+     */
+    resolveUrl(url: string) {
+        return utils.requestGet(`${BASE_URL}/resolve-url?url=${encodeURIComponent(url)}`);
+    }
+
+    /**
+     * 获取视频库（有录播视频的直播间列表）
+     */
+    getVideoLibrary() {
+        return utils.requestGet(`${BASE_URL}/video-library`);
+    }
+
+    /**
+     * 获取指定主播文件夹内的所有视频文件
+     * @param folderPath 相对于 output_path 的文件夹路径（如 "抖音/北城"）
+     */
+    getVideoFiles(folderPath: string) {
+        return utils.requestGet(`${BASE_URL}/video-files/${folderPath.split('/').map(encodeURIComponent).join('/')}`);
     }
 
     /**

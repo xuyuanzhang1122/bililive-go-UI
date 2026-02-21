@@ -6,12 +6,28 @@
     padding: 24px;
 }
 
-@media(max-device-width: 768px) {
-    .small-header{
-        padding: 0 30px !important;
-    }
-    .side-bar {
-        display: none;
+/* 移动端汉堡菜单按钮 */
+.mobile-menu-btn {
+    font-size: 18px !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+/* Header 在移动端的布局 */
+.header.small-header {
+    display: flex;
+    align-items: center;
+}
+
+.logo-text {
+    margin: 0;
+    flex: 1;
+}
+
+@media (max-width: 768px) {
+    .small-header {
+        padding: 0 16px !important;
     }
     .content-padding {
         padding: 0px;

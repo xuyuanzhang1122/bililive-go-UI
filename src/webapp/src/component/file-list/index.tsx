@@ -13,7 +13,7 @@ import {
     // @ts-ignore
     DeleteOutlined
 } from "@ant-design/icons";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import Utils from "../../utils/common";
 import './file-list.css';
 import Artplayer from "artplayer";
@@ -37,8 +37,11 @@ const FileList: React.FC = () => {
 
     const [currentFolderFiles, setCurrentFolderFiles] = useState<CurrentFolderFile[]>([]);
     const [sortedInfo, setSortedInfo] = useState<any>({});
-    const [isPlayerVisible, setIsPlayerVisible] = useState(false);
-    const [currentPlayingName, setCurrentPlayingName] = useState("");
+    const [searchParams] = useSearchParams();
+    // 从 URL 参数读取当前播放的文件路径（支持浏览器前进/后退）
+    const playingFilePath = searchParams.get('play') ? decodeURIComponent(searchParams.get('play')!) : null;
+    const isPlayerVisible = !!playingFilePath;
+    const currentPlayingName = playingFilePath ? playingFilePath.split('/').pop() || '' : '';
     const artRef = useRef<Artplayer | null>(null);
 
     // 重命名相关状态
@@ -94,9 +97,9 @@ const FileList: React.FC = () => {
             artRef.current.destroy(true);
             artRef.current = null;
         }
-        setIsPlayerVisible(false);
-        setCurrentPlayingName("");
-    }, []);
+        // 用路由后退关闭播放器，保证手机左滑/后退按钮能正常工作
+        navigate(-1);
+    }, [navigate]);
 
     // 监听 ESC 键退出播放
     useEffect(() => {
@@ -112,6 +115,14 @@ const FileList: React.FC = () => {
             window.removeEventListener("keydown", handleEsc);
         };
     }, [isPlayerVisible, hidePlayer]);
+
+    // 当 URL 参数变化时，销毁已有播放器实例（如前进/后退切换）
+    useEffect(() => {
+        if (!isPlayerVisible && artRef.current) {
+            artRef.current.destroy(true);
+            artRef.current = null;
+        }
+    }, [isPlayerVisible]);
 
     const handleChange = (pagination: any, filters: any, sorter: any) => {
         setSortedInfo(sorter);
@@ -275,8 +286,11 @@ const FileList: React.FC = () => {
             // 仅在跳转时进行编码
             navigate("/fileList/" + encodePathForNav(fullPath));
         } else {
-            setCurrentPlayingName(record.name);
-            setIsPlayerVisible(true);
+            // 将播放文件路径写入 URL 参数，纳入浏览器历史栈
+            // 这样手机左滑/后退可关闭播放器而不是跳出页面
+            const newParams = new URLSearchParams(searchParams);
+            newParams.set('play', encodeURIComponent(fullPath));
+            navigate('?' + newParams.toString());
             // 使用 setTimeout 确保 DOM 已更新
             setTimeout(() => {
                 if (artRef.current) {

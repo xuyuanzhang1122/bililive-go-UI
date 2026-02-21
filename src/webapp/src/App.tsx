@@ -2,14 +2,16 @@ import React from 'react';
 import './App.css';
 import { Routes, Route } from 'react-router-dom';
 import RootLayout from './component/layout/index';
-import LiveList from './component/live-list/index';
 import LiveInfo from './component/live-info/index';
+import LiveList from './component/live-list/index';
+
 import ConfigInfo from './component/config-info/index';
 import FileList from './component/file-list/index';
 import TaskPage from './component/task-page/index';
 import IOStats from './component/io-stats/index';
 import UpdateBanner from './component/update-banner/index';
 import UpdatePage from './component/update-page/index';
+import VideoLibrary from './component/video-library/index';
 
 const App: React.FC = () => {
   return (
@@ -22,8 +24,10 @@ const App: React.FC = () => {
           <Route path="/tasks/*" element={<TaskPage />} />
           <Route path="/fileList/*" element={<FileList />} />
           <Route path="/configInfo/*" element={<ConfigInfo />} />
+          <Route path="/videoLibrary" element={<VideoLibrary />} />
           <Route path="/liveInfo" element={<LiveInfo />} />
-          <Route path="/" element={<LiveList />} />
+          <Route path="/liveList" element={<LiveList />} />
+          <Route path="/" element={<VideoLibrary />} />
         </Routes>
       </RootLayout>
     </>

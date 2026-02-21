@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -744,7 +745,7 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 func removeLive(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	vars := mux.Vars(r)
-	live, ok := inst.Lives.Get(types.LiveID(vars["id"]))
+	liveObj, ok := inst.Lives.Get(types.LiveID(vars["id"]))
 	if !ok {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
@@ -752,13 +753,59 @@ func removeLive(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := removeLiveImpl(r.Context(), live); err != nil {
+
+	// 读取可选的 delete_files 参数
+	var deleteFiles bool
+	if r.ContentLength > 0 {
+		var req struct {
+			DeleteFiles bool `json:"delete_files"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			deleteFiles = req.DeleteFiles
+		}
+	}
+
+	// 记录录播文件夹路径（删除直播间前获取，因为删除后就找不到了）
+	var videoFolderPath string
+	if deleteFiles {
+		cfg := configs.GetCurrentConfig()
+		if cfg != nil {
+			room, err := cfg.GetLiveRoomByUrl(liveObj.GetRawUrl())
+			if err == nil {
+				resolved := cfg.ResolveConfigForRoom(room, configs.GetPlatformKeyFromUrl(liveObj.GetRawUrl()))
+				// 尝试从缓存获取主播名
+				hostName := ""
+				if obj, err := inst.Cache.Get(liveObj); err == nil && obj != nil {
+					hostName = obj.(*live.Info).HostName
+				}
+				platform := liveObj.GetPlatformCNName()
+				if hostName != "" && platform != "" {
+					videoFolderPath = filepath.Join(resolved.OutPutPath, platform, hostName)
+				}
+			}
+		}
+	}
+
+	if err := removeLiveImpl(r.Context(), liveObj); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
 			ErrNo:  http.StatusBadRequest,
 			ErrMsg: err.Error(),
 		})
 		return
 	}
+
+	// 异步删除录播文件夹
+	if deleteFiles && videoFolderPath != "" {
+		applog.GetLogger().Infof("删除直播间录播文件夹: %s", videoFolderPath)
+		go func() {
+			if err := os.RemoveAll(videoFolderPath); err != nil {
+				applog.GetLogger().Errorf("删除录播文件夹失败 [%s]: %v", videoFolderPath, err)
+			} else {
+				applog.GetLogger().Infof("录播文件夹已删除: %s", videoFolderPath)
+			}
+		}()
+	}
+
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})
@@ -783,6 +830,455 @@ func removeLiveImpl(ctx context.Context, live live.Live) error {
 	})
 	return nil
 }
+
+// resolveUrl 跟随 HTTP 重定向，返回最终 URL
+// 用于解析抖音分享短链（v.douyin.com/xxx）到正式直播间地址
+func resolveUrl(writer http.ResponseWriter, r *http.Request) {
+	rawURL := r.URL.Query().Get("url")
+	if rawURL == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "缺少 url 参数",
+		})
+		return
+	}
+
+	// 使用桌面 Chrome UA：v.douyin.com 短链在桌面 UA 下更可能直接重定向到
+	// live.douyin.com/<room_id>，而 iPhone UA 容易重定向到 App deeplink 或
+	// webcast.amemv.com（webcast_id 与 live room_id 不同，无法互转）。
+	desktopUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 15 {
+				return fmt.Errorf("重定向次数超过上限 (15)")
+			}
+			// 继承 User-Agent 和 Referer，防止中间步骤被拦截
+			req.Header.Set("User-Agent", desktopUA)
+			if len(via) > 0 {
+				req.Header.Set("Referer", via[len(via)-1].URL.String())
+			}
+			return nil
+		},
+		Timeout: 12 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), "GET", rawURL, nil)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "无效的 URL: " + err.Error(),
+		})
+		return
+	}
+	req.Header.Set("User-Agent", desktopUA)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// GET 失败才降级 HEAD
+		req2, _ := http.NewRequestWithContext(r.Context(), "HEAD", rawURL, nil)
+		req2.Header.Set("User-Agent", desktopUA)
+		resp, err = client.Do(req2)
+		if err != nil {
+			writeJsonWithStatusCode(writer, http.StatusBadGateway, commonResp{
+				ErrNo:  http.StatusBadGateway,
+				ErrMsg: "请求失败: " + err.Error(),
+			})
+			return
+		}
+	}
+	resp.Body.Close()
+
+	finalURL := normalizeLiveRoomURL(resp.Request.URL.String())
+	writeJSON(writer, map[string]string{
+		"url": finalURL,
+	})
+}
+
+// normalizeLiveRoomURL 将可识别的分享链接统一为更稳定的直播间地址。
+// 注意：webcast.amemv.com/douyin/webcast/reflow/<webcast_id> 中的 ID 是直播流实例 ID，
+// 与 live.douyin.com/<room_id> 中稳定的房间 ID 不同，不能直接互转。
+// 因此对 webcast.amemv.com URL 不做转换，由前端提示用户手动输入正确地址。
+func normalizeLiveRoomURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	host := strings.ToLower(u.Hostname())
+
+	// 仅处理 live.douyin.com 路径：清理 query 参数，保留纯净地址
+	if host == "live.douyin.com" {
+		// 从路径提取 web_rid（纯数字 6 位以上）
+		roomID := ""
+		for _, seg := range strings.Split(u.Path, "/") {
+			if ok, _ := regexp.MatchString(`^\d{6,}$`, seg); ok {
+				roomID = seg
+			}
+		}
+		if roomID != "" {
+			return "https://live.douyin.com/" + roomID
+		}
+		// 尝试 query 参数
+		for _, k := range []string{"room_id", "web_rid", "roomId"} {
+			v := u.Query().Get(k)
+			if ok, _ := regexp.MatchString(`^\d{6,}$`, v); ok {
+				return "https://live.douyin.com/" + v
+			}
+		}
+	}
+
+	// 其他 douyin/amemv 域名（包括 webcast.amemv.com）——原样返回
+	// 前端会检测到非 live.douyin.com 格式并提示用户手动输入
+	return raw
+}
+
+// 视频文件扩展名
+var videoExtensions = map[string]bool{
+	".flv": true,
+	".mp4": true,
+	".ts":  true,
+	".mkv": true,
+	".mov": true,
+}
+
+// VideoRoomInfo 视频库中的直播间信息
+type VideoRoomInfo struct {
+	HostName      string `json:"host_name"`
+	Platform      string `json:"platform"`
+	FolderPath    string `json:"folder_path"`    // 相对于 output_path 的路径
+	VideoCount    int    `json:"video_count"`
+	TotalSize     int64  `json:"total_size"`
+	LatestVideoAt int64  `json:"latest_video_at"` // Unix 时间戳
+	LatestVideo   string `json:"latest_video"`    // 最新视频的相对路径（用于缩略图）
+}
+
+// getVideoLibrary 返回所有有录播视频的直播间汇总信息
+func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJSON(writer, []VideoRoomInfo{})
+		return
+	}
+
+	rootPath := cfg.OutPutPath
+	if rootPath == "" {
+		rootPath = "./"
+	}
+
+	// 从已配置的直播间中提取合法的 平台名 集合，避免扫描无关文件夹
+	knownPlatforms := make(map[string]bool)
+	inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
+		platformName := l.GetPlatformCNName()
+		if platformName != "" {
+			knownPlatforms[platformName] = true
+		}
+		return true
+	})
+
+	rooms := make([]VideoRoomInfo, 0)
+
+	platformEntries, err := os.ReadDir(rootPath)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取输出目录失败: " + err.Error(),
+		})
+		return
+	}
+
+	for _, platformEntry := range platformEntries {
+		if !platformEntry.IsDir() {
+			continue
+		}
+		// 跳过隐藏目录（以 . 开头）和 .appdata 等系统目录
+		if strings.HasPrefix(platformEntry.Name(), ".") {
+			continue
+		}
+		// 只扫描已配置直播间对应的平台目录。
+		// 注意：不加 len > 0 的守卫，当 knownPlatforms 为空时 map 查询返回 false，
+		// 从而正确地跳过所有目录，防止扫描整个输出路径。
+		if !knownPlatforms[platformEntry.Name()] {
+			continue
+		}
+		platformPath := filepath.Join(rootPath, platformEntry.Name())
+
+		hostEntries, err := os.ReadDir(platformPath)
+		if err != nil {
+			continue
+		}
+
+		for _, hostEntry := range hostEntries {
+			if !hostEntry.IsDir() {
+				continue
+			}
+			hostPath := filepath.Join(platformPath, hostEntry.Name())
+
+			var videoCount int
+			var totalSize int64
+			var latestModTime int64
+			var latestVideoRelPath string
+
+			err := filepath.WalkDir(hostPath, func(path string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return nil
+				}
+				ext := strings.ToLower(filepath.Ext(d.Name()))
+				if !videoExtensions[ext] {
+					return nil
+				}
+				info, err := d.Info()
+				if err != nil {
+					return nil
+				}
+				videoCount++
+				totalSize += info.Size()
+				modTime := info.ModTime().Unix()
+				if modTime > latestModTime {
+					latestModTime = modTime
+					rel, _ := filepath.Rel(rootPath, path)
+					latestVideoRelPath = rel
+				}
+				return nil
+			})
+			if err != nil || videoCount == 0 {
+				continue
+			}
+
+			folderRel, _ := filepath.Rel(rootPath, hostPath)
+			hostName := hostEntry.Name()
+			inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
+				if l.GetPlatformCNName() == platformEntry.Name() {
+					if obj, err := inst.Cache.Get(l); err == nil && obj != nil {
+						info := obj.(*live.Info)
+						if info.HostName == hostEntry.Name() {
+							hostName = info.HostName
+							return false
+						}
+					}
+				}
+				return true
+			})
+
+			rooms = append(rooms, VideoRoomInfo{
+				HostName:      hostName,
+				Platform:      platformEntry.Name(),
+				FolderPath:    filepath.ToSlash(folderRel),
+				VideoCount:    videoCount,
+				TotalSize:     totalSize,
+				LatestVideoAt: latestModTime,
+				LatestVideo:   filepath.ToSlash(latestVideoRelPath),
+			})
+		}
+	}
+
+	sort.Slice(rooms, func(i, j int) bool {
+		return rooms[i].LatestVideoAt > rooms[j].LatestVideoAt
+	})
+	writeJSON(writer, rooms)
+}
+
+// getThumbnail 生成并返回视频缩略图
+// 缩略图缓存在 .appdata/thumbnails/ 目录下
+func getThumbnail(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	videoRelPath := vars["path"]
+	if videoRelPath == "" {
+		http.Error(writer, "缺少视频路径", http.StatusBadRequest)
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		http.Error(writer, "配置未加载", http.StatusInternalServerError)
+		return
+	}
+
+	rootPath := cfg.OutPutPath
+	if rootPath == "" {
+		rootPath = "./"
+	}
+
+	// 安全检查：防止路径穿越（使用绝对路径比较，避免相对路径 "./" 时 "." 前缀匹配失效）
+	videoAbsPath := filepath.Join(rootPath, filepath.FromSlash(videoRelPath))
+	absRoot, _ := filepath.Abs(rootPath)
+	absVideo, _ := filepath.Abs(videoAbsPath)
+	if !strings.HasPrefix(filepath.Clean(absVideo)+string(filepath.Separator), filepath.Clean(absRoot)+string(filepath.Separator)) {
+		http.Error(writer, "非法路径", http.StatusForbidden)
+		return
+	}
+
+	// 缩略图缓存路径（用视频相对路径的 hash 作为文件名）
+	appDataPath := cfg.AppDataPath
+	if appDataPath == "" {
+		appDataPath = ".appdata"
+	}
+	thumbDir := filepath.Join(appDataPath, "thumbnails")
+	if err := os.MkdirAll(thumbDir, 0755); err != nil {
+		http.Error(writer, "创建缩略图目录失败", http.StatusInternalServerError)
+		return
+	}
+
+	// 用视频路径生成唯一的缩略图文件名
+	thumbFileName := strings.ReplaceAll(filepath.ToSlash(videoRelPath), "/", "_") + ".jpg"
+	thumbPath := filepath.Join(thumbDir, thumbFileName)
+
+	// 检查缓存
+	if _, err := os.Stat(thumbPath); os.IsNotExist(err) {
+		// 查找 ffmpeg：优先配置、然后 PATH、然后 Homebrew 常用路径
+		ffmpegPath := cfg.FfmpegPath
+		if ffmpegPath == "" {
+			if p, err := exec.LookPath("ffmpeg"); err == nil {
+				ffmpegPath = p
+			} else {
+				// Homebrew on Apple Silicon / Intel
+				for _, candidate := range []string{
+					"/opt/homebrew/bin/ffmpeg",
+					"/usr/local/bin/ffmpeg",
+					"/usr/bin/ffmpeg",
+				} {
+					if _, err := os.Stat(candidate); err == nil {
+						ffmpegPath = candidate
+						break
+					}
+				}
+			}
+		}
+		if ffmpegPath == "" {
+			http.Error(writer, "ffmpeg 未安装或未配置", http.StatusServiceUnavailable)
+			return
+		}
+
+		// 取第 5 秒的帧作为缩略图，若视频不够长则取第 1 秒
+		runCmd := func(seekSec string) error {
+			cmd := exec.CommandContext(r.Context(), ffmpegPath,
+				"-ss", seekSec,
+				"-i", videoAbsPath,
+				"-vframes", "1",
+				"-vf", "scale=320:-1",
+				"-q:v", "5",
+				thumbPath, "-y",
+			)
+			return cmd.Run()
+		}
+		if err := runCmd("5"); err != nil {
+			// 降级到第 1 秒
+			if err2 := runCmd("1"); err2 != nil {
+				http.Error(writer, "生成缩略图失败", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
+	// 返回缩略图
+	writer.Header().Set("Content-Type", "image/jpeg")
+	writer.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(writer, r, thumbPath)
+}
+
+// VideoFileInfo 单个视频文件信息
+type VideoFileInfo struct {
+	Name     string `json:"name"`      // 文件名
+	RelPath  string `json:"rel_path"`  // 相对于 output_path 的路径（用于缩略图和播放）
+	Size     int64  `json:"size"`      // 字节数
+	ModTime  int64  `json:"mod_time"`  // Unix 时间戳
+}
+
+// getVideoFiles 列出指定文件夹路径（相对 output_path）下的所有视频文件
+// 路由：GET /api/video-files/{folder_path:.*}
+func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	folderRelPath := vars["path"]
+
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJSON(writer, []VideoFileInfo{})
+		return
+	}
+
+	rootPath := cfg.OutPutPath
+	if rootPath == "" {
+		rootPath = "./"
+	}
+
+	folderAbsPath := filepath.Join(rootPath, filepath.FromSlash(folderRelPath))
+	// 安全检查（使用绝对路径比较，避免相对路径 "./" 时 "." 前缀匹配失效）
+	absRootF, _ := filepath.Abs(rootPath)
+	absFolder, _ := filepath.Abs(folderAbsPath)
+	if !strings.HasPrefix(filepath.Clean(absFolder)+string(filepath.Separator), filepath.Clean(absRootF)+string(filepath.Separator)) {
+		writeJsonWithStatusCode(writer, http.StatusForbidden, commonResp{ErrNo: 403, ErrMsg: "非法路径"})
+		return
+	}
+
+	files := make([]VideoFileInfo, 0)
+	err := filepath.WalkDir(folderAbsPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if !videoExtensions[ext] {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(rootPath, path)
+		files = append(files, VideoFileInfo{
+			Name:    d.Name(),
+			RelPath: filepath.ToSlash(rel),
+			Size:    info.Size(),
+			ModTime: info.ModTime().Unix(),
+		})
+		return nil
+	})
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取文件夹失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 按修改时间降序
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].ModTime > files[j].ModTime
+	})
+	writeJSON(writer, files)
+}
+
+
+func verifyBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Cookie string `json:"cookie"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "无效的请求体"})
+		return
+	}
+
+	resp, err := requests.Get("https://api.bilibili.com/x/web-interface/nav", requests.Header("Cookie", req.Cookie))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "验证 Cookie 失败: " + err.Error(),
+		})
+		return
+	}
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应体失败: " + err.Error(),
+		})
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(body)
+}
+
 
 func getConfig(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, configs.GetCurrentConfig())
@@ -2779,36 +3275,6 @@ func pollBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writer.Header().Set("Content-Type", "application/json")
-	writer.Write(body)
-}
-
-// verifyBilibiliCookie 验证哔哩哔哩 Cookie 有效性
-func verifyBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Cookie string `json:"cookie"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "无效的请求体"})
-		return
-	}
-
-	resp, err := requests.Get("https://api.bilibili.com/x/web-interface/nav", requests.Header("Cookie", req.Cookie))
-	if err != nil {
-		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
-			ErrNo:  http.StatusInternalServerError,
-			ErrMsg: "验证 Cookie 失败: " + err.Error(),
-		})
-		return
-	}
-	body, err := resp.Bytes()
-	if err != nil {
-		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
-			ErrNo:  http.StatusInternalServerError,
-			ErrMsg: "读取响应体失败: " + err.Error(),
-		})
-		return
-	}
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write(body)
 }

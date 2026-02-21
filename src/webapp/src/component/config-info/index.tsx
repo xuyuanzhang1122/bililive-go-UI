@@ -445,7 +445,7 @@ const GlobalSettings: React.FC<{
             valueDisplay={config.out_put_path || './'}
           >
             <Form.Item name="out_put_path" noStyle>
-              <Input placeholder="例如: ./ 或 /data/recordings" style={{ width: 400 }} />
+              <Input placeholder="例如: ./ 或 /data/recordings" style={{ width: '100%', maxWidth: 400 }} />
             </Form.Item>
           </ConfigField>
           <ConfigField
@@ -456,7 +456,7 @@ const GlobalSettings: React.FC<{
             valueDisplay={config.ffmpeg_path || '(自动查找)'}
           >
             <Form.Item name="ffmpeg_path" noStyle>
-              <Input placeholder="留空则自动在环境变量中查找" style={{ width: 400 }} />
+              <Input placeholder="留空则自动在环境变量中查找" style={{ width: '100%', maxWidth: 400 }} />
             </Form.Item>
           </ConfigField>
           <ConfigField
@@ -486,7 +486,7 @@ const GlobalSettings: React.FC<{
             effectiveValue={config.actual_log_folder}
           >
             <Form.Item name={['log', 'out_put_folder']} noStyle>
-              <Input placeholder="例如: ./" style={{ width: 400 }} />
+              <Input placeholder="例如: ./" style={{ width: '100%', maxWidth: 400 }} />
             </Form.Item>
           </ConfigField>
           <ConfigField label="保留上次日志" description="程序启动时保留上次运行的日志">
@@ -668,7 +668,7 @@ const GlobalSettings: React.FC<{
             effectiveValue={config.actual_app_data_path}
           >
             <Form.Item name="app_data_path" noStyle>
-              <Input placeholder="留空使用默认目录" style={{ width: 400 }} />
+              <Input placeholder="留空使用默认目录" style={{ width: '100%', maxWidth: 400 }} />
             </Form.Item>
           </ConfigField>
           <ConfigField
@@ -677,7 +677,7 @@ const GlobalSettings: React.FC<{
             effectiveValue={config.actual_read_only_tool_folder}
           >
             <Form.Item name="read_only_tool_folder" noStyle>
-              <Input placeholder="留空则不使用" style={{ width: 400 }} />
+              <Input placeholder="留空则不使用" style={{ width: '100%', maxWidth: 400 }} />
             </Form.Item>
           </ConfigField>
           <ConfigField
@@ -686,7 +686,7 @@ const GlobalSettings: React.FC<{
             effectiveValue={config.actual_tool_root_folder}
           >
             <Form.Item name="tool_root_folder" noStyle>
-              <Input placeholder="留空使用默认目录" style={{ width: 400 }} />
+              <Input placeholder="留空使用默认目录" style={{ width: '100%', maxWidth: 400 }} />
             </Form.Item>
           </ConfigField>
         </Card>
@@ -709,7 +709,7 @@ const GlobalSettings: React.FC<{
               valueDisplay={config.proxy?.url || '(未设置)'}
             >
               <Form.Item name={['proxy', 'url']} noStyle>
-                <Input placeholder="例如: socks5://127.0.0.1:1080 或 http://127.0.0.1:7890" style={{ width: 400 }} />
+                <Input placeholder="例如: socks5://127.0.0.1:1080 或 http://127.0.0.1:7890" style={{ width: '100%', maxWidth: 400 }} />
               </Form.Item>
             </ConfigField>
 
@@ -727,7 +727,7 @@ const GlobalSettings: React.FC<{
               label="信息获取代理地址"
             >
               <Form.Item name={['proxy', 'info_proxy', 'url']} noStyle>
-                <Input placeholder="留空则使用通用代理" style={{ width: 400 }} />
+                <Input placeholder="留空则使用通用代理" style={{ width: '100%', maxWidth: 400 }} />
               </Form.Item>
             </ConfigField>
 
@@ -743,7 +743,7 @@ const GlobalSettings: React.FC<{
               label="下载代理地址"
             >
               <Form.Item name={['proxy', 'download_proxy', 'url']} noStyle>
-                <Input placeholder="留空则使用通用代理" style={{ width: 400 }} />
+                <Input placeholder="留空则使用通用代理" style={{ width: '100%', maxWidth: 400 }} />
               </Form.Item>
             </ConfigField>
 
@@ -861,7 +861,7 @@ const NotifySettings: React.FC<{
           </ConfigField>
           <ConfigField label="Bot Token" description="从 @BotFather 获取">
             <Form.Item name={['telegram', 'botToken']} noStyle>
-              <Input.Password placeholder="你的 Bot Token" style={{ width: 400 }} />
+              <Input.Password placeholder="你的 Bot Token" style={{ width: '100%', maxWidth: 400 }} />
             </Form.Item>
           </ConfigField>
           <ConfigField label="Chat ID" description="接收通知的聊天 ID">
@@ -1251,7 +1251,7 @@ const PlatformConfigForm: React.FC<{
           <Form.Item name="out_put_path" noStyle>
             <Input
               placeholder={`继承全局: ${globalConfig?.out_put_path || './'}`}
-              style={{ width: 400 }}
+              style={{ width: '100%', maxWidth: 400 }}
             />
           </Form.Item>
         </ConfigField>
@@ -1271,7 +1271,7 @@ const PlatformConfigForm: React.FC<{
           <Form.Item name="ffmpeg_path" noStyle>
             <Input
               placeholder={`继承全局: ${getFFmpegDisplayValue(globalConfig?.ffmpeg_path)}`}
-              style={{ width: 400 }}
+              style={{ width: '100%', maxWidth: 400 }}
             />
           </Form.Item>
         </ConfigField>
@@ -1622,7 +1622,7 @@ export const RoomConfigForm: React.FC<{
         <Form.Item name="out_put_path" noStyle>
           <Input
             placeholder={`继承${platformConfig ? '平台' : '全局'}: ${platformConfig?.out_put_path ?? globalConfig?.out_put_path ?? './'}`}
-            style={{ width: 400 }}
+            style={{ width: '100%', maxWidth: 400 }}
           />
         </Form.Item>
       </ConfigField>
@@ -1643,7 +1643,7 @@ export const RoomConfigForm: React.FC<{
         <Form.Item name="ffmpeg_path" noStyle>
           <Input
             placeholder={`继承${(platformConfig?.ffmpeg_path) ? '平台' : '全局'}: ${getFFmpegDisplayValue(platformConfig?.ffmpeg_path, globalConfig?.ffmpeg_path)}`}
-            style={{ width: 400 }}
+            style={{ width: '100%', maxWidth: 400 }}
           />
         </Form.Item>
       </ConfigField>
@@ -1861,7 +1861,7 @@ const RoomSettings: React.FC<{
           placeholder="搜索主播名、URL或平台"
           allowClear
           onChange={e => setSearchText(e.target.value)}
-          style={{ width: 400 }}
+          style={{ width: '100%', maxWidth: 400 }}
         />
       </div>
 
@@ -1911,6 +1911,20 @@ const ConfigInfo: React.FC = () => {
   const [platformStats, setPlatformStats] = useState<PlatformStatsResponse | null>(null);
   const [rawConfig, setRawConfig] = useState('');
   const [activeTab, setActiveTab] = useState('global');
+
+  // 判断是否为移动端布局
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 900px)').matches);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 900px)');
+    const handleChange = () => setIsMobile(media.matches);
+    handleChange();
+    if (media.addEventListener) {
+      media.addEventListener('change', handleChange);
+      return () => media.removeEventListener('change', handleChange);
+    }
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, []);
 
   // 加载配置
   const loadConfig = useCallback(async () => {
@@ -2047,90 +2061,82 @@ const ConfigInfo: React.FC = () => {
     }
   };
 
-  // GUI 模式内容
+  // GUI 模式内容 - 移动端使用顶部 Tab，PC 端用左侧 Tab
+  const guiSections = [
+    {
+      key: 'global',
+      label: <span><GlobalOutlined /> 全局设置</span>,
+      content: effectiveConfig ? (
+        <GlobalSettings
+          config={effectiveConfig}
+          onUpdate={handleUpdateConfig}
+          loading={saving}
+        />
+      ) : <Spin />,
+    },
+    {
+      key: 'platforms',
+      label: (
+        <span>
+          <AppstoreOutlined /> 平台设置
+          <Badge count={platformStats?.platforms.length || 0} style={{ marginLeft: 8 }} />
+        </span>
+      ),
+      content: effectiveConfig ? (
+        <PlatformSettings
+          platformStats={platformStats}
+          globalConfig={effectiveConfig}
+          onUpdate={handleUpdatePlatformConfig}
+          onDelete={handleDeletePlatformConfig}
+          loading={saving}
+          onRefresh={loadConfig}
+        />
+      ) : <Spin />,
+    },
+    {
+      key: 'rooms',
+      label: (
+        <span>
+          <EditOutlined /> 直播间设置
+          <Badge count={effectiveConfig?.live_rooms_count || 0} style={{ marginLeft: 8 }} color="#108ee9" />
+        </span>
+      ),
+      content: effectiveConfig ? (
+        <RoomSettings
+          platformStats={platformStats}
+          globalConfig={effectiveConfig}
+          onUpdate={handleUpdateRoomConfig}
+          loading={saving}
+          onRefresh={loadConfig}
+        />
+      ) : <Spin />,
+    },
+    {
+      key: 'notify',
+      label: <span><BellOutlined /> 通知服务</span>,
+      content: effectiveConfig ? (
+        <NotifySettings
+          config={effectiveConfig}
+          onUpdate={handleUpdateConfig}
+          loading={saving}
+        />
+      ) : <Spin />,
+    },
+  ];
+
   const renderGuiMode = () => (
     // @ts-ignore
     <Tabs
       activeKey={activeTab}
       onChange={setActiveTab}
-      tabPosition="left"
+      tabPosition={isMobile ? 'top' : 'left'}
+      className={isMobile ? 'config-mobile-section-tabs' : undefined}
       style={{ minHeight: 400 }}
-      items={[
-        {
-          key: 'global',
-          label: (
-            <span>
-              <GlobalOutlined /> 全局设置
-            </span>
-          ),
-          children: effectiveConfig ? (
-            <GlobalSettings
-              config={effectiveConfig}
-              onUpdate={handleUpdateConfig}
-              loading={saving}
-            />
-          ) : <Spin />
-        },
-        {
-          key: 'platforms',
-          label: (
-            <span>
-              <AppstoreOutlined /> 平台设置
-              <Badge
-                count={platformStats?.platforms.length || 0}
-                style={{ marginLeft: 8 }}
-              />
-            </span>
-          ),
-          children: effectiveConfig ? (
-            <PlatformSettings
-              platformStats={platformStats}
-              globalConfig={effectiveConfig}
-              onUpdate={handleUpdatePlatformConfig}
-              onDelete={handleDeletePlatformConfig}
-              loading={saving}
-              onRefresh={loadConfig}
-            />
-          ) : <Spin />
-        },
-        {
-          key: 'rooms',
-          label: (
-            <span>
-              <EditOutlined /> 直播间设置
-              <Badge
-                count={effectiveConfig?.live_rooms_count || 0}
-                style={{ marginLeft: 8 }}
-                color="#108ee9"
-              />
-            </span>
-          ),
-          children: effectiveConfig ? (
-            <RoomSettings
-              platformStats={platformStats}
-              globalConfig={effectiveConfig}
-              onUpdate={handleUpdateRoomConfig}
-              loading={saving}
-              onRefresh={loadConfig}
-            />
-          ) : <Spin />
-        },
-        {
-          key: 'notify',
-          label: (
-            <span>
-              <BellOutlined /> 通知服务
-            </span>
-          ),
-          children: effectiveConfig ? (
-            <NotifySettings
-              config={effectiveConfig}
-              onUpdate={handleUpdateConfig}
-              loading={saving}
-            />
-          ) : <Spin />
-        }
-      ]}
+      items={guiSections.map(s => ({
+        key: s.key,
+        label: s.label,
+        children: s.content,
+      }))}
     />
   );
 

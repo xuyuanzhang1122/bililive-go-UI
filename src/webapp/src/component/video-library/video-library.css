@@ -1,0 +1,515 @@
+.video-library-container {
+    padding: 8px 0;
+}
+
+.video-library-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.header-left {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.video-library-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 300px;
+}
+
+/* ===== 继续观看横幅 ===== */
+.continue-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.15s;
+    color: #fff;
+}
+
+.continue-banner:hover {
+    opacity: 0.92;
+    transform: translateY(-1px);
+}
+
+.continue-icon {
+    font-size: 36px;
+    color: #4fc3f7;
+    flex-shrink: 0;
+}
+
+.continue-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.continue-title {
+    font-size: 11px;
+    color: #90caf9;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.continue-name {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 6px;
+}
+
+.continue-progress-bar {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    height: 3px;
+    margin-bottom: 4px;
+}
+
+.continue-progress-fill {
+    background: #4fc3f7;
+    border-radius: 2px;
+    height: 3px;
+    transition: width 0.3s;
+}
+
+.continue-time {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* ===== 主播卡片 ===== */
+.video-room-card {
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.video-room-card:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+/* ===== 视频文件卡片 ===== */
+.video-file-card {
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.video-file-card:hover {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+/* ===== 缩略图 ===== */
+.thumbnail-container {
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%;
+    background: #f0f0f0;
+    overflow: hidden;
+}
+
+.thumbnail-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.thumbnail-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f5f5f5;
+}
+
+.play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+.video-file-card:hover .play-overlay {
+    opacity: 1;
+}
+
+/* ===== 卡片文字 ===== */
+.host-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.card-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.card-meta-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.file-card-body {
+    padding: 0;
+}
+
+.file-name {
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 4px;
+}
+
+.file-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #999;
+}
+
+/* ===== 视频网格页头部 ===== */
+.video-grid-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.grid-host-name {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+/* ===== Artplayer 播放器页 ===== */
+.player-page {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+        radial-gradient(circle at 25% 10%, rgba(60, 112, 188, 0.25), transparent 45%),
+        radial-gradient(circle at 85% 90%, rgba(0, 173, 181, 0.2), transparent 42%),
+        #06080f;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    /* 防止 Safari 橡皮筋滚动 */
+    overflow: hidden;
+    /* 注意：不在此设置 touch-action:none，否则子元素无法扩展为 pan-x */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    /* GPU 合成层，防止 iOS 重绘白屏 */
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+}
+
+.player-page,
+.player-page * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* 顶部工具栏 */
+.player-toolbar {
+    position: absolute;
+    top: env(safe-area-inset-top, 0px);
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
+    z-index: 10;
+    transition: opacity 0.3s ease;
+}
+
+.toolbar-visible { opacity: 1; pointer-events: auto; }
+.toolbar-hidden  { opacity: 0; pointer-events: none; }
+
+.player-floating-back-btn {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    left: 12px;
+    width: 38px;
+    height: 38px;
+    border: 1px solid rgba(210, 232, 255, 0.25);
+    border-radius: 999px;
+    background: rgba(7, 12, 20, 0.72);
+    color: #eaf4ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    backdrop-filter: blur(8px);
+}
+
+.player-back-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+.player-back-btn:active { background: rgba(255,255,255,0.15); }
+
+.player-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: rgba(255,255,255,0.9);
+    font-weight: 500;
+}
+
+.art-container {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+.art-container .art-video-player {
+    width: 100% !important;
+    height: 100% !important;
+    background: #000;
+}
+
+.art-container .art-video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    background: #000;
+}
+
+.art-container .art-bottom,
+.art-container .art-top {
+    backdrop-filter: blur(8px);
+}
+
+.art-container .art-bottom {
+    display: none !important;
+}
+
+.art-container .art-control .art-control-progress-inner {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.art-container .art-control .art-control-progress-loaded {
+    background: rgba(255, 255, 255, 0.42);
+}
+
+.art-container .art-control .art-control-progress-played {
+    background: linear-gradient(90deg, #22d3ee 0%, #38bdf8 100%);
+}
+
+.art-container .art-control .art-control-volume-inner,
+.art-container .art-control .art-control-volume-inner-handle {
+    background: #38bdf8;
+}
+
+.art-container .art-layer-auto-playback {
+    border-radius: 999px;
+}
+
+/* ===== 手势蒙层 ===== */
+.gesture-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    background: rgba(0, 0, 0, 0.01);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+.player-custom-controls {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(15, 30, 52, 0.88) 0%, rgba(8, 16, 30, 0.86) 100%);
+    border: 1px solid rgba(145, 189, 255, 0.2);
+    backdrop-filter: blur(10px);
+    transition: opacity 0.24s ease;
+    /* 防止触摸控制栏时误触发页面橡皮筋（range input 自身设为 pan-x 例外） */
+    touch-action: none;
+}
+
+.controls-visible { opacity: 1; pointer-events: auto; }
+.controls-hidden { opacity: 0.08; pointer-events: none; }
+
+.player-control-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(160, 220, 255, 0.3);
+    background: rgba(18, 35, 58, 0.85);
+    color: #eaf4ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.player-control-main {
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, #22d3ee 0%, #2dd4bf 100%);
+    color: #06232f;
+    border-color: transparent;
+}
+
+.player-time-label {
+    color: #d7ebff;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    min-width: 38px;
+    text-align: center;
+}
+
+.player-progress {
+    flex: 1;
+    height: 4px;
+    accent-color: #22d3ee;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    /* pan-x：允许 iOS 原生拖动滑块，同时阻止纵向滚动页面 */
+    touch-action: pan-x;
+    /* 增大点击热区，方便手指操作 */
+    padding: 8px 0;
+    box-sizing: content-box;
+    cursor: pointer;
+}
+
+/* ===== 手势提示气泡 ===== */
+.gesture-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.62);
+    border-radius: 16px;
+    padding: 18px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    z-index: 20;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+    animation: hint-pop 0.15s ease;
+}
+
+.gesture-hint span {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+@keyframes hint-pop {
+    from { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+    to   { transform: translate(-50%, -50%) scale(1);   opacity: 1; }
+}
+
+@media (max-width: 768px) {
+    .player-toolbar {
+        padding: 10px 12px;
+    }
+
+    .player-title {
+        font-size: 12px;
+    }
+
+    .gesture-hint {
+        padding: 14px 20px;
+        border-radius: 12px;
+    }
+
+    .gesture-hint span {
+        font-size: 14px;
+    }
+
+    .player-custom-controls {
+        left: 8px;
+        right: 8px;
+        gap: 6px;
+        padding: 8px;
+        border-radius: 12px;
+    }
+
+    .player-time-label {
+        font-size: 11px;
+        min-width: 34px;
+    }
+}

@@ -1,5 +1,5 @@
 import React from "react";
-import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography, Switch, Space, Popconfirm, Select } from 'antd';
+import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography, Switch, Space, Popconfirm, Select, Modal, Checkbox } from 'antd';
 import { EditOutlined, SyncOutlined, CloudSyncOutlined, ReloadOutlined, SwapOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
@@ -428,19 +428,47 @@ class LiveList extends React.Component<Props, IState> {
                     <Button type="link" size="small">{listening ? "停止监控" : "开启监控"}</Button>
                 </PopDialog>
                 <Divider type="vertical" />
-                <PopDialog title="确定删除当前直播间？"
-                    onConfirm={(e) => {
-                        api.deleteRoom(data.roomId)
-                            .then(rsp => {
-                                api.saveSettingsInBackground();
-                                this.refresh();
-                            })
-                            .catch(err => {
-                                alert(`删除直播间失败:\n${err}`);
-                            });
-                    }}>
-                    <Button type="link" size="small">删除</Button>
-                </PopDialog>
+                <Button
+                    type="link"
+                    size="small"
+                    danger
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        let deleteFiles = false;
+                        Modal.confirm({
+                            title: '确定删除该直播间？',
+                            content: (
+                                <div>
+                                    <p>删除后将无法恢复此直播间的监控配置。</p>
+                                    <Checkbox
+                                        onChange={e => { deleteFiles = e.target.checked; }}
+                                    >
+                                        同时删除该直播间的所有录制视频
+                                    </Checkbox>
+                                    {/* 警告标记 - 通过DOM直接操作简化实现 */}
+                                    <p style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+                                        ⚠️ 勾选后视频将被永久删除，无法恢复
+                                    </p>
+                                </div>
+                            ),
+                            okText: '确认删除',
+                            cancelText: '取消',
+                            okButtonProps: { danger: true },
+                            onOk: () => {
+                                return api.deleteRoom(data.roomId, deleteFiles)
+                                    .then(() => {
+                                        api.saveSettingsInBackground();
+                                        this.refresh();
+                                    })
+                                    .catch(err => {
+                                        alert(`删除直播间失败:\n${err}`);
+                                    });
+                            }
+                        });
+                    }}
+                >
+                    删除
+                </Button>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
                     this.props.navigate(`/fileList/${data.address}/${data.name}`);
