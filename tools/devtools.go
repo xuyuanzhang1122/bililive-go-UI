@@ -17,14 +17,6 @@ package tools
 import (
 	// delve debugger - VSCode Go 扩展使用
 	_ "github.com/go-delve/delve/cmd/dlv"
-
-	// gopls - Go 语言服务器（代码补全、跳转等）
-	_ "golang.org/x/tools/gopls"
-
-	// staticcheck - 静态分析工具
-	_ "honnef.co/go/tools/cmd/staticcheck"
 )
 
 //go:generate go install github.com/go-delve/delve/cmd/dlv
-//go:generate go install golang.org/x/tools/gopls
-//go:generate go install honnef.co/go/tools/cmd/staticcheck

@@ -1,0 +1,12 @@
+FROM ubuntu:22.04
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates ffmpeg tzdata && \
+    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /srv/bililive /etc/bililive-go
+COPY bililive-linux-amd64 /usr/local/bin/bililive-go
+RUN chmod +x /usr/local/bin/bililive-go
+VOLUME ["/srv/bililive", "/etc/bililive-go"]
+EXPOSE 8989
+CMD ["bililive-go", "-c", "/etc/bililive-go/config.yml"]

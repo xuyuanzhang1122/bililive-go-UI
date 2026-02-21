@@ -1,6 +1,6 @@
 module github.com/bililive-go/bililive-go
 
-go 1.25
+go 1.24
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -26,10 +26,8 @@ require (
 	go.uber.org/mock v0.5.2
 	golang.org/x/net v0.48.0
 	golang.org/x/sys v0.39.0
-	golang.org/x/tools/gopls v0.21.0
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 	gopkg.in/yaml.v3 v3.0.1
-	honnef.co/go/tools v0.7.0-0.dev.0.20251022135355-8273271481d0
 	modernc.org/sqlite v1.42.2
 )
 
