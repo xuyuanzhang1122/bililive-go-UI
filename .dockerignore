@@ -1,0 +1,10 @@
+.git
+.github
+.vscode
+bin
+coverage.txt
+node_modules
+playwright-report
+src/webapp/build
+src/webapp/node_modules
+test-results

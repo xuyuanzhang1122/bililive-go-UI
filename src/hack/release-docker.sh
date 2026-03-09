@@ -3,7 +3,7 @@
 set -o errexit
 set -o nounset
 
-IMAGE_NAME=chigusa/bililive-go
+IMAGE_NAME=xuniubi/bililive-go
 VERSION=$(git describe --tags --always)
 
 IMAGE_TAG=$IMAGE_NAME:$VERSION
@@ -17,7 +17,7 @@ add_latest_tag() {
 docker buildx build \
   --platform=linux/amd64,linux/arm64/v8,linux/arm/v7 \
   -t $IMAGE_TAG $(add_latest_tag) \
-  --build-arg "tag=${VERSION}" \
+  --build-arg "VERSION=${VERSION}" \
   --progress plain \
   --push \
   ./

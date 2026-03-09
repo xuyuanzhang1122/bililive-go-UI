@@ -1,6 +1,6 @@
 rpc:
   enable: true
-  bind: :8989
+  bind: :8080
 debug: false
 interval: 20
 out_put_path: /srv/bililive
