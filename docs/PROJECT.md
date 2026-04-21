@@ -256,87 +256,178 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 
 ---
 
-## 7. 已知问题与开发路线图
+## 7. 开发路线图 · 进度追踪
 
-> 该章节是本文档随项目演进持续维护的部分。每个 PR 完成后回填状态。
+> **本章节是协同者（GPT / Claude / 人类）接手时的唯一真相源**。每个 PR 合并后更新状态标记。
+> 状态：`✅ 已完成` / `🔧 进行中` / `⏳ 待处理` / `⏸ 已搁置`
 
-### 7.1 `config path not set`（第 2 项）— **待修复**
+### 7.0 用户原始需求（存档，不修改）
 
-**现象**：Ubuntu 自构建镜像中点"保存设置"报错，但配置已应用。
-**根因**：`src/configs/config.go:784, 816` —— 当 `Config.File == ""` 时 `Marshal()` 直接返回错误。`Config.File` 在 `cmd/bililive/bililive.go:56` 的 `GenConfigFromFlags()` 分支中不会被填充；`entrypoint.sh` 明确传了 `-c`，所以更可能的路径是：
-- `servers/handler.go:1339` 对 `putRawConfig` 做了 `newConfig.File = oldConfig.File`，但 `putConfig`（`PUT /api/config`）以及其它 `updateConfig` / `updateRoomConfig` 分支可能没有继承；或
-- 老配置被某条路径替换后 `File` 丢失。
+以下是用户在项目重启讨论时提出的全部需求原文，用于协同者理解意图：
+
+> 1. 重构视频播放页面以及 UI
+> 2. 在 ubuntu 使用自己构建的 docker 镜像部署，在点击设置时会出现（保存设置失败: Error: config path not set）报错，但是配置会实际应用
+> 3. 外部工具管理页面基本不能下载使用
+> 4. 更新管理，这个项目里的更新管理应该还是原项目的更新获取，这是不行的，做一下数据清洗
+> 5. 这个直播间的链接转换还是不稳定，是否能开发一个 skill 或者工具，在使用时能够转换（比如装一个无头浏览器），能基本做到 95% 以上的转换率
+> 6. 最后，我打算使用原生 swift 语言开发一个前端 iOS APP 接入这个项目，能做到视频播放、海报页、增删直播间 URL，以及文件的删除管理（第一阶段），那么是否需要把 web 项目做出来相关的 websocket 或者其他相关的握手协议，视频流传播协议等
+>
+> 附加：最后做好项目文档，和 GPT 协同工作。
+>
+> 后续澄清（2026-04-21）：
+> - 第 1 项 Web UI 暂不改，优先 iOS
+> - 第 3 项不新增外部工具条目（URL 转换走 §7.4 内置实现）
+> - 第 4 项先关闭入口
+> - iOS 鉴权使用 API Key
+
+---
+
+### 7.A 已完成
+
+#### ✅ 项目文档与清洗（2026-04-21，commit `8992b81`）
+- 新建本文档 `docs/PROJECT.md`（架构 / 全部改动 / API / 路线图 / 协同上下文包）
+- 删除 19 个上游残留文件：`bililive-linux-amd64`（46MB 二进制）、`.travis.yml`、`Procfile`、群晖教程、grafana/prometheus 配置、wechat 群截图等
+- `CHANGELOG.md` 补全 v1.1.1 / v1.1.2
+- `AGENTS.md` 加入路线图和架构引用，`make sync-agents` 同步到 copilot/gemini/antigravity 三处镜像
+- `package.json` 修正 name/version/description
+- `README.md` 移除失效链接，指向 `docs/PROJECT.md`
+
+---
+
+### 7.B 待处理（按执行顺序）
+
+#### ⏳ 7.1 修复 `config path not set`（对应用户需求 #2）
+
+**用户原文**：*"在 ubuntu 使用自己构建的 docker 镜像部署，在点击设置时会出现（保存设置失败: Error: config path not set）报错，但是配置会实际应用"*
+
+**根因定位**（已完成）：`src/configs/config.go:784, 816` —— 当 `Config.File == ""` 时 `Marshal()` 直接返回错误。
+- `cmd/bililive/bililive.go:56` 的 `GenConfigFromFlags()` 分支不会填充 `Config.File`
+- `servers/handler.go:1339` 的 `putRawConfig` 做了 `newConfig.File = oldConfig.File`，但其它 handler（`putConfig` / `updateConfig` / `updateRoomConfig` / `updatePlatformConfig`）需审计是否继承
+
 **修复方向**：
-1. 在 `SetCurrentConfig` 或 `Marshal` 内做兜底——若 `File == ""`，回落到启动时保存的 `flag.Conf` 或 exe 同目录 `config.yml`。
-2. 所有 handler 的 "new 配置替换 old 配置" 路径统一走 helper，保证 `File` 继承。
-3. 前端 toast 区分"应用成功"与"持久化失败"，避免误导。
+1. 在 `Marshal()` 内做兜底：`File == ""` 时回落到启动 flag 或 exe 同目录 `config.yml`
+2. 统一走 helper 函数完成"new 配置替换 old 配置"，强制继承 `File`
+3. 前端 toast 区分"应用成功"与"持久化失败"，避免误导
 
-### 7.2 更新管理入口关闭（第 4 项）— **待处理**
+**预估**：1 个 PR，小改动。
 
-**目标**：本 fork 发布在 `xuyuanzhang1122/bililive-go`，而 `pkg/update` 当前仍指向上游 release API，数据无意义。
+---
+
+#### ⏳ 7.2 关闭更新管理入口（对应用户需求 #4）
+
+**用户原文**：*"更新管理，这个项目里的更新管理应该还是原项目的更新获取，这是不行的，做一下数据清洗"*
+**用户澄清**：*"先关闭这个入口"*
+
+**阶段一**（本次执行）：
+- 前端隐藏 `/update` 路由与菜单项
+- 后端 `/api/update/*` 保留（launcher 依赖），但 `check` 返回"无新版本"
+- 首页不再弹升级提示
+
+**阶段二**（后续可选）：改造 `pkg/update` 指向本 fork release，或整体移除。
+
+**预估**：前端 2~3 文件。
+
+---
+
+#### ⏳ 7.3 修复外部工具下载（对应用户需求 #3）
+
+**用户原文**：*"外部工具管理页面基本不能下载使用"*
+**用户澄清**：*"按你的来"*（不新增工具条目，URL 转换走 §7.4）
+
 **方案**：
-- **阶段一（最小改动）**：前端隐藏 `/update` 路由与菜单项；后端 `/api/update/*` 保留以免破坏 launcher。
-- **阶段二（可选）**：改造 `pkg/update` 指向本 fork 的 GitHub Release 或关闭此能力。
+- `src/tools/remote-tools-config.json` 每项 `downloadUrl` 补充镜像 fallback（ghproxy / github.moeyy.xyz / 自建反代）
+- 服务端下载改为流式代理（`io.Copy` + 合理超时），失败时按数组顺序重试
+- 进度反馈复用已有 SSE
 
-### 7.3 外部工具下载（第 3 项）— **待处理**
+**预估**：2 文件 + JSON 更新。
 
-**现象**：`/tools` 页面几乎无法下载；GitHub release 直连在国内常失败。
-**方案**：
-- `src/tools/remote-tools-config.json` 每个工具的 `downloadUrl` 已预留数组，用于多镜像 fallback；补充 ghproxy / 自建镜像。
-- 服务端下载改为**流式代理**（减少超时），失败时按数组顺序重试。
-- 不新增工具条目——URL 解析作为内置模块实现（§7.4）。
+---
 
-### 7.4 直播间 URL 转换（第 5 项）— **待处理**
+#### ⏳ 7.4 URL 转换 resolver 模块（对应用户需求 #5）
 
-**目标**：95%+ 转换率，将任意形态（分享文案 / 短链 / webcast / app 链接）规范化为后端可识别的房间 URL。
-**方案**（**不引入无头浏览器**）：
+**用户原文**：*"直播间的链接转换还是不稳定，是否能开发一个 skill 或者工具，在使用时能够转换（比如装一个无头浏览器），能基本做到 95% 以上的转换率"*
+
+**目标**：任意形态（分享文案 / 短链 / webcast / app 链接）→ 标准房间 URL，成功率 ≥ 95%。
+**方案**（**不引入无头浏览器** —— 镜像体积 +400MB、内存大、并发差，性价比低）：
 - 新增 `src/pkg/urlresolver/`：
   - `resolver.go`：`Resolver` 接口 `func(ctx, raw string) (canonical string, err error)`
-  - `registry.go`：按平台域名/特征注册
-  - 每平台一个文件：`douyin.go` / `bilibili.go` / `huya.go` / `douyu.go` / `kuaishou.go` / `xhs.go` ...
-  - 优先调用各平台**公开 room info 接口**；拿不到时用 HTTP + JSON/正则兜底。
-- 原 `GET /api/resolve-url` 收编进此模块。
-- 同步提供一个本地 skill（`.claude/skills/url-resolver`），用于批量测试和调试 URL。
+  - `registry.go`：按平台域名 / 特征注册
+  - 平台实现：`douyin.go` / `bilibili.go` / `huya.go` / `douyu.go` / `kuaishou.go` / `xhs.go` ...
+  - 优先调各平台 room info 接口 → HTTP + JSON/正则兜底 → 最后才考虑 headless fallback
+- 原 `GET /api/resolve-url` 收编进此模块
+- 配套 skill `.claude/skills/url-resolver/`，用于批量测试
+- 积累失败样本写成 `go test` 用例
 
-### 7.5 iOS App 接入（第 6 项）— **待处理**
+**预估**：1 个较大 PR，每平台 50-100 行。
 
-**范围（第一阶段）**：视频播放、海报页、增删直播间 URL、文件管理。
+---
 
-**需要补的后端能力**：
+#### ⏳ 7.5 iOS App 后端支持（对应用户需求 #6）
 
-1. **鉴权**：API Key
-   - 配置项 `Config.Security.ApiKey`（首次启动自动生成并写回 config.yml）。
-   - Middleware 校验 `Authorization: Bearer <key>` 或 `X-API-Key`。
-   - 对 `/files/*` 和 `/api/thumbnail/*` 使用签名 URL（HMAC + expires），避免视频 URL 直接泄露。
+**用户原文**：*"使用原生 swift 语言开发一个前端 iOS APP 接入这个项目，能做到视频播放、海报页、增删直播间 URL，以及文件的删除管理（第一阶段），那么是否需要把 web 项目做出来相关的 websocket 或者其他相关的握手协议，视频流传播协议等"*
+**用户澄清**：*"iOS 鉴权使用 API Key"*
 
-2. **WebSocket（或继续用 SSE）推送**：
-   - 当前已有 SSE (`/api/sse`)。iOS 原生对 SSE 支持一般，但可用 `URLSession` 长连接。
-   - 如决定引入 WS：`GET /api/ws` 带 Bearer 升级，消息格式同 SSE 事件。
-   - 推荐**优先复用 SSE**，iOS 端实现一个轻量 SSE 客户端，省得双协议维护。
+**第一阶段范围**：视频播放、海报页、增删直播间 URL、文件删除管理。
 
-3. **视频流**：
-   - 录制完成文件：HLS 不适用（MP4/FLV/TS 都是单文件），`AVPlayer` 原生支持 MP4；FLV/TS 需先转封装或走后端转流。
-   - 建议新增 `GET /api/stream/hls/{path}` —— 对非 MP4 文件按需调 ffmpeg 转封装成 HLS m3u8 + ts 切片缓存，AVPlayer 直接拉。
+**需补后端能力**：
 
-4. **最小 OpenAPI 3.1**：
-   - 放 `docs/openapi.yaml`，分组对应 §3.3。
-   - 用于 Swift OpenAPI Generator 生成 client。
+1. **API Key 鉴权**
+   - `Config.Security.ApiKey`（首次启动自动生成 32 字节随机串并写回 config.yml）
+   - Middleware 校验 `Authorization: Bearer <key>` 或 `X-API-Key`
+   - `/files/*` 和 `/api/thumbnail/*` 使用签名 URL（HMAC + expires）
+   - 本地开发可用 env 跳过鉴权
 
-**Swift 侧建议**：
+2. **实时事件**
+   - 复用已有 SSE (`/api/sse`)，iOS `URLSession` 可承载
+   - 不引入 WebSocket（避免双协议维护）
+
+3. **视频流**
+   - MP4：`AVPlayer` 原生支持，直接给 `/files/<path>` 签名 URL
+   - FLV / TS：新增 `GET /api/stream/hls/{path}`，ffmpeg 按需转封装为 HLS，缓存 `.appdata/hls-cache/`
+   - 直播流（进行中的录制）：第一阶段不做
+
+4. **OpenAPI 3.1 文档**
+   - 新建 `docs/openapi.yaml`，分组对应 §3.3
+   - Swift 侧用 [Swift OpenAPI Generator](https://github.com/apple/swift-openapi-generator) 生成 client
+
+**iOS 侧建议**（供 Swift 协同者参考）：
 - MVVM + `@Observable`（iOS 17+）
-- 网络层：`URLSession` + 生成的 OpenAPI client
+- 网络：`URLSession` + OpenAPI 生成的 client
 - 播放器：`AVKit.VideoPlayer`
-- 图片缓存：`Kingfisher` 或 `AsyncImage`
+- 图片：`Kingfisher` 或原生 `AsyncImage`
 
-### 7.6 执行顺序
+**预估**：后端 2~3 个 PR（鉴权 / HLS / OpenAPI 分别做）。iOS App 独立仓库。
 
-PR 建议顺序：
-1. `config path not set` 修复（§7.1）
-2. 更新管理入口隐藏（§7.2）
-3. 外部工具下载修复（§7.3）
-4. URL 转换 resolver（§7.4）
-5. API Key + OpenAPI + HLS 转封装（§7.5）
-6. Web UI 重构 — **已搁置**，优先 iOS
+---
+
+#### ⏸ 7.6 Web UI + 播放页重构（对应用户需求 #1）— 已搁置
+
+**用户原文**：*"重构视频播放页面以及 UI"*
+**用户澄清**：*"web 先不改了，现已 iOS 端"*
+
+待 iOS 第一阶段稳定后再议。
+
+---
+
+### 7.C 执行顺序
+
+```
+[✅ 完成] 项目文档与清洗
+   ↓
+[⏳ 下一步] 7.1 修复 config path not set
+   ↓
+[⏳] 7.2 关闭更新管理入口
+   ↓
+[⏳] 7.3 修复外部工具下载
+   ↓
+[⏳] 7.4 URL 转换 resolver
+   ↓
+[⏳] 7.5 iOS 后端支持（API Key → HLS → OpenAPI）
+   ↓
+[⏸] 7.6 Web UI 重构（搁置）
+```
+
+每步独立 PR；完成后将对应项改为 ✅ 并标注 PR 编号与日期。
 
 ---
 
