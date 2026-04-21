@@ -284,6 +284,12 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 
 ### 7.A 已完成
 
+#### ✅ 修复 `config path not set`（2026-04-21，commit `caf7736`，对应用户需求 #2）
+- 根因：`src/configs/config.go` 的 `Marshal()` 在 `Config.File == ""` 时直接报错；某些启动场景（自定义 entrypoint / flag 分支 / launcher 重启）路径未填充
+- 修复：新增 `SetDefaultConfigPath` / `GetDefaultConfigPath` 兜底路径，启动时 `cmd` 登记
+- 波及：`Marshal()` / `GetFilePath()` / `updateImpl` / `updateCASImpl` 四处持久化门槛放宽
+- 验证：`make dev` 通过，`go test ./src/configs/` 通过
+
 #### ✅ 项目文档与清洗（2026-04-21，commit `8992b81`）
 - 新建本文档 `docs/PROJECT.md`（架构 / 全部改动 / API / 路线图 / 协同上下文包）
 - 删除 19 个上游残留文件：`bililive-linux-amd64`（46MB 二进制）、`.travis.yml`、`Procfile`、群晖教程、grafana/prometheus 配置、wechat 群截图等
@@ -295,23 +301,6 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 ---
 
 ### 7.B 待处理（按执行顺序）
-
-#### ⏳ 7.1 修复 `config path not set`（对应用户需求 #2）
-
-**用户原文**：*"在 ubuntu 使用自己构建的 docker 镜像部署，在点击设置时会出现（保存设置失败: Error: config path not set）报错，但是配置会实际应用"*
-
-**根因定位**（已完成）：`src/configs/config.go:784, 816` —— 当 `Config.File == ""` 时 `Marshal()` 直接返回错误。
-- `cmd/bililive/bililive.go:56` 的 `GenConfigFromFlags()` 分支不会填充 `Config.File`
-- `servers/handler.go:1339` 的 `putRawConfig` 做了 `newConfig.File = oldConfig.File`，但其它 handler（`putConfig` / `updateConfig` / `updateRoomConfig` / `updatePlatformConfig`）需审计是否继承
-
-**修复方向**：
-1. 在 `Marshal()` 内做兜底：`File == ""` 时回落到启动 flag 或 exe 同目录 `config.yml`
-2. 统一走 helper 函数完成"new 配置替换 old 配置"，强制继承 `File`
-3. 前端 toast 区分"应用成功"与"持久化失败"，避免误导
-
-**预估**：1 个 PR，小改动。
-
----
 
 #### ⏳ 7.2 关闭更新管理入口（对应用户需求 #4）
 
@@ -413,10 +402,9 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 
 ```
 [✅ 完成] 项目文档与清洗
+[✅ 完成] 7.1 修复 config path not set
    ↓
-[⏳ 下一步] 7.1 修复 config path not set
-   ↓
-[⏳] 7.2 关闭更新管理入口
+[⏳ 下一步] 7.2 关闭更新管理入口
    ↓
 [⏳] 7.3 修复外部工具下载
    ↓
