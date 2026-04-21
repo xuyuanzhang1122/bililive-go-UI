@@ -314,6 +314,30 @@ var config atomic.Value // stores *Config
 // 单独的 Debug 原子标志，便于高频读取（例如日志、子进程输出过滤）
 var currentDebug atomic.Bool
 
+// 默认配置文件路径。启动时由 cmd 层通过 SetDefaultConfigPath 登记，
+// 作为 Config.File 为空时的持久化兜底，避免 UI"保存设置"因路径丢失而失败。
+var defaultConfigPath atomic.Value // string
+
+// SetDefaultConfigPath 登记启动时解析到的配置文件路径。
+// 之后任何 Config.File 为空的持久化调用都会回落到此路径。
+func SetDefaultConfigPath(path string) {
+	if path == "" {
+		return
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	defaultConfigPath.Store(path)
+}
+
+// GetDefaultConfigPath 返回启动时登记的配置文件路径，若未登记则返回空串。
+func GetDefaultConfigPath() string {
+	if v := defaultConfigPath.Load(); v != nil {
+		return v.(string)
+	}
+	return ""
+}
+
 // 序列化所有 Update 操作，避免并发更新造成的丢写问题
 var updateMu sync.Mutex
 
@@ -382,7 +406,7 @@ func updateImpl(mutator func(c *Config) error, persist bool) (*Config, error) {
 	}
 	newCfg := base
 
-	if persist && newCfg.File != "" {
+	if persist && (newCfg.File != "" || GetDefaultConfigPath() != "") {
 		if err := newCfg.Marshal(); err != nil {
 			// 如果持久化失败，我们选择记录错误但不阻止内存更新
 			// 或者返回错误？这里选择返回错误，因为用户期望保存成功。
@@ -425,7 +449,7 @@ func updateCASImpl(expectedVersion int64, mutator func(c *Config) error, persist
 	base.RefreshLiveRoomIndexCache()
 	base.Version = expectedVersion + 1
 
-	if persist && base.File != "" {
+	if persist && (base.File != "" || GetDefaultConfigPath() != "") {
 		if err := base.Marshal(); err != nil {
 			return nil, fmt.Errorf("failed to save config: %w", err)
 		}
@@ -782,7 +806,13 @@ func NewConfigWithFile(file string) (*Config, error) {
 
 func (c *Config) Marshal() error {
 	if c.File == "" {
-		return errors.New("config path not set")
+		// 回落到启动时登记的默认路径，避免 UI"保存设置"时
+		// 因 Config.File 丢失而报 "config path not set"
+		if fallback := GetDefaultConfigPath(); fallback != "" {
+			c.File = fallback
+		} else {
+			return errors.New("config path not set")
+		}
 	}
 
 	// 1. 将当前配置结构体序列化为新 Node
@@ -814,6 +844,9 @@ func (c *Config) Marshal() error {
 
 func (c Config) GetFilePath() (string, error) {
 	if c.File == "" {
+		if fallback := GetDefaultConfigPath(); fallback != "" {
+			return fallback, nil
+		}
 		return "", errors.New("config path not set")
 	}
 	return c.File, nil
