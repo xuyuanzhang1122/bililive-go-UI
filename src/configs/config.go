@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
+	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
 	"github.com/bililive-go/bililive-go/src/types"
 	"gopkg.in/yaml.v3"
 )
@@ -43,6 +44,35 @@ func (r *RPC) verify() error {
 		return fmt.Errorf("无效的RPC绑定地址: %w", err)
 	}
 	return nil
+}
+
+// Security 保存面向外部客户端的最小安全配置。
+type Security struct {
+	EnableAPIKey        bool   `yaml:"enable_api_key" json:"enable_api_key"`
+	APIKey              string `yaml:"api_key" json:"api_key,omitempty"`
+	SignedURLTTLSeconds int    `yaml:"signed_url_ttl_seconds" json:"signed_url_ttl_seconds"`
+}
+
+const defaultSignedURLTTLSeconds = 3600
+
+var defaultSecurity = Security{
+	EnableAPIKey:        false,
+	SignedURLTTLSeconds: defaultSignedURLTTLSeconds,
+}
+
+// Normalize 补齐安全配置的派生默认值。
+func (s *Security) Normalize() {
+	if s == nil {
+		return
+	}
+	if s.SignedURLTTLSeconds <= 0 {
+		s.SignedURLTTLSeconds = defaultSignedURLTTLSeconds
+	}
+	if s.EnableAPIKey && strings.TrimSpace(s.APIKey) == "" {
+		if key, err := securitypkg.GenerateAPIKey(); err == nil {
+			s.APIKey = key
+		}
+	}
 }
 
 // Feature info.
@@ -256,10 +286,11 @@ type Ntfy struct {
 // Config content all config info.
 type Config struct {
 	// 核心配置
-	File    string `yaml:"-" json:"-"`
-	RPC     RPC    `yaml:"rpc" json:"rpc"`
-	Debug   bool   `yaml:"debug" json:"debug"`
-	Version int64  `yaml:"-" json:"-"` // 内部版本号：不参与 YAML/JSON 序列化，仅用于乐观并发控制
+	File     string   `yaml:"-" json:"-"`
+	RPC      RPC      `yaml:"rpc" json:"rpc"`
+	Security Security `yaml:"security" json:"security"`
+	Debug    bool     `yaml:"debug" json:"debug"`
+	Version  int64    `yaml:"-" json:"-"` // 内部版本号：不参与 YAML/JSON 序列化，仅用于乐观并发控制
 
 	// 全局默认配置（非指针，提供默认值）
 	Interval             int                  `yaml:"interval" json:"interval"`
@@ -610,6 +641,7 @@ func NewLiveRoomsWithStrings(strings []string) []LiveRoom {
 
 var defaultConfig = Config{
 	RPC:        defaultRPC,
+	Security:   defaultSecurity,
 	Debug:      false,
 	Interval:   30,
 	OutPutPath: "./",
@@ -686,6 +718,7 @@ func NewConfig() *Config {
 }
 
 func newConfigPostProcess(c *Config) {
+	c.Security.Normalize()
 	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
 	if isInContainer() && strings.TrimSpace(c.ReadOnlyToolFolder) == "" {
 		c.ReadOnlyToolFolder = "/opt/bililive/tools"
@@ -700,6 +733,7 @@ func (c *Config) Verify() error {
 	if c == nil {
 		return fmt.Errorf("配置不存在")
 	}
+	c.Security.Normalize()
 	if err := c.RPC.verify(); err != nil {
 		return err
 	}
@@ -714,6 +748,12 @@ func (c *Config) Verify() error {
 	}
 	if !c.RPC.Enable && len(c.LiveRooms) == 0 {
 		return fmt.Errorf("RPC 服务已禁用且未配置直播间，程序无任务可执行")
+	}
+	if c.Security.EnableAPIKey && strings.TrimSpace(c.Security.APIKey) == "" {
+		return fmt.Errorf("API Key 鉴权已开启，但 security.api_key 为空")
+	}
+	if c.Security.SignedURLTTLSeconds <= 0 {
+		return fmt.Errorf("签名 URL 有效期必须大于 0")
 	}
 
 	// 验证平台配置

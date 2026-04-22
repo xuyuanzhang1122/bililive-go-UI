@@ -1,6 +1,10 @@
 rpc:
   enable: true
   bind: :8080
+security:
+  enable_api_key: false
+  api_key: ""
+  signed_url_ttl_seconds: 3600
 debug: false
 interval: 20
 out_put_path: /srv/bililive

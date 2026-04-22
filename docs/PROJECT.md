@@ -122,7 +122,7 @@ bililive-go-UI/
 **Cookie 管理（新增）**
 - `GET/PUT /api/cookies`
 
-**更新管理（新增，目前指向原项目 release，需数据清洗，见 §7）**
+**更新管理（新增，入口已临时关闭，后续需指向本 fork release，见 §7）**
 - `GET /api/update/check`、`/latest`、`/status`、`/launcher`、`/rollback`
 - `POST /api/update/download`、`/apply`、`/cancel`、`/rollback`
 - `PUT /api/update/channel`
@@ -298,70 +298,52 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 - `package.json` 修正 name/version/description
 - `README.md` 移除失效链接，指向 `docs/PROJECT.md`
 
----
-
-### 7.B 待处理（按执行顺序）
-
-#### ⏳ 7.2 关闭更新管理入口（对应用户需求 #4）
-
-**用户原文**：*"更新管理，这个项目里的更新管理应该还是原项目的更新获取，这是不行的，做一下数据清洗"*
-**用户澄清**：*"先关闭这个入口"*
-
-**阶段一**（本次执行）：
+#### ✅ 关闭更新管理入口（2026-04-21，本地实现，PR 待补，对应用户需求 #4）
+- 用户原文：*"更新管理，这个项目里的更新管理应该还是原项目的更新获取，这是不行的，做一下数据清洗"*
+- 用户澄清：*"先关闭这个入口"*
 - 前端隐藏 `/update` 路由与菜单项
 - 后端 `/api/update/*` 保留（launcher 依赖），但 `check` 返回"无新版本"
+- 启动时跳过后台自动更新检查，避免继续访问旧更新源
 - 首页不再弹升级提示
+- 验证：`make build-web dev`、`make lint`、`make test` 通过
 
-**阶段二**（后续可选）：改造 `pkg/update` 指向本 fork release，或整体移除。
+#### ✅ 修复外部工具下载（2026-04-21，本地实现，PR 待补，对应用户需求 #3）
+- 用户原文：*"外部工具管理页面基本不能下载使用"*
+- 用户澄清：*"按你的来"*（不新增工具条目，URL 转换走 §7.4）
+- 不新增工具条目；现有 `remote-tools-config.json` 在运行时自动扩展 GitHub 镜像 fallback
+- remotetools 初始化前注入项目 `download_proxy` 环境变量，工具页安装和预置工具同步可复用代理
+- 进度反馈继续复用 remotetools 自带 SSE / WebUI 进度
+- 验证：`go test ./src/tools` 通过，`go test ./src/pkg/proxy` 通过
 
-**预估**：前端 2~3 文件。
-
----
-
-#### ⏳ 7.3 修复外部工具下载（对应用户需求 #3）
-
-**用户原文**：*"外部工具管理页面基本不能下载使用"*
-**用户澄清**：*"按你的来"*（不新增工具条目，URL 转换走 §7.4）
-
-**方案**：
-- `src/tools/remote-tools-config.json` 每项 `downloadUrl` 补充镜像 fallback（ghproxy / github.moeyy.xyz / 自建反代）
-- 服务端下载改为流式代理（`io.Copy` + 合理超时），失败时按数组顺序重试
-- 进度反馈复用已有 SSE
-
-**预估**：2 文件 + JSON 更新。
-
----
-
-#### ⏳ 7.4 URL 转换 resolver 模块（对应用户需求 #5）
-
-**用户原文**：*"直播间的链接转换还是不稳定，是否能开发一个 skill 或者工具，在使用时能够转换（比如装一个无头浏览器），能基本做到 95% 以上的转换率"*
-
-**目标**：任意形态（分享文案 / 短链 / webcast / app 链接）→ 标准房间 URL，成功率 ≥ 95%。
-**方案**（**不引入无头浏览器** —— 镜像体积 +400MB、内存大、并发差，性价比低）：
-- 新增 `src/pkg/urlresolver/`：
-  - `resolver.go`：`Resolver` 接口 `func(ctx, raw string) (canonical string, err error)`
-  - `registry.go`：按平台域名 / 特征注册
-  - 平台实现：`douyin.go` / `bilibili.go` / `huya.go` / `douyu.go` / `kuaishou.go` / `xhs.go` ...
-  - 优先调各平台 room info 接口 → HTTP + JSON/正则兜底 → 最后才考虑 headless fallback
-- 原 `GET /api/resolve-url` 收编进此模块
-- 配套 skill `.claude/skills/url-resolver/`，用于批量测试
-- 积累失败样本写成 `go test` 用例
-
-**预估**：1 个较大 PR，每平台 50-100 行。
+#### ✅ URL 转换 resolver · 抖音第一阶段（2026-04-21，本地实现，PR 待补，对应用户需求 #5）
+- 用户原文：*"直播间的链接转换还是不稳定，是否能开发一个 skill 或者工具，在使用时能够转换（比如装一个无头浏览器），能基本做到 95% 以上的转换率"*
+- 范围收窄：配合 iOS 第一阶段，当前只做抖音；其他平台 resolver 推后到下一版本
+- 新增 `src/pkg/urlresolver/`，原 `GET /api/resolve-url` 已收编进该模块
+- 支持抖音分享文案、无协议短链、`v.douyin.com` 跳转、`live.douyin.com` query/path 清洗
+- 使用桌面 UA + 信息代理配置请求短链，GET 失败后降级 HEAD；页面 HTML 中兜底提取 `web_rid` / `roomId`
+- 对 `webcast.amemv.com` 不做错误互转，无法得到稳定 `live.douyin.com/<room_id>` 时返回明确错误
+- 验证：`go test ./src/pkg/urlresolver` 通过，`go test ./src/servers` 通过
 
 ---
 
-#### ⏳ 7.5 iOS App 后端支持（对应用户需求 #6）
+### 7.B iOS 第一阶段（本地已完成，待拆 PR）
+
+#### ✅ 7.5 iOS App 后端支持 · 第一阶段仅抖音（2026-04-22，本地实现，PR 待补，对应用户需求 #6）
 
 **用户原文**：*"使用原生 swift 语言开发一个前端 iOS APP 接入这个项目，能做到视频播放、海报页、增删直播间 URL，以及文件的删除管理（第一阶段），那么是否需要把 web 项目做出来相关的 websocket 或者其他相关的握手协议，视频流传播协议等"*
-**用户澄清**：*"iOS 鉴权使用 API Key"*
+**用户澄清**：
+- iOS 鉴权使用 API Key
+- **第一阶段仅保留抖音直播间服务**，其他平台（B站/斗鱼/虎牙/快手/YY 等）和 **OpenList 云上传** 均推后到下一版本
 
-**第一阶段范围**：视频播放、海报页、增删直播间 URL、文件删除管理。
+**第一阶段范围（scope 收窄）**：
+- 平台：**仅抖音**（`live.douyin.com` / 抖音分享文案短链）
+- 功能：视频播放、海报页、增删抖音直播间 URL、录制文件删除
+- **不做**：其他直播平台接入、OpenList 云上传、Pipeline 后处理管理、外部工具管理
 
 **需补后端能力**：
 
-1. **API Key 鉴权**
-   - `Config.Security.ApiKey`（首次启动自动生成 32 字节随机串并写回 config.yml）
+1. **API Key 鉴权**（本地已实现，PR 待补）
+   - `Config.Security.ApiKey`（启用鉴权且为空时自动生成 32 字节随机串并写回 config.yml）
    - Middleware 校验 `Authorization: Bearer <key>` 或 `X-API-Key`
    - `/files/*` 和 `/api/thumbnail/*` 使用签名 URL（HMAC + expires）
    - 本地开发可用 env 跳过鉴权
@@ -370,14 +352,25 @@ docker build -f Dockerfile.local -t bililive-go:dev .
    - 复用已有 SSE (`/api/sse`)，iOS `URLSession` 可承载
    - 不引入 WebSocket（避免双协议维护）
 
-3. **视频流**
+3. **视频流**（本地已实现录播文件 HLS，直播中视频流待下一版本）
    - MP4：`AVPlayer` 原生支持，直接给 `/files/<path>` 签名 URL
    - FLV / TS：新增 `GET /api/stream/hls/{path}`，ffmpeg 按需转封装为 HLS，缓存 `.appdata/hls-cache/`
    - 直播流（进行中的录制）：第一阶段不做
 
-4. **OpenAPI 3.1 文档**
-   - 新建 `docs/openapi.yaml`，分组对应 §3.3
+4. **最小 OpenAPI 3.1 文档**（本地已实现，PR 待补）
+   - 新建 `docs/openapi.yaml`，**只覆盖抖音相关的 endpoint 子集**：
+     - `POST /api/lives`（添加直播间，URL 限定 `live.douyin.com`）
+     - `GET /api/lives` / `DELETE /api/lives/{id}`
+     - `GET /api/video-library` / `GET /api/thumbnail/{path}` / `GET /api/video-files/{path}`
+     - `GET/DELETE /api/file/{path}` + `POST /api/batch/file/delete`
+     - `GET /api/sse`、`GET /api/resolve-url`、鉴权端点
    - Swift 侧用 [Swift OpenAPI Generator](https://github.com/apple/swift-openapi-generator) 生成 client
+   - 其他平台 endpoint 留在文档 §3.3 但不进入 openapi.yaml，避免 Swift 生成无用 client
+
+**验证**：
+- `make build-web dev`
+- `make lint`
+- `make test`
 
 **iOS 侧建议**（供 Swift 协同者参考）：
 - MVVM + `@Observable`（iOS 17+）
@@ -385,7 +378,18 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 - 播放器：`AVKit.VideoPlayer`
 - 图片：`Kingfisher` 或原生 `AsyncImage`
 
-**预估**：后端 2~3 个 PR（鉴权 / HLS / OpenAPI 分别做）。iOS App 独立仓库。
+**预估**：后端 2~3 个 PR（鉴权 / HLS / OpenAPI 抖音子集分别做）。iOS App 独立仓库。
+
+---
+
+#### ⏸ 7.7 下一版本范围（暂定）
+
+由 §7.5 推后至本节，便于协同者知晓已讨论过、但本期不做：
+
+- **多平台 iOS 接入**：B站、斗鱼、虎牙、快手、YY、小红书等（需扩展多平台 resolver）
+- **OpenList 云上传 iOS 端**：目前后端已有 `/api/openlist/*`，iOS 端暂不接
+- **Pipeline 任务管理**：录制后处理任务在 iOS 端的查看/触发/取消
+- **直播中视频流播放**：正在录制的 FLV 实时推给 iOS（需要 live HLS 转封装流水线）
 
 ---
 
@@ -404,13 +408,13 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 [✅ 完成] 项目文档与清洗
 [✅ 完成] 7.1 修复 config path not set
    ↓
-[⏳ 下一步] 7.2 关闭更新管理入口
+[✅ 完成] 7.2 关闭更新管理入口
    ↓
-[⏳] 7.3 修复外部工具下载
+[✅ 完成] 7.3 修复外部工具下载
    ↓
-[⏳] 7.4 URL 转换 resolver
+[✅ 完成] 7.4 URL 转换 resolver（抖音第一阶段）
    ↓
-[⏳] 7.5 iOS 后端支持（API Key → HLS → OpenAPI）
+[✅ 完成] 7.5 iOS 后端支持（API Key / 录播 HLS / OpenAPI 抖音子集）
    ↓
 [⏸] 7.6 Web UI 重构（搁置）
 ```

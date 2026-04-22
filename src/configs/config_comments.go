@@ -17,6 +17,19 @@ func DecorateConfigNode(node *yaml.Node) {
 
 	setFieldLineComment(root, "ffmpeg_path", "# 如果此项为空，就自动在环境变量里寻找")
 
+	setFieldHeadComment(root, "security", "# 移动端与外部 API 访问安全配置")
+	securityNode := findNode(root, "security")
+	if securityNode != nil {
+		setFieldComment(securityNode, "enable_api_key",
+			`# 是否开启 API Key 鉴权
+# 默认关闭以保持现有 Web UI 兼容；开启后外部客户端需传 Authorization: Bearer <api_key> 或 X-API-Key`, "")
+		setFieldComment(securityNode, "api_key",
+			`# 外部客户端 API Key
+# 启用鉴权且为空时，首次加载配置会自动生成 32 字节随机串并写回配置文件`, "")
+		setFieldComment(securityNode, "signed_url_ttl_seconds",
+			`# /files/* 与 /api/thumbnail/* 签名 URL 默认有效期（秒）`, "")
+	}
+
 	setFieldComment(root, "out_put_tmpl",
 		`# '{{ .Live.GetPlatformCNName }}/{{ .HostName | filenameFilter }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv'
 # ./平台名称/主播名字/[时间戳][主播名字][房间名字].flv
