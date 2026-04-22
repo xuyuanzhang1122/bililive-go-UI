@@ -113,7 +113,6 @@ docker compose up -d
 BILILIVE_IMAGE=xuniubi/bililive-go:myfix-20260221 docker compose up -d
 ```
 
-NAS 用户可参考 [群晖说明](docs/Synology-related.md)。
 
 ## Docker 构建方式
 
@@ -205,8 +204,8 @@ cookies:
 
 - [常见问题](docs/FAQ.md)
 - [通知服务说明](docs/notify.md)
-- [Grafana 面板](docs/grafana.md)
 - [API 文档](docs/API.md)
+- [项目完整说明 / 改动文档](docs/PROJECT.md)
 - [测试与 VSCode 调试](test/README.md)
 
 ## 参考项目

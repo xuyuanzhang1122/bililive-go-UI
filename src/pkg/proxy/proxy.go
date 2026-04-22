@@ -203,8 +203,10 @@ func getProxyEnvVarsForURL(proxyURL string) []string {
 	}
 
 	return []string{
+		"ALL_PROXY=" + proxyURL,
 		"HTTP_PROXY=" + proxyURL,
 		"HTTPS_PROXY=" + proxyURL,
+		"all_proxy=" + proxyURL,
 		"http_proxy=" + proxyURL,
 		"https_proxy=" + proxyURL,
 	}

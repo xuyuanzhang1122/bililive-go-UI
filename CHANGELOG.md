@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.1.2 (2026-03-09)
+
+### 改动
+- 修复 Docker 镜像标签和 compose 配置
+- 精简视频库组件，移除冗余逻辑
+
+---
+
+## v1.1.1 (2026-03-01)
+
+### 改动
+- 新增 `Dockerfile.local`，支持基于本地预编译二进制快速封装 Docker 镜像
+- 修正 Docker 默认端口配置（`config.docker.yml`）
+- 清理 Go 模块依赖
+
+---
+
 ## v1.1 (2026-02-21)
 
 ### 新增功能
@@ -31,17 +48,17 @@
 - 修复 FLV/TS 格式 seek 后可能白屏的问题（改为直接操作 `video.currentTime`）
 
 #### 视频库
-- 修复未配置任何直播间时，输出目录下**所有文件夹都被识别为视频库**的问题（移除 `len(knownPlatforms) > 0` 守卫条件，空 map 查询直接返回 false）
+- 修复未配置任何直播间时，输出目录下**所有文件夹都被识别为视频库**的问题
 - 修复**观看历史记录**在原视频删除后仍继续显示的问题（加载时发 `HEAD` 请求校验文件是否存在，404 则自动清除记录）
 
 #### 抖音短链解析
 - 修复粘贴抖音分享文案时短链被解析为 `webcast.amemv.com/...` 长串地址的问题
   - 服务端解析短链时由 iPhone UA 改为**桌面 Chrome UA**，抖音服务器在桌面端会直接重定向到 `live.douyin.com/<room_id>` 格式
-  - `normalizeLiveRoomURL` 不再对 `webcast.amemv.com` 地址强制提取 ID（webcast stream ID 与 room ID 不同，无法互换）
-  - 若解析结果仍为 webcast 或超长 stream ID，前端会给出明确提示，引导用户手动输入正确地址
+  - `normalizeLiveRoomURL` 不再对 `webcast.amemv.com` 地址强制提取 ID
+  - 若解析结果仍为 webcast 或超长 stream ID，前端会给出明确提示
 
 ### 技术改进
 - 视频缩略图通过 `/api/thumbnail/<path>` 接口按需生成，缓存于 `.appdata/thumbnails/`
 - `getVideoLibrary` 后端接口跳过以 `.` 开头的隐藏目录（如 `.appdata`）
-- 短链解析请求增加 `Accept` / `Accept-Language` / `Referer` 请求头，重定向时继承 UA，提高成功率
+- 短链解析请求增加 `Accept` / `Accept-Language` / `Referer` 请求头，提高成功率
 - 重定向上限从 10 次提升至 15 次，适应抖音多级跳转链路

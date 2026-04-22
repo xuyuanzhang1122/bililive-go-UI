@@ -192,6 +192,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 登记配置文件路径作为持久化兜底。
+	// 某些启动场景下 config.File 可能未被填充（如仅走 flag 分支或自定义启动脚本），
+	// 这会导致 UI 保存设置时报 "config path not set"。登记 flag.Conf 或 config.File 后，
+	// configs.Marshal() 可以回落到该路径完成持久化。
+	if config.File != "" {
+		configs.SetDefaultConfigPath(config.File)
+	} else if *flag.Conf != "" {
+		configs.SetDefaultConfigPath(*flag.Conf)
+	}
+
 	configs.SetCurrentConfig(config)
 
 	// 初始化元数据存储（用于存储设备 ID、升级状态等关键信息）
@@ -421,8 +431,11 @@ func main() {
 
 		// 启动自动更新器（如果配置启用）
 		if config.Update.AutoCheck {
-			servers.StartAutoUpdater(ctx)
-			logger.Info("自动更新检查器已启动")
+			if servers.StartAutoUpdater(ctx) {
+				logger.Info("自动更新检查器已启动")
+			} else {
+				logger.Info("自动更新入口已关闭，跳过自动检查")
+			}
 		}
 	}
 

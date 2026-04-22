@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
+	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
 	"github.com/bililive-go/bililive-go/src/types"
 	"gopkg.in/yaml.v3"
 )
@@ -43,6 +44,35 @@ func (r *RPC) verify() error {
 		return fmt.Errorf("无效的RPC绑定地址: %w", err)
 	}
 	return nil
+}
+
+// Security 保存面向外部客户端的最小安全配置。
+type Security struct {
+	EnableAPIKey        bool   `yaml:"enable_api_key" json:"enable_api_key"`
+	APIKey              string `yaml:"api_key" json:"api_key,omitempty"`
+	SignedURLTTLSeconds int    `yaml:"signed_url_ttl_seconds" json:"signed_url_ttl_seconds"`
+}
+
+const defaultSignedURLTTLSeconds = 3600
+
+var defaultSecurity = Security{
+	EnableAPIKey:        false,
+	SignedURLTTLSeconds: defaultSignedURLTTLSeconds,
+}
+
+// Normalize 补齐安全配置的派生默认值。
+func (s *Security) Normalize() {
+	if s == nil {
+		return
+	}
+	if s.SignedURLTTLSeconds <= 0 {
+		s.SignedURLTTLSeconds = defaultSignedURLTTLSeconds
+	}
+	if s.EnableAPIKey && strings.TrimSpace(s.APIKey) == "" {
+		if key, err := securitypkg.GenerateAPIKey(); err == nil {
+			s.APIKey = key
+		}
+	}
 }
 
 // Feature info.
@@ -256,10 +286,11 @@ type Ntfy struct {
 // Config content all config info.
 type Config struct {
 	// 核心配置
-	File    string `yaml:"-" json:"-"`
-	RPC     RPC    `yaml:"rpc" json:"rpc"`
-	Debug   bool   `yaml:"debug" json:"debug"`
-	Version int64  `yaml:"-" json:"-"` // 内部版本号：不参与 YAML/JSON 序列化，仅用于乐观并发控制
+	File     string   `yaml:"-" json:"-"`
+	RPC      RPC      `yaml:"rpc" json:"rpc"`
+	Security Security `yaml:"security" json:"security"`
+	Debug    bool     `yaml:"debug" json:"debug"`
+	Version  int64    `yaml:"-" json:"-"` // 内部版本号：不参与 YAML/JSON 序列化，仅用于乐观并发控制
 
 	// 全局默认配置（非指针，提供默认值）
 	Interval             int                  `yaml:"interval" json:"interval"`
@@ -313,6 +344,30 @@ var config atomic.Value // stores *Config
 
 // 单独的 Debug 原子标志，便于高频读取（例如日志、子进程输出过滤）
 var currentDebug atomic.Bool
+
+// 默认配置文件路径。启动时由 cmd 层通过 SetDefaultConfigPath 登记，
+// 作为 Config.File 为空时的持久化兜底，避免 UI"保存设置"因路径丢失而失败。
+var defaultConfigPath atomic.Value // string
+
+// SetDefaultConfigPath 登记启动时解析到的配置文件路径。
+// 之后任何 Config.File 为空的持久化调用都会回落到此路径。
+func SetDefaultConfigPath(path string) {
+	if path == "" {
+		return
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	defaultConfigPath.Store(path)
+}
+
+// GetDefaultConfigPath 返回启动时登记的配置文件路径，若未登记则返回空串。
+func GetDefaultConfigPath() string {
+	if v := defaultConfigPath.Load(); v != nil {
+		return v.(string)
+	}
+	return ""
+}
 
 // 序列化所有 Update 操作，避免并发更新造成的丢写问题
 var updateMu sync.Mutex
@@ -382,7 +437,7 @@ func updateImpl(mutator func(c *Config) error, persist bool) (*Config, error) {
 	}
 	newCfg := base
 
-	if persist && newCfg.File != "" {
+	if persist && (newCfg.File != "" || GetDefaultConfigPath() != "") {
 		if err := newCfg.Marshal(); err != nil {
 			// 如果持久化失败，我们选择记录错误但不阻止内存更新
 			// 或者返回错误？这里选择返回错误，因为用户期望保存成功。
@@ -425,7 +480,7 @@ func updateCASImpl(expectedVersion int64, mutator func(c *Config) error, persist
 	base.RefreshLiveRoomIndexCache()
 	base.Version = expectedVersion + 1
 
-	if persist && base.File != "" {
+	if persist && (base.File != "" || GetDefaultConfigPath() != "") {
 		if err := base.Marshal(); err != nil {
 			return nil, fmt.Errorf("failed to save config: %w", err)
 		}
@@ -586,6 +641,7 @@ func NewLiveRoomsWithStrings(strings []string) []LiveRoom {
 
 var defaultConfig = Config{
 	RPC:        defaultRPC,
+	Security:   defaultSecurity,
 	Debug:      false,
 	Interval:   30,
 	OutPutPath: "./",
@@ -662,6 +718,7 @@ func NewConfig() *Config {
 }
 
 func newConfigPostProcess(c *Config) {
+	c.Security.Normalize()
 	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
 	if isInContainer() && strings.TrimSpace(c.ReadOnlyToolFolder) == "" {
 		c.ReadOnlyToolFolder = "/opt/bililive/tools"
@@ -676,6 +733,7 @@ func (c *Config) Verify() error {
 	if c == nil {
 		return fmt.Errorf("配置不存在")
 	}
+	c.Security.Normalize()
 	if err := c.RPC.verify(); err != nil {
 		return err
 	}
@@ -690,6 +748,12 @@ func (c *Config) Verify() error {
 	}
 	if !c.RPC.Enable && len(c.LiveRooms) == 0 {
 		return fmt.Errorf("RPC 服务已禁用且未配置直播间，程序无任务可执行")
+	}
+	if c.Security.EnableAPIKey && strings.TrimSpace(c.Security.APIKey) == "" {
+		return fmt.Errorf("API Key 鉴权已开启，但 security.api_key 为空")
+	}
+	if c.Security.SignedURLTTLSeconds <= 0 {
+		return fmt.Errorf("签名 URL 有效期必须大于 0")
 	}
 
 	// 验证平台配置
@@ -782,7 +846,13 @@ func NewConfigWithFile(file string) (*Config, error) {
 
 func (c *Config) Marshal() error {
 	if c.File == "" {
-		return errors.New("config path not set")
+		// 回落到启动时登记的默认路径，避免 UI"保存设置"时
+		// 因 Config.File 丢失而报 "config path not set"
+		if fallback := GetDefaultConfigPath(); fallback != "" {
+			c.File = fallback
+		} else {
+			return errors.New("config path not set")
+		}
 	}
 
 	// 1. 将当前配置结构体序列化为新 Node
@@ -814,6 +884,9 @@ func (c *Config) Marshal() error {
 
 func (c Config) GetFilePath() (string, error) {
 	if c.File == "" {
+		if fallback := GetDefaultConfigPath(); fallback != "" {
+			return fallback, nil
+		}
 		return "", errors.New("config path not set")
 	}
 	return c.File, nil

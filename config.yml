@@ -4,6 +4,16 @@ rpc:
   enable: true
   bind: :8080
   sse_list_threshold: 50
+# 移动端与外部 API 访问安全配置
+security:
+  # 是否开启 API Key 鉴权
+  # 默认关闭以保持现有 Web UI 兼容；开启后外部客户端需传 Authorization: Bearer <api_key> 或 X-API-Key
+  enable_api_key: false
+  # 外部客户端 API Key
+  # 启用鉴权且为空时，首次加载配置会自动生成 32 字节随机串并写回配置文件
+  api_key: ""
+  # /files/* 与 /api/thumbnail/* 签名 URL 默认有效期（秒）
+  signed_url_ttl_seconds: 3600
 debug: false
 interval: 20
 out_put_path: ./
