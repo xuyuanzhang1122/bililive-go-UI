@@ -35,6 +35,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/memstats"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
+	"github.com/bililive-go/bililive-go/src/pkg/urlresolver"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/tools"
@@ -831,8 +832,8 @@ func removeLiveImpl(ctx context.Context, live live.Live) error {
 	return nil
 }
 
-// resolveUrl 跟随 HTTP 重定向，返回最终 URL
-// 用于解析抖音分享短链（v.douyin.com/xxx）到正式直播间地址
+// resolveUrl 将分享文案或短链解析为标准直播间地址。
+// 当前阶段仅支持抖音，其他平台待下一版本接入。
 func resolveUrl(writer http.ResponseWriter, r *http.Request) {
 	rawURL := r.URL.Query().Get("url")
 	if rawURL == "" {
@@ -843,95 +844,20 @@ func resolveUrl(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 使用桌面 Chrome UA：v.douyin.com 短链在桌面 UA 下更可能直接重定向到
-	// live.douyin.com/<room_id>，而 iPhone UA 容易重定向到 App deeplink 或
-	// webcast.amemv.com（webcast_id 与 live room_id 不同，无法互转）。
-	desktopUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 15 {
-				return fmt.Errorf("重定向次数超过上限 (15)")
-			}
-			// 继承 User-Agent 和 Referer，防止中间步骤被拦截
-			req.Header.Set("User-Agent", desktopUA)
-			if len(via) > 0 {
-				req.Header.Set("Referer", via[len(via)-1].URL.String())
-			}
-			return nil
-		},
-		Timeout: 12 * time.Second,
-	}
-
-	req, err := http.NewRequestWithContext(r.Context(), "GET", rawURL, nil)
+	finalURL, err := urlresolver.Resolve(r.Context(), rawURL)
 	if err != nil {
-		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
-			ErrNo:  http.StatusBadRequest,
-			ErrMsg: "无效的 URL: " + err.Error(),
+		status := http.StatusBadGateway
+		if errors.Is(err, urlresolver.ErrNoURL) || errors.Is(err, urlresolver.ErrUnsupportedURL) || errors.Is(err, urlresolver.ErrUnresolved) {
+			status = http.StatusBadRequest
+		}
+		writeJsonWithStatusCode(writer, status, commonResp{
+			ErrNo:  status,
+			ErrMsg: err.Error(),
 		})
 		return
 	}
-	req.Header.Set("User-Agent", desktopUA)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		// GET 失败才降级 HEAD
-		req2, _ := http.NewRequestWithContext(r.Context(), "HEAD", rawURL, nil)
-		req2.Header.Set("User-Agent", desktopUA)
-		resp, err = client.Do(req2)
-		if err != nil {
-			writeJsonWithStatusCode(writer, http.StatusBadGateway, commonResp{
-				ErrNo:  http.StatusBadGateway,
-				ErrMsg: "请求失败: " + err.Error(),
-			})
-			return
-		}
-	}
-	resp.Body.Close()
-
-	finalURL := normalizeLiveRoomURL(resp.Request.URL.String())
-	writeJSON(writer, map[string]string{
-		"url": finalURL,
-	})
-}
-
-// normalizeLiveRoomURL 将可识别的分享链接统一为更稳定的直播间地址。
-// 注意：webcast.amemv.com/douyin/webcast/reflow/<webcast_id> 中的 ID 是直播流实例 ID，
-// 与 live.douyin.com/<room_id> 中稳定的房间 ID 不同，不能直接互转。
-// 因此对 webcast.amemv.com URL 不做转换，由前端提示用户手动输入正确地址。
-func normalizeLiveRoomURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	host := strings.ToLower(u.Hostname())
-
-	// 仅处理 live.douyin.com 路径：清理 query 参数，保留纯净地址
-	if host == "live.douyin.com" {
-		// 从路径提取 web_rid（纯数字 6 位以上）
-		roomID := ""
-		for _, seg := range strings.Split(u.Path, "/") {
-			if ok, _ := regexp.MatchString(`^\d{6,}$`, seg); ok {
-				roomID = seg
-			}
-		}
-		if roomID != "" {
-			return "https://live.douyin.com/" + roomID
-		}
-		// 尝试 query 参数
-		for _, k := range []string{"room_id", "web_rid", "roomId"} {
-			v := u.Query().Get(k)
-			if ok, _ := regexp.MatchString(`^\d{6,}$`, v); ok {
-				return "https://live.douyin.com/" + v
-			}
-		}
-	}
-
-	// 其他 douyin/amemv 域名（包括 webcast.amemv.com）——原样返回
-	// 前端会检测到非 live.douyin.com 格式并提示用户手动输入
-	return raw
+	writeJSON(writer, map[string]string{"url": finalURL})
 }
 
 // 视频文件扩展名
@@ -947,7 +873,7 @@ var videoExtensions = map[string]bool{
 type VideoRoomInfo struct {
 	HostName      string `json:"host_name"`
 	Platform      string `json:"platform"`
-	FolderPath    string `json:"folder_path"`    // 相对于 output_path 的路径
+	FolderPath    string `json:"folder_path"` // 相对于 output_path 的路径
 	VideoCount    int    `json:"video_count"`
 	TotalSize     int64  `json:"total_size"`
 	LatestVideoAt int64  `json:"latest_video_at"` // Unix 时间戳
@@ -1180,10 +1106,13 @@ func getThumbnail(writer http.ResponseWriter, r *http.Request) {
 
 // VideoFileInfo 单个视频文件信息
 type VideoFileInfo struct {
-	Name     string `json:"name"`      // 文件名
-	RelPath  string `json:"rel_path"`  // 相对于 output_path 的路径（用于缩略图和播放）
-	Size     int64  `json:"size"`      // 字节数
-	ModTime  int64  `json:"mod_time"`  // Unix 时间戳
+	Name         string `json:"name"`                    // 文件名
+	RelPath      string `json:"rel_path"`                // 相对于 output_path 的路径（用于缩略图和播放）
+	Size         int64  `json:"size"`                    // 字节数
+	ModTime      int64  `json:"mod_time"`                // Unix 时间戳
+	FileURL      string `json:"file_url,omitempty"`      // 面向移动端播放/下载的签名 URL
+	ThumbnailURL string `json:"thumbnail_url,omitempty"` // 面向移动端缩略图的签名 URL
+	HLSURL       string `json:"hls_url,omitempty"`       // 面向 AVPlayer 的 HLS 签名 URL（FLV/TS/MKV）
 }
 
 // getVideoFiles 列出指定文件夹路径（相对 output_path）下的所有视频文件
@@ -1226,11 +1155,15 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		rel, _ := filepath.Rel(rootPath, path)
+		relPath := filepath.ToSlash(rel)
 		files = append(files, VideoFileInfo{
-			Name:    d.Name(),
-			RelPath: filepath.ToSlash(rel),
-			Size:    info.Size(),
-			ModTime: info.ModTime().Unix(),
+			Name:         d.Name(),
+			RelPath:      relPath,
+			Size:         info.Size(),
+			ModTime:      info.ModTime().Unix(),
+			FileURL:      signedURLForAsset("file", relPath, cfg),
+			ThumbnailURL: signedURLForAsset("thumbnail", relPath, cfg),
+			HLSURL:       signedHLSURLForVideoFile(ext, relPath, cfg),
 		})
 		return nil
 	})
@@ -1248,7 +1181,6 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
 	})
 	writeJSON(writer, files)
 }
-
 
 func verifyBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1278,7 +1210,6 @@ func verifyBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write(body)
 }
-
 
 func getConfig(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, configs.GetCurrentConfig())
@@ -1892,6 +1823,20 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 	}
 	if toolRootFolder, ok := updates["tool_root_folder"].(string); ok {
 		c.ToolRootFolder = toolRootFolder
+	}
+
+	// 处理安全配置
+	if security, ok := updates["security"].(map[string]interface{}); ok {
+		if enableAPIKey, ok := security["enable_api_key"].(bool); ok {
+			c.Security.EnableAPIKey = enableAPIKey
+		}
+		if apiKey, ok := security["api_key"].(string); ok {
+			c.Security.APIKey = strings.TrimSpace(apiKey)
+		}
+		if ttlSeconds, ok := security["signed_url_ttl_seconds"].(float64); ok {
+			c.Security.SignedURLTTLSeconds = int(ttlSeconds)
+		}
+		c.Security.Normalize()
 	}
 
 	// 处理日志配置

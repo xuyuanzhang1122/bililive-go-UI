@@ -69,6 +69,7 @@ func initMux(ctx context.Context) *mux.Router {
 	// api router
 	apiRoute := m.PathPrefix(apiRouterPrefix).Subrouter()
 	apiRoute.Use(mux.CORSMethodMiddleware(apiRoute))
+	apiRoute.Use(apiAuthMiddleware)
 	apiRoute.HandleFunc("/info", getInfo).Methods("GET")
 	apiRoute.HandleFunc("/config", getConfig).Methods("GET")
 	apiRoute.HandleFunc("/config", putConfig).Methods("PUT")
@@ -109,8 +110,11 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/resolve-url", resolveUrl).Methods("GET") // 解析抓鼿分享短链
 	// 视频库 API
 	apiRoute.HandleFunc("/video-library", getVideoLibrary).Methods("GET")
+	apiRoute.HandleFunc("/signed-url", createSignedURL).Methods("GET")
 	apiRoute.HandleFunc("/thumbnail/{path:.*}", getThumbnail).Methods("GET")
 	apiRoute.HandleFunc("/video-files/{path:.*}", getVideoFiles).Methods("GET")
+	apiRoute.HandleFunc("/stream/hls-segment/{cache_key}/{segment}", getHLSSegment).Methods("GET")
+	apiRoute.HandleFunc("/stream/hls/{path:.*}", getHLSPlaylist).Methods("GET")
 	// 远程 WebUI 路由
 	apiRoute.HandleFunc("/webui/remote/status", getRemoteWebuiStatus).Methods("GET")  // 获取远程 WebUI 状态
 	apiRoute.HandleFunc("/webui/remote/check", checkRemoteWebuiUpdate).Methods("GET") // 检查远程 WebUI 更新
@@ -152,11 +156,13 @@ func initMux(ctx context.Context) *mux.Router {
 
 	m.PathPrefix("/files/").Handler(
 		CORSMiddleware(
-			http.StripPrefix(
-				"/files/",
-				http.FileServer(
-					http.Dir(
-						configs.GetCurrentConfig().OutPutPath,
+			fileAccessMiddleware(
+				http.StripPrefix(
+					"/files/",
+					http.FileServer(
+						http.Dir(
+							configs.GetCurrentConfig().OutPutPath,
+						),
 					),
 				),
 			),
@@ -234,7 +240,7 @@ func CORSMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key")
 		h.ServeHTTP(w, r)
 	})
 }

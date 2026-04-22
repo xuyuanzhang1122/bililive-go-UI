@@ -128,7 +128,9 @@ func SyncBuiltInTools(targetToolFolder string) (err error) {
 	if api == nil {
 		return errors.New("failed to get remotetools API instance")
 	}
-	cfgData, cfgErr := getConfigData()
+	applyDownloadProxyEnvForRemoteTools()
+
+	cfgData, cfgErr := getRuntimeConfigData()
 	if cfgErr != nil || cfgData == nil {
 		if cfgErr == nil {
 			cfgErr = errors.New("failed to get config data")
@@ -198,7 +200,9 @@ func Init() (err error) {
 	if api == nil {
 		return errors.New("failed to get remotetools API instance")
 	}
-	configData, err := getConfigData()
+	applyDownloadProxyEnvForRemoteTools()
+
+	configData, err := getRuntimeConfigData()
 	if configData == nil {
 		return errors.New("failed to get config data")
 	}

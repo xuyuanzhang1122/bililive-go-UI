@@ -1,0 +1,509 @@
+openapi: 3.1.0
+info:
+  title: bililive-go iOS API
+  version: 0.1.0
+  description: |
+    第一阶段 iOS App 使用的后端子集，仅面向抖音直播间服务。
+    后端仍保留更多管理接口；Swift 客户端请只生成并调用本文档列出的 endpoint。
+servers:
+  - url: http://127.0.0.1:8080
+    description: 本地默认 RPC 服务
+security:
+  - apiKeyAuth: []
+  - bearerAuth: []
+tags:
+  - name: System
+  - name: DouyinRooms
+  - name: VideoLibrary
+  - name: Files
+  - name: Events
+paths:
+  /api/info:
+    get:
+      tags: [System]
+      summary: 获取服务运行概览
+      responses:
+        "200":
+          description: 服务信息
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/resolve-url:
+    get:
+      tags: [DouyinRooms]
+      summary: 解析抖音分享文案或短链
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 抖音直播间 URL、短链或分享文案
+      responses:
+        "200":
+          description: 解析结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveURLResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+  /api/lives:
+    get:
+      tags: [DouyinRooms]
+      summary: 获取直播间列表
+      responses:
+        "200":
+          description: 直播间列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LiveInfo"
+    post:
+      tags: [DouyinRooms]
+      summary: 添加抖音直播间
+      description: 第一阶段客户端只应提交 `live.douyin.com` 或经 `/api/resolve-url` 解析后的抖音直播间 URL。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/AddLiveRequest"
+      responses:
+        "200":
+          description: 添加后的直播间信息
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LiveInfo"
+  /api/lives/{id}:
+    get:
+      tags: [DouyinRooms]
+      summary: 获取单个直播间详情
+      parameters:
+        - $ref: "#/components/parameters/LiveID"
+      responses:
+        "200":
+          description: 直播间详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [DouyinRooms]
+      summary: 删除直播间
+      parameters:
+        - $ref: "#/components/parameters/LiveID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                delete_files:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          $ref: "#/components/responses/CommonOK"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/lives/{id}/{action}:
+    get:
+      tags: [DouyinRooms]
+      summary: 控制直播间监听状态
+      parameters:
+        - $ref: "#/components/parameters/LiveID"
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [start, stop, forceRefresh]
+      responses:
+        "200":
+          description: 控制后的直播间信息或刷新结果
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/sse:
+    get:
+      tags: [Events]
+      summary: 订阅实时事件
+      description: iOS 使用 `URLSession` 消费 `text/event-stream`，不引入 WebSocket。
+      responses:
+        "200":
+          description: SSE 事件流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /api/video-library:
+    get:
+      tags: [VideoLibrary]
+      summary: 获取录播库主播目录
+      responses:
+        "200":
+          description: 主播目录列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoRoomInfo"
+  /api/video-files/{path}:
+    get:
+      tags: [VideoLibrary]
+      summary: 获取目录下的视频文件
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: 视频文件列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoFileInfo"
+  /api/signed-url:
+    get:
+      tags: [Files]
+      summary: 生成文件或缩略图签名 URL
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [file, thumbnail, hls]
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 相对 `out_put_path` 的文件路径
+        - name: expires_in
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 86400
+          description: 有效期秒数，缺省使用 `security.signed_url_ttl_seconds`
+      responses:
+        "200":
+          description: 签名 URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignedURLCommonResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/thumbnail/{path}:
+    get:
+      tags: [VideoLibrary]
+      summary: 获取视频缩略图
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+        - signedExpires: []
+          signedSignature: []
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: JPEG 缩略图
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                contentEncoding: binary
+        "403":
+          $ref: "#/components/responses/Error"
+  /api/stream/hls/{path}:
+    get:
+      tags: [VideoLibrary]
+      summary: 按需将录播文件转封装为 HLS 播放列表
+      description: 用于 FLV / TS / MKV 等 AVPlayer 不能直接播放的录播文件；首次请求会调用 ffmpeg 写入 `.appdata/hls-cache/`。
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+        - signedExpires: []
+          signedSignature: []
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: HLS 播放列表
+          content:
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/stream/hls-segment/{cache_key}/{segment}:
+    get:
+      tags: [VideoLibrary]
+      summary: 获取 HLS 缓存分段
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+        - signedExpires: []
+          signedSignature: []
+      parameters:
+        - name: cache_key
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{64}$"
+        - name: segment
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9._-]+\\.ts$"
+      responses:
+        "200":
+          description: HLS TS 分段
+          content:
+            video/MP2T:
+              schema:
+                type: string
+                contentEncoding: binary
+  /files/{path}:
+    get:
+      tags: [Files]
+      summary: 播放或下载录播文件
+      security:
+        - apiKeyAuth: []
+        - bearerAuth: []
+        - signedExpires: []
+          signedSignature: []
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: 录播文件内容
+          content:
+            video/mp4:
+              schema:
+                type: string
+                contentEncoding: binary
+            video/x-flv:
+              schema:
+                type: string
+                contentEncoding: binary
+            application/octet-stream:
+              schema:
+                type: string
+                contentEncoding: binary
+  /api/file/{path}:
+    get:
+      tags: [Files]
+      summary: 获取目录文件列表
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: 目录信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommonResponse"
+    delete:
+      tags: [Files]
+      summary: 删除文件或目录
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          $ref: "#/components/responses/CommonOK"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/batch/file/delete:
+    post:
+      tags: [Files]
+      summary: 批量删除文件或目录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paths]
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/CommonOK"
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    bearerAuth:
+      type: http
+      scheme: bearer
+    signedExpires:
+      type: apiKey
+      in: query
+      name: expires
+    signedSignature:
+      type: apiKey
+      in: query
+      name: sig
+  parameters:
+    LiveID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    FilePath:
+      name: path
+      in: path
+      required: true
+      schema:
+        type: string
+      description: 使用逐段 URL 编码的相对路径，例如 `抖音/主播/video.flv`
+  responses:
+    CommonOK:
+      description: 通用成功响应
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CommonResponse"
+    Error:
+      description: 通用错误响应
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CommonResponse"
+  schemas:
+    CommonResponse:
+      type: object
+      properties:
+        err_no:
+          type: integer
+          default: 0
+        err_msg:
+          type: string
+          default: ""
+        data: {}
+    ResolveURLResponse:
+      type: object
+      properties:
+        url:
+          type: string
+          example: https://live.douyin.com/123456
+    AddLiveRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          pattern: "^https://live\\.douyin\\.com/.+"
+        listen:
+          type: boolean
+          default: true
+    LiveInfo:
+      type: object
+      properties:
+        host_name:
+          type: string
+        room_name:
+          type: string
+        status:
+          type: boolean
+        listening:
+          type: boolean
+        recording:
+          type: boolean
+        live_id:
+          type: string
+    LiveDetail:
+      allOf:
+        - $ref: "#/components/schemas/LiveInfo"
+        - type: object
+          additionalProperties: true
+    VideoRoomInfo:
+      type: object
+      properties:
+        host_name:
+          type: string
+        platform:
+          type: string
+        folder_path:
+          type: string
+        video_count:
+          type: integer
+        total_size:
+          type: integer
+          format: int64
+        latest_video_at:
+          type: integer
+          format: int64
+        latest_video:
+          type: string
+    VideoFileInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        rel_path:
+          type: string
+        size:
+          type: integer
+          format: int64
+        mod_time:
+          type: integer
+          format: int64
+        file_url:
+          type: string
+          description: 相对服务根路径的签名文件 URL
+        thumbnail_url:
+          type: string
+          description: 相对服务根路径的签名缩略图 URL
+        hls_url:
+          type: string
+          description: FLV / TS / MKV 文件的 HLS 播放列表签名 URL
+    SignedURLCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/SignedURL"
+    SignedURL:
+      type: object
+      properties:
+        url:
+          type: string
+        expires:
+          type: integer
+          format: int64
+        expires_in:
+          type: integer

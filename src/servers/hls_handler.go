@@ -1,0 +1,209 @@
+package servers
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/mux"
+
+	"github.com/bililive-go/bililive-go/src/configs"
+	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
+)
+
+var (
+	hlsCacheLocks      sync.Map
+	hlsCacheKeyPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	hlsSegmentPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+\.ts$`)
+)
+
+func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		http.Error(writer, "配置未加载", http.StatusInternalServerError)
+		return
+	}
+	relPath := mux.Vars(r)["path"]
+	if relPath == "" {
+		http.Error(writer, "缺少视频路径", http.StatusBadRequest)
+		return
+	}
+
+	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, relPath)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cacheKey := hlsCacheKey(relPath, sourceInfo)
+	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
+	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+
+	lock := getHLSCacheLock(cacheKey)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if _, err := os.Stat(playlistPath); err != nil {
+		if err := buildHLSCache(r, cfg, sourcePath, cacheDir, playlistPath); err != nil {
+			http.Error(writer, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
+
+	content, err := os.ReadFile(playlistPath)
+	if err != nil {
+		http.Error(writer, "读取 HLS 播放列表失败", http.StatusInternalServerError)
+		return
+	}
+	content = rewriteHLSPlaylist(content, cacheKey, cfg)
+	writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	writer.Header().Set("Cache-Control", "no-store")
+	_, _ = writer.Write(content)
+}
+
+func getHLSSegment(writer http.ResponseWriter, r *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		http.Error(writer, "配置未加载", http.StatusInternalServerError)
+		return
+	}
+	vars := mux.Vars(r)
+	cacheKey := vars["cache_key"]
+	segment := vars["segment"]
+	if !hlsCacheKeyPattern.MatchString(cacheKey) || !hlsSegmentPattern.MatchString(segment) {
+		http.Error(writer, "非法 HLS 分段路径", http.StatusBadRequest)
+		return
+	}
+	segmentPath := filepath.Join(hlsCacheRoot(cfg), cacheKey, segment)
+	writer.Header().Set("Content-Type", "video/MP2T")
+	writer.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(writer, r, segmentPath)
+}
+
+func getSafeVideoFile(cfg *configs.Config, relPath string) (string, os.FileInfo, error) {
+	relPath = filepath.ToSlash(relPath)
+	absPath, err := getSafePath(cfg.OutPutPath, filepath.FromSlash(relPath))
+	if err != nil {
+		return "", nil, err
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", nil, err
+	}
+	if info.IsDir() {
+		return "", nil, fmt.Errorf("视频路径不能是目录")
+	}
+	if !videoExtensions[strings.ToLower(filepath.Ext(info.Name()))] {
+		return "", nil, fmt.Errorf("不支持的视频文件类型")
+	}
+	return absPath, info, nil
+}
+
+func buildHLSCache(r *http.Request, cfg *configs.Config, sourcePath, cacheDir, playlistPath string) error {
+	ffmpegPath, err := findFFmpegPath(cfg)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return fmt.Errorf("清理 HLS 缓存失败: %w", err)
+	}
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return fmt.Errorf("创建 HLS 缓存目录失败: %w", err)
+	}
+	segmentPattern := filepath.Join(cacheDir, "seg_%05d.ts")
+	args := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-y",
+		"-i", sourcePath,
+		"-c", "copy",
+		"-avoid_negative_ts", "make_zero",
+		"-f", "hls",
+		"-hls_time", "6",
+		"-hls_playlist_type", "vod",
+		"-hls_segment_filename", segmentPattern,
+		playlistPath,
+	}
+	cmd := exec.CommandContext(r.Context(), ffmpegPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("HLS 转封装失败: %w: %s", err, strings.TrimSpace(string(output)))
+}
+
+func findFFmpegPath(cfg *configs.Config) (string, error) {
+	if cfg != nil && strings.TrimSpace(cfg.FfmpegPath) != "" {
+		if _, err := os.Stat(cfg.FfmpegPath); err == nil {
+			return cfg.FfmpegPath, nil
+		}
+	}
+	if p, err := exec.LookPath("ffmpeg"); err == nil {
+		return p, nil
+	}
+	for _, candidate := range []string{"/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("ffmpeg 未安装或未配置")
+}
+
+func hlsCacheRoot(cfg *configs.Config) string {
+	appDataPath := ".appdata"
+	if cfg != nil && strings.TrimSpace(cfg.AppDataPath) != "" {
+		appDataPath = cfg.AppDataPath
+	}
+	return filepath.Join(appDataPath, "hls-cache")
+}
+
+func hlsCacheKey(relPath string, info os.FileInfo) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		filepath.ToSlash(relPath),
+		strconv.FormatInt(info.ModTime().UnixNano(), 10),
+		strconv.FormatInt(info.Size(), 10),
+	}, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+func getHLSCacheLock(cacheKey string) *sync.Mutex {
+	lock, _ := hlsCacheLocks.LoadOrStore(cacheKey, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+func rewriteHLSPlaylist(content []byte, cacheKey string, cfg *configs.Config) []byte {
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+			continue
+		}
+		segment := filepath.Base(trimmed)
+		if !hlsSegmentPattern.MatchString(segment) {
+			continue
+		}
+		rawURL := joinEscapedURLPath("/api/stream/hls-segment/"+cacheKey, segment)
+		urlValue, _, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(signedURLTTL(cfg)), cfg.Security.APIKey)
+		if err == nil {
+			lines[i] = urlValue
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
+func signedHLSURLForVideoFile(ext, relPath string, cfg *configs.Config) string {
+	switch strings.ToLower(ext) {
+	case ".flv", ".ts", ".mkv":
+		return signedURLForAsset("hls", relPath, cfg)
+	default:
+		return ""
+	}
+}

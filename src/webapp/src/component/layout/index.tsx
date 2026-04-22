@@ -11,7 +11,6 @@ import {
     MenuFoldOutlined,
     MenuUnfoldOutlined,
     LineChartOutlined,
-    CloudUploadOutlined,
     MenuOutlined,
     VideoCameraOutlined,
 } from '@ant-design/icons';
@@ -74,11 +73,6 @@ const useMenuItems = (onMenuClick?: () => void) => [
                 icon: <LineChartOutlined />,
                 label: <Link to="/iostats" onClick={onMenuClick}>IO 统计</Link>,
             },
-            {
-                key: '/update',
-                icon: <CloudUploadOutlined />,
-                label: <Link to="/update" onClick={onMenuClick}>更新</Link>,
-            },
         ],
     },
 ];
@@ -91,7 +85,6 @@ const getSelectedKey = (pathname: string): string => {
     if (pathname.startsWith('/configInfo')) return '/configInfo';
     if (pathname.startsWith('/tasks')) return '/tasks';
     if (pathname.startsWith('/iostats')) return '/iostats';
-    if (pathname.startsWith('/update')) return '/update';
     if (pathname.startsWith('/liveList')) return '/liveList';
     return '/videoLibrary';
 };
