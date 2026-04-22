@@ -9,17 +9,13 @@ import ConfigInfo from './component/config-info/index';
 import FileList from './component/file-list/index';
 import TaskPage from './component/task-page/index';
 import IOStats from './component/io-stats/index';
-import UpdateBanner from './component/update-banner/index';
-import UpdatePage from './component/update-page/index';
 import VideoLibrary from './component/video-library/index';
 
 const App: React.FC = () => {
   return (
     <>
-      <UpdateBanner />
       <RootLayout>
         <Routes>
-          <Route path="/update/*" element={<UpdatePage />} />
           <Route path="/iostats/*" element={<IOStats />} />
           <Route path="/tasks/*" element={<TaskPage />} />
           <Route path="/fileList/*" element={<FileList />} />
@@ -35,5 +31,4 @@ const App: React.FC = () => {
 }
 
 export default App;
-
 

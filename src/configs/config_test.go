@@ -43,6 +43,18 @@ func TestConfig_Verify(t *testing.T) {
 	assert.Error(t, cfg.Verify())
 }
 
+func TestSecurityNormalizeGeneratesKeyOnlyWhenEnabled(t *testing.T) {
+	disabled := Security{}
+	disabled.Normalize()
+	assert.Empty(t, disabled.APIKey)
+	assert.Equal(t, defaultSignedURLTTLSeconds, disabled.SignedURLTTLSeconds)
+
+	enabled := Security{EnableAPIKey: true}
+	enabled.Normalize()
+	assert.NotEmpty(t, enabled.APIKey)
+	assert.Equal(t, defaultSignedURLTTLSeconds, enabled.SignedURLTTLSeconds)
+}
+
 func TestResolveConfigForRoom(t *testing.T) {
 	cfg := &Config{
 		Interval:   60,

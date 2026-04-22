@@ -38,6 +38,12 @@ var (
 	pendingLauncherTransition bool
 )
 
+const (
+	// 程序更新入口暂时关闭，避免继续向上游项目拉取错误的 release 信息。
+	programUpdateDisabled        = true
+	programUpdateDisabledMessage = "无新版本"
+)
+
 // getUpdateManager 获取或初始化更新管理器
 func getUpdateManager() *update.Manager {
 	updateManagerOnce.Do(func() {
@@ -63,11 +69,17 @@ func GetAutoUpdater() *update.AutoUpdater {
 }
 
 // StartAutoUpdater 启动自动更新器
-func StartAutoUpdater(ctx context.Context) {
+func StartAutoUpdater(ctx context.Context) bool {
+	if programUpdateDisabled {
+		return false
+	}
+
 	updater := GetAutoUpdater()
 	if updater != nil {
 		updater.Start(ctx)
+		return true
 	}
+	return false
 }
 
 // StopAutoUpdater 停止自动更新器
@@ -131,6 +143,7 @@ type UpdateCheckResponse struct {
 	LatestInfo *update.ReleaseInfo `json:"latest_info,omitempty"`
 	IsDocker   bool                `json:"is_docker"`
 	Error      string              `json:"error,omitempty"`
+	Message    string              `json:"message,omitempty"`
 }
 
 // UpdateStatusResponse 更新状态响应
@@ -148,6 +161,16 @@ type UpdateStatusResponse struct {
 // checkUpdate 检查是否有新版本
 // GET /api/update/check?prerelease=false
 func checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if programUpdateDisabled {
+		writeJSON(w, UpdateCheckResponse{
+			Available:  false,
+			CurrentVer: consts.AppVersion,
+			IsDocker:   os.Getenv("IS_DOCKER") != "",
+			Message:    programUpdateDisabledMessage,
+		})
+		return
+	}
+
 	includePrerelease := r.URL.Query().Get("prerelease") == "true"
 
 	manager := getUpdateManager()

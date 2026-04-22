@@ -431,8 +431,11 @@ func main() {
 
 		// 启动自动更新器（如果配置启用）
 		if config.Update.AutoCheck {
-			servers.StartAutoUpdater(ctx)
-			logger.Info("自动更新检查器已启动")
+			if servers.StartAutoUpdater(ctx) {
+				logger.Info("自动更新检查器已启动")
+			} else {
+				logger.Info("自动更新入口已关闭，跳过自动检查")
+			}
 		}
 	}
 
