@@ -145,7 +145,7 @@ struct PlayerView: View {
                 VStack(spacing: 14) {
                     ProgressView()
                         .tint(.white)
-                    Text("准备播放�?)
+                    Text("准备播放…")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.72))
                 }
@@ -188,7 +188,7 @@ struct PlayerView: View {
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("关闭播放�?)
+            .accessibilityLabel("关闭播放器")
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.name)
@@ -211,7 +211,7 @@ struct PlayerView: View {
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isImmersive ? "退出全�? : "进入全屏")
+            .accessibilityLabel(isImmersive ? "退出全屏" : "进入全屏")
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 18)
@@ -252,7 +252,7 @@ struct PlayerView: View {
                 } label: {
                     Image(systemName: "gobackward.10")
                 }
-                .accessibilityLabel("后退 10 �?)
+                .accessibilityLabel("后退 10 秒")
 
                 Button {
                     togglePlay()
@@ -270,7 +270,7 @@ struct PlayerView: View {
                 } label: {
                     Image(systemName: "goforward.10")
                 }
-                .accessibilityLabel("前进 10 �?)
+                .accessibilityLabel("前进 10 秒")
 
                 Spacer()
 
@@ -316,7 +316,7 @@ struct PlayerView: View {
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Label("滑动: 快进/快退 · 音量", systemImage: "hand.draw")
-                    Label("双击: 播放/暂停 · 长按: 加�?, systemImage: "hand.tap")
+                    Label("双击: 播放/暂停 · 长按: 加速", systemImage: "hand.tap")
                 }
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.45))
@@ -698,11 +698,13 @@ private class GestureHandlerUIView: UIView {
 
 private struct PlayerSurface: UIViewRepresentable {
     let player: AVPlayer
+    let togglePiP: PassthroughSubject<Void, Never>
 
     func makeUIView(context: Context) -> PlayerSurfaceView {
         let view = PlayerSurfaceView()
         view.playerLayer.player = player
         view.playerLayer.videoGravity = .resizeAspect
+        view.setupPiP(togglePiP: togglePiP)
         return view
     }
 
@@ -712,12 +714,29 @@ private struct PlayerSurface: UIViewRepresentable {
 }
 
 private final class PlayerSurfaceView: UIView {
-    override class var layerClass: AnyClass {
-        AVPlayerLayer.self
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+
+    private var pipController: AVPictureInPictureController?
+    private var pipCancellable: AnyCancellable?
+
+    func setupPiP(togglePiP: PassthroughSubject<Void, Never>) {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        pipController = AVPictureInPictureController(playerLayer: playerLayer)
+        pipController?.canStartPictureInPictureAutomaticallyFromInline = true
+        pipCancellable = togglePiP.sink { [weak self] in
+            guard let pip = self?.pipController else { return }
+            if pip.isPictureInPictureActive {
+                pip.stopPictureInPicture()
+            } else {
+                pip.startPictureInPicture()
+            }
+        }
     }
 
-    var playerLayer: AVPlayerLayer {
-        layer as! AVPlayerLayer
+    deinit {
+        pipCancellable?.cancel()
     }
 }
 
