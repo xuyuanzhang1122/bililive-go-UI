@@ -44,8 +44,13 @@ final class AppConfig {
 
     /// The currently active URL (auto-switched or manual)
     var activeURL: String {
-        if autoSwitchNetwork && !lanURL.isEmpty && !publicURL.isEmpty {
-            return isOnLAN ? lanURL : publicURL
+        if autoSwitchNetwork {
+            if !lanURL.isEmpty && !publicURL.isEmpty {
+                return isOnLAN ? lanURL : publicURL
+            }
+            // Partial config: use whichever is filled
+            if !lanURL.isEmpty { return lanURL }
+            if !publicURL.isEmpty { return publicURL }
         }
         return serverURL
     }

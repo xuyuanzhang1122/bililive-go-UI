@@ -64,6 +64,12 @@ final class APIClient {
         return data
     }
 
+    // MARK: - Server info
+
+    func getServerInfo() async throws -> ServerInfo {
+        try await fetch(ServerInfo.self, path: "/api/info")
+    }
+
     // MARK: - Live rooms
 
     func getLives() async throws -> [LiveInfo] {
@@ -92,7 +98,8 @@ final class APIClient {
 
     func resolveURL(_ rawURL: String) async throws -> String {
         let encoded = rawURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? rawURL
-        let result = try await fetchWrapped(ResolveURLResult.self, path: "/api/resolve-url?url=\(encoded)")
+        // 后端直接返回 {"url":"..."} 而非 APIResponse 包装
+        let result = try await fetch(ResolveURLResult.self, path: "/api/resolve-url?url=\(encoded)")
         return result.url
     }
 
@@ -135,9 +142,7 @@ final class APIClient {
 
     func thumbnailURL(for relPath: String) -> URL? {
         let encoded = encodedRelPath(relPath)
-        let path = "/api/thumbnail/\(encoded)"
-        let base = baseURL.trimmingCharacters(in: .init(charactersIn: "/"))
-        return URL(string: base + path)
+        return absoluteURL("/api/thumbnail/\(encoded)")
     }
 
     func makeHLSURL(hlsRelative: String) -> URL? {

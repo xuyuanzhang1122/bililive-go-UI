@@ -13,13 +13,8 @@ struct Live_OSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if appConfig.serverURL.isEmpty {
-                SettingsView(isInitialSetup: true)
-                    .environment(appConfig)
-            } else {
-                ContentView()
-                    .environment(appConfig)
-            }
+            ContentView()
+                .environment(appConfig)
         }
     }
 }

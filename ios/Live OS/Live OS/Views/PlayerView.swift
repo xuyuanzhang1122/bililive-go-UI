@@ -82,9 +82,8 @@ struct PlayerView: View {
                             showVolumeIndicator = false
                         }
                     },
-                    onLongPressStart: { location in
-                        let screenWidth = UIScreen.main.bounds.width
-                        let side: PlayerSide = location.x < screenWidth / 2 ? .left : .right
+                    onLongPressStart: { location, viewWidth in
+                        let side: PlayerSide = location.x < viewWidth / 2 ? .left : .right
                         startSpeedBoost(side)
                     },
                     onLongPressEnd: {
@@ -321,6 +320,9 @@ struct PlayerView: View {
             return
         }
 
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [])
+        try? AVAudioSession.sharedInstance().setActive(true)
+
         let item = AVPlayerItem(url: url)
         let freshPlayer = AVPlayer(playerItem: item)
         player = freshPlayer
@@ -477,7 +479,7 @@ private struct GestureHandlerView: UIViewRepresentable {
     var onDoubleTap: (_ location: CGPoint) -> Void
     var onSwipeHorizontal: (_ deltaX: CGFloat) -> Void
     var onSwipeVertical: (_ deltaY: CGFloat) -> Void
-    var onLongPressStart: (_ location: CGPoint) -> Void
+    var onLongPressStart: (_ location: CGPoint, _ viewWidth: CGFloat) -> Void
     var onLongPressEnd: () -> Void
 
     func makeUIView(context: Context) -> GestureHandlerUIView {
@@ -507,7 +509,7 @@ private class GestureHandlerUIView: UIView {
     var onDoubleTap: ((_ location: CGPoint) -> Void)?
     var onSwipeHorizontal: ((_ deltaX: CGFloat) -> Void)?
     var onSwipeVertical: ((_ deltaY: CGFloat) -> Void)?
-    var onLongPressStart: ((_ location: CGPoint) -> Void)?
+    var onLongPressStart: ((_ location: CGPoint, _ viewWidth: CGFloat) -> Void)?
     var onLongPressEnd: (() -> Void)?
 
     private var touchStartPoint: CGPoint?
@@ -553,8 +555,9 @@ private class GestureHandlerUIView: UIView {
         longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
             guard let self, !self.isLongPressing else { return }
             self.isLongPressing = true
+            let viewWidth = self.bounds.width
             DispatchQueue.main.async {
-                self.onLongPressStart?(location)
+                self.onLongPressStart?(location, viewWidth)
             }
         }
     }

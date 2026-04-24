@@ -29,6 +29,18 @@ struct ResolveURLResult: Decodable {
     let url: String
 }
 
+struct ServerInfo: Decodable {
+    let appName: String
+    let appVersion: String
+    let platform: String
+
+    enum CodingKeys: String, CodingKey {
+        case appName = "app_name"
+        case appVersion = "app_version"
+        case platform
+    }
+}
+
 enum APIError: LocalizedError {
     case invalidURL
     case unauthorized
