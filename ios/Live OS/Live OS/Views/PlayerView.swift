@@ -30,7 +30,6 @@ struct PlayerView: View {
 
     // Speed
     @State private var currentSpeed: Float = 1.0
-    @State private var showSpeedMenu = false
 
     // Long-press speed boost
     @State private var speedBoostSide: PlayerSide?
@@ -40,12 +39,15 @@ struct PlayerView: View {
     // Swipe feedback
     @State private var seekDelta: Double = 0
     @State private var showSeekIndicator = false
-    @State private var volumeDelta: Float = 0
     @State private var showVolumeIndicator = false
     @State private var currentSystemVolume: Float = 0
-    
+
     @State private var showBrightnessIndicator = false
     @State private var currentBrightness: CGFloat = 0
+    @State private var seekGestureStartTime: Double = 0
+    @State private var seekIndicatorHideTask: Task<Void, Never>?
+    @State private var volumeIndicatorHideTask: Task<Void, Never>?
+    @State private var brightnessIndicatorHideTask: Task<Void, Never>?
 
     @State private var controlsHideTask: Task<Void, Never>?
     private let togglePiPSubject = PassthroughSubject<Void, Never>()
@@ -64,40 +66,51 @@ struct PlayerView: View {
                         togglePlay()
                         revealControlsTemporarily()
                     },
-                    onSwipeHorizontal: { delta in
-                        let seconds = delta * 0.15 // sensitivity
-                        seek(by: seconds)
-                        seekDelta = seconds
-                        showSeekIndicator = true
-                        Task {
-                            try? await Task.sleep(for: .milliseconds(600))
-                            showSeekIndicator = false
+                    onSwipeStart: { direction, _ in
+                        controlsHideTask?.cancel()
+                        if direction == .horizontal {
+                            isSeeking = true
+                            seekGestureStartTime = currentTime
+                            showSeekIndicator = true
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showControls = true
+                            }
                         }
+                    },
+                    onSwipeHorizontal: { _, translation, width in
+                        let span = horizontalSeekSpan()
+                        let seconds = Double(translation / max(width, 1)) * span
+                        let target = clampedTime(seekGestureStartTime + seconds)
+                        currentTime = target
+                        seekDelta = target - seekGestureStartTime
+                        showSeekIndicator = true
                     },
                     onSwipeVertical: { location, delta in
                         let viewWidth = UIScreen.main.bounds.width
                         if location.x > viewWidth / 2 {
                             // delta: negative = swipe up (louder), positive = swipe down (quieter)
-                            let volumeChange = Float(-delta) * 0.008
+                            let volumeChange = Float(-delta) * 0.006
                             let newVol = min(max(currentSystemVolume + volumeChange, 0), 1)
                             setSystemVolume(newVol)
                             currentSystemVolume = newVol
-                            volumeDelta = volumeChange
                             showVolumeIndicator = true
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(600))
-                                showVolumeIndicator = false
-                            }
+                            hideVolumeIndicatorSoon()
                         } else {
-                            let brightnessChange = CGFloat(-delta) * 0.008
+                            let brightnessChange = CGFloat(-delta) * 0.006
                             let newBright = min(max(currentBrightness + brightnessChange, 0), 1)
                             UIScreen.main.brightness = newBright
                             currentBrightness = newBright
                             showBrightnessIndicator = true
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(600))
-                                showBrightnessIndicator = false
-                            }
+                            hideBrightnessIndicatorSoon()
+                        }
+                    },
+                    onSwipeEnd: { direction in
+                        if direction == .horizontal {
+                            isSeeking = false
+                            seek(to: currentTime)
+                            hideSeekIndicatorSoon()
+                        } else {
+                            scheduleControlsAutoHide()
                         }
                     },
                     onLongPressStart: { location, viewWidth in
@@ -112,7 +125,7 @@ struct PlayerView: View {
 
                 // Seek delta indicator
                 if showSeekIndicator {
-                    SeekDeltaIndicator(delta: seekDelta)
+                    SeekDeltaIndicator(delta: seekDelta, targetTime: currentTime, valueFormatter: formatTime)
                         .transition(.opacity)
                 }
 
@@ -224,21 +237,25 @@ struct PlayerView: View {
     }
 
     private var bottomControls: some View {
-        VStack(spacing: 14) {
-            // Custom Progress slider
-            CustomSlider(
+        VStack(spacing: 16) {
+            PrecisionTimelineSlider(
                 value: $currentTime,
                 range: 0...max(duration, 1),
+                valueFormatter: formatTime,
                 onEditingChanged: { editing in
                     isSeeking = editing
-                    if !editing {
+                    if editing {
+                        controlsHideTask?.cancel()
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            showControls = true
+                        }
+                    } else {
                         seek(to: currentTime)
                     }
                 }
             )
-            .frame(height: 24)
+            .frame(height: 52)
 
-            // Time + controls
             HStack(spacing: 12) {
                 Text(formatTime(currentTime))
                     .font(.caption.monospacedDigit())
@@ -283,9 +300,7 @@ struct PlayerView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.white)
 
-            // Speed selector + hints
             HStack {
-                // Speed menu button
                 Menu {
                     ForEach(speedPresets, id: \.self) { speed in
                         Button {
@@ -315,15 +330,15 @@ struct PlayerView: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Label("滑动: 快进/快退 · 音量", systemImage: "hand.draw")
-                    Label("双击: 播放/暂停 · 长按: 加速", systemImage: "hand.tap")
+                    Label("左侧亮度 · 右侧音量", systemImage: "sun.max")
+                    Label("横滑预览进度 · 松手跳转", systemImage: "arrow.left.and.right")
                 }
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.45))
             }
         }
         .padding(.horizontal, 22)
-        .padding(.top, 46)
+        .padding(.top, 54)
         .padding(.bottom, isImmersive ? 36 : 18)
         .background(
             LinearGradient(colors: [.black.opacity(0), .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
@@ -370,6 +385,9 @@ struct PlayerView: View {
 
     private func cleanupPlayer() {
         controlsHideTask?.cancel()
+        seekIndicatorHideTask?.cancel()
+        volumeIndicatorHideTask?.cancel()
+        brightnessIndicatorHideTask?.cancel()
         controlsHideTask = nil
         if let timeObserver {
             player?.removeTimeObserver(timeObserver)
@@ -429,14 +447,25 @@ struct PlayerView: View {
     }
 
     private func seek(by offset: Double) {
-        seek(to: min(max(currentTime + offset, 0), duration))
+        seek(to: clampedTime(currentTime + offset))
     }
 
     private func seek(to seconds: Double) {
         guard let player else { return }
-        let target = CMTime(seconds: min(max(seconds, 0), max(duration, 0)), preferredTimescale: 600)
+        let clamped = clampedTime(seconds)
+        currentTime = clamped
+        let target = CMTime(seconds: clamped, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
         scheduleControlsAutoHide()
+    }
+
+    private func clampedTime(_ seconds: Double) -> Double {
+        min(max(seconds, 0), max(duration, 0))
+    }
+
+    private func horizontalSeekSpan() -> Double {
+        guard duration > 0 else { return 60 }
+        return min(max(duration * 0.04, 45), 180)
     }
 
     private func setSpeed(_ speed: Float) {
@@ -466,9 +495,41 @@ struct PlayerView: View {
     }
 
     private func setSystemVolume(_ volume: Float) {
-        let volumeView = MPVolumeView()
-        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
-            slider.value = volume
+        Task { @MainActor in
+            SystemVolumeController.shared.setVolume(volume)
+        }
+    }
+
+    private func hideSeekIndicatorSoon() {
+        seekIndicatorHideTask?.cancel()
+        seekIndicatorHideTask = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { showSeekIndicator = false }
+        }
+    }
+
+    private func hideVolumeIndicatorSoon() {
+        volumeIndicatorHideTask?.cancel()
+        volumeIndicatorHideTask = Task {
+            try? await Task.sleep(for: .milliseconds(650))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                showVolumeIndicator = false
+                scheduleControlsAutoHide()
+            }
+        }
+    }
+
+    private func hideBrightnessIndicatorSoon() {
+        brightnessIndicatorHideTask?.cancel()
+        brightnessIndicatorHideTask = Task {
+            try? await Task.sleep(for: .milliseconds(650))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                showBrightnessIndicator = false
+                scheduleControlsAutoHide()
+            }
         }
     }
 
@@ -492,13 +553,20 @@ private enum PlayerSide {
     case right
 }
 
+private enum PlayerGestureDirection {
+    case horizontal
+    case vertical
+}
+
 // MARK: - Gesture Handler (UIKit)
 
 private struct GestureHandlerView: UIViewRepresentable {
     var onSingleTap: () -> Void
     var onDoubleTap: (_ location: CGPoint) -> Void
-    var onSwipeHorizontal: (_ deltaX: CGFloat) -> Void
+    var onSwipeStart: (_ direction: PlayerGestureDirection, _ location: CGPoint) -> Void
+    var onSwipeHorizontal: (_ location: CGPoint, _ translationX: CGFloat, _ viewWidth: CGFloat) -> Void
     var onSwipeVertical: (_ location: CGPoint, _ deltaY: CGFloat) -> Void
+    var onSwipeEnd: (_ direction: PlayerGestureDirection) -> Void
     var onLongPressStart: (_ location: CGPoint, _ viewWidth: CGFloat) -> Void
     var onLongPressEnd: () -> Void
 
@@ -506,8 +574,10 @@ private struct GestureHandlerView: UIViewRepresentable {
         let view = GestureHandlerUIView()
         view.onSingleTap = onSingleTap
         view.onDoubleTap = onDoubleTap
+        view.onSwipeStart = onSwipeStart
         view.onSwipeHorizontal = onSwipeHorizontal
         view.onSwipeVertical = onSwipeVertical
+        view.onSwipeEnd = onSwipeEnd
         view.onLongPressStart = onLongPressStart
         view.onLongPressEnd = onLongPressEnd
         view.setupGestures()
@@ -517,8 +587,10 @@ private struct GestureHandlerView: UIViewRepresentable {
     func updateUIView(_ uiView: GestureHandlerUIView, context: Context) {
         uiView.onSingleTap = onSingleTap
         uiView.onDoubleTap = onDoubleTap
+        uiView.onSwipeStart = onSwipeStart
         uiView.onSwipeHorizontal = onSwipeHorizontal
         uiView.onSwipeVertical = onSwipeVertical
+        uiView.onSwipeEnd = onSwipeEnd
         uiView.onLongPressStart = onLongPressStart
         uiView.onLongPressEnd = onLongPressEnd
     }
@@ -527,19 +599,20 @@ private struct GestureHandlerView: UIViewRepresentable {
 private class GestureHandlerUIView: UIView {
     var onSingleTap: (() -> Void)?
     var onDoubleTap: ((_ location: CGPoint) -> Void)?
-    var onSwipeHorizontal: ((_ deltaX: CGFloat) -> Void)?
+    var onSwipeStart: ((_ direction: PlayerGestureDirection, _ location: CGPoint) -> Void)?
+    var onSwipeHorizontal: ((_ location: CGPoint, _ translationX: CGFloat, _ viewWidth: CGFloat) -> Void)?
     var onSwipeVertical: ((_ location: CGPoint, _ deltaY: CGFloat) -> Void)?
+    var onSwipeEnd: ((_ direction: PlayerGestureDirection) -> Void)?
     var onLongPressStart: ((_ location: CGPoint, _ viewWidth: CGFloat) -> Void)?
     var onLongPressEnd: (() -> Void)?
 
     private var touchStartPoint: CGPoint?
+    private var lastTouchPoint: CGPoint?
     private var touchStartTime: TimeInterval = 0
     private var isLongPressing = false
     private var longPressTimer: Timer?
     private var tapCount = 0
     private var tapTimer: Timer?
-    private var accumulatedSwipeX: CGFloat = 0
-    private var accumulatedSwipeY: CGFloat = 0
     private var swipeDirection: SwipeDirection = .none
 
     private enum SwipeDirection {
@@ -564,10 +637,9 @@ private class GestureHandlerUIView: UIView {
         guard let touch = touches.first else { return }
         let location = touch.location(in: self)
         touchStartPoint = location
+        lastTouchPoint = location
         touchStartTime = touch.timestamp
         isLongPressing = false
-        accumulatedSwipeX = 0
-        accumulatedSwipeY = 0
         swipeDirection = .none
 
         // Start long-press timer (0.35s)
@@ -599,32 +671,32 @@ private class GestureHandlerUIView: UIView {
                 if absDx > absDy {
                     swipeDirection = .horizontal
                     longPressTimer?.invalidate()
+                    DispatchQueue.main.async {
+                        self.onSwipeStart?(.horizontal, current)
+                    }
                 } else {
                     swipeDirection = .vertical
                     longPressTimer?.invalidate()
+                    DispatchQueue.main.async {
+                        self.onSwipeStart?(.vertical, current)
+                    }
                 }
             }
         }
 
-        // Accumulate delta and fire callbacks
         if swipeDirection == .horizontal {
-            let step = dx - accumulatedSwipeX
-            accumulatedSwipeX = dx
-            if abs(step) > 2 {
-                DispatchQueue.main.async {
-                    self.onSwipeHorizontal?(step)
-                }
+            DispatchQueue.main.async {
+                self.onSwipeHorizontal?(current, dx, self.bounds.width)
             }
-            touchStartPoint = current // reset base for continuous tracking
         } else if swipeDirection == .vertical {
-            let step = dy - accumulatedSwipeY
-            accumulatedSwipeY = dy
-            if abs(step) > 2 {
+            let previous = lastTouchPoint ?? start
+            let step = current.y - previous.y
+            lastTouchPoint = current
+            if abs(step) > 0.5 {
                 DispatchQueue.main.async {
                     self.onSwipeVertical?(current, step)
                 }
             }
-            touchStartPoint = current
         }
     }
 
@@ -644,8 +716,16 @@ private class GestureHandlerUIView: UIView {
         let endPoint = touch.location(in: self)
         let duration = touch.timestamp - touchStartTime
 
-        // If it was a swipe (significant movement), don't count as tap
-        if swipeDirection != .none { return }
+        if swipeDirection != .none {
+            let direction = swipeDirection
+            swipeDirection = .none
+            touchStartPoint = nil
+            lastTouchPoint = nil
+            DispatchQueue.main.async {
+                self.onSwipeEnd?(direction == .horizontal ? .horizontal : .vertical)
+            }
+            return
+        }
 
         // Short tap (< 0.3s, < 20px movement)
         if duration < 0.3, let start = touchStartPoint {
@@ -665,7 +745,14 @@ private class GestureHandlerUIView: UIView {
                 self.onLongPressEnd?()
             }
         }
+        if swipeDirection != .none {
+            let direction = swipeDirection
+            DispatchQueue.main.async {
+                self.onSwipeEnd?(direction == .horizontal ? .horizontal : .vertical)
+            }
+        }
         touchStartPoint = nil
+        lastTouchPoint = nil
         swipeDirection = .none
     }
 
@@ -774,18 +861,24 @@ private struct SpeedBoostIndicator: View {
 
 private struct SeekDeltaIndicator: View {
     let delta: Double
+    let targetTime: Double
+    let valueFormatter: (Double) -> String
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 8) {
             Image(systemName: delta > 0 ? "goforward" : "gobackward")
-                .font(.system(size: 24))
-            Text("\(delta > 0 ? "+" : "")\(Int(delta))s")
+                .font(.system(size: 25, weight: .semibold))
+            Text("\(delta > 0 ? "+" : "")\(Int(delta.rounded()))s")
                 .font(.title3.monospacedDigit().bold())
+            Text(valueFormatter(targetTime))
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(.white.opacity(0.72))
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 22)
+        .padding(.vertical, 16)
+        .background(.black.opacity(0.66), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.3), radius: 12)
         .allowsHitTesting(false)
     }
@@ -853,11 +946,60 @@ private struct BrightnessIndicator: View {
     }
 }
 
-// MARK: - Custom Slider
+// MARK: - System Volume
 
-private struct CustomSlider: View {
+@MainActor
+private final class SystemVolumeController {
+    static let shared = SystemVolumeController()
+
+    private let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 1, height: 1))
+    private weak var slider: UISlider?
+    private var isInstalled = false
+
+    private init() {
+        volumeView.alpha = 0.01
+        volumeView.isUserInteractionEnabled = false
+    }
+
+    func setVolume(_ volume: Float) {
+        let normalizedVolume = min(max(volume, 0), 1)
+        installIfNeeded()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(10))
+            let slider = self.slider ?? self.findSlider()
+            slider?.setValue(normalizedVolume, animated: false)
+            slider?.sendActions(for: .valueChanged)
+        }
+    }
+
+    private func installIfNeeded() {
+        guard !isInstalled else { return }
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let window = windowScene.windows.first(where: { $0.isKeyWindow }) ?? windowScene.windows.first
+        else { return }
+
+        window.addSubview(volumeView)
+        slider = findSlider()
+        isInstalled = true
+    }
+
+    private func findSlider() -> UISlider? {
+        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+            self.slider = slider
+            return slider
+        }
+        return nil
+    }
+}
+
+// MARK: - Precision Timeline Slider
+
+private struct PrecisionTimelineSlider: View {
     @Binding var value: Double
     var range: ClosedRange<Double>
+    var valueFormatter: (Double) -> String
     var onEditingChanged: (Bool) -> Void
 
     @State private var dragPercent: Double? = nil
@@ -865,29 +1007,47 @@ private struct CustomSlider: View {
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
-            let percent = dragPercent ?? (max(0, min(value / max(range.upperBound, 1), 1)))
-            
+            let usableWidth = max(width, 1)
+            let lower = range.lowerBound
+            let upper = max(range.upperBound, lower + 1)
+            let percent = dragPercent ?? min(max((value - lower) / (upper - lower), 0), 1)
+            let thumbX = min(max(usableWidth * percent, 0), usableWidth)
+            let isDragging = dragPercent != nil
+
             ZStack(alignment: .leading) {
-                // Background track
                 Capsule()
-                    .fill(Color.white.opacity(0.3))
-                    .frame(height: 4)
-                
-                // Filled track
+                    .fill(.white.opacity(0.18))
+                    .frame(height: isDragging ? 7 : 5)
+
                 Capsule()
-                    .fill(Color.red)
-                    .frame(width: max(0, width * percent), height: 4)
-                
-                // Thumb
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(red: 1, green: 0.22, blue: 0.22), Color(red: 1, green: 0.62, blue: 0.24)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(0, thumbX), height: isDragging ? 7 : 5)
+
                 Circle()
-                    .fill(Color.white)
-                    .frame(width: 14, height: 14)
-                    .offset(x: max(0, min(width * percent - 7, width - 14)))
-                    .shadow(radius: 2)
-                    .scaleEffect(dragPercent != nil ? 1.4 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.7), value: dragPercent != nil)
+                    .fill(.white)
+                    .frame(width: isDragging ? 24 : 18, height: isDragging ? 24 : 18)
+                    .overlay(Circle().stroke(.black.opacity(0.18), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.36), radius: 7, y: 3)
+                    .position(x: thumbX, y: 26)
+
+                if isDragging {
+                    Text(valueFormatter(value))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(.white, in: Capsule())
+                        .position(x: min(max(thumbX, 34), usableWidth - 34), y: 0)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                }
             }
-            .frame(minHeight: 24)
+            .frame(height: 52)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -895,19 +1055,18 @@ private struct CustomSlider: View {
                         if dragPercent == nil {
                             onEditingChanged(true)
                         }
-                        let p = min(max(gesture.location.x / width, 0), 1)
+                        let p = min(max(gesture.location.x / usableWidth, 0), 1)
                         dragPercent = p
-                        value = p * range.upperBound
+                        value = lower + p * (upper - lower)
                     }
                     .onEnded { gesture in
-                        let p = min(max(gesture.location.x / width, 0), 1)
-                        value = p * range.upperBound
+                        let p = min(max(gesture.location.x / usableWidth, 0), 1)
+                        value = lower + p * (upper - lower)
                         dragPercent = nil
                         onEditingChanged(false)
                     }
             )
+            .animation(.spring(response: 0.2, dampingFraction: 0.78), value: isDragging)
         }
     }
 }
-
-
