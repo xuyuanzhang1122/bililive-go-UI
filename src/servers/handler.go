@@ -923,10 +923,8 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(platformEntry.Name(), ".") {
 			continue
 		}
-		// 只扫描已配置直播间对应的平台目录。
-		// 注意：不加 len > 0 的守卫，当 knownPlatforms 为空时 map 查询返回 false，
-		// 从而正确地跳过所有目录，防止扫描整个输出路径。
-		if !knownPlatforms[platformEntry.Name()] {
+		// 只扫描已配置直播间对应的平台目录；如果没有配置任何直播间，则扫描所有平台目录
+		if len(knownPlatforms) > 0 && !knownPlatforms[platformEntry.Name()] {
 			continue
 		}
 		platformPath := filepath.Join(rootPath, platformEntry.Name())
