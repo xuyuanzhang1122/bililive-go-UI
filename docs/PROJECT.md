@@ -181,10 +181,10 @@ bililive-go-UI/
 # docker-compose.yml 节选
 services:
   bililive:
-    image: xuniubi/bililive-go
+    image: xuniubi/bililive-go:myfix-20260424
     volumes:
-      - ./config:/etc/bililive-go
-      - ./videos:/srv/bililive
+      - ./config.docker.yml:/etc/bililive-go/config.yml
+      - ./Videos:/srv/bililive
     ports:
       - "8080:8080"
     environment:
@@ -201,10 +201,10 @@ services:
 ### 4.3 Docker（自己构建）
 
 ```bash
-docker build -f Dockerfile.local -t bililive-go:dev .
+docker build --build-arg VERSION=myfix-20260424 -t xuniubi/bililive-go:myfix-20260424 .
 ```
 
-**已知问题**：在 Ubuntu 上用自构建镜像运行，点击"保存设置"会弹出 `config path not set`，但配置实际已应用。详见 §7.1。
+容器配置固定挂载到 `/etc/bililive-go/config.yml`，Web UI 保存配置会沿用该路径；录制输出和 `.appdata` 默认在 `/srv/bililive` 下，便于持久化播放器缩略图、HLS 缓存和工具缓存。
 
 ### 4.4 Launcher 自更新
 

@@ -2365,6 +2365,13 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	path := vars["path"]
 
 	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJSON(writer, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "配置未加载",
+		})
+		return
+	}
 	absPath, err := getSafePath(cfg.OutPutPath, path)
 	if err != nil {
 		writeJSON(writer, commonResp{
@@ -2381,34 +2388,79 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type jsonFile struct {
-		IsFolder     bool   `json:"is_folder"`
-		Name         string `json:"name"`
-		LastModified int64  `json:"last_modified"`
-		Size         int64  `json:"size"`
-	}
-	jsonFiles := make([]jsonFile, len(files))
 	json := struct {
-		Files []jsonFile `json:"files"`
-		Path  string     `json:"path"`
+		Files []fileListEntry `json:"files"`
+		Path  string          `json:"path"`
 	}{
-		Path: path,
+		Files: buildVisibleFileListEntries(path, absPath, files),
+		Path:  path,
 	}
-	for i, file := range files {
-		info, err := file.Info()
-		if err != nil {
-			continue
-		}
-		jsonFiles[i].IsFolder = file.IsDir()
-		jsonFiles[i].Name = file.Name()
-		jsonFiles[i].LastModified = info.ModTime().Unix()
-		if !file.IsDir() {
-			jsonFiles[i].Size = info.Size()
-		}
-	}
-	json.Files = jsonFiles
 
 	writeJSON(writer, json)
+}
+
+type fileListEntry struct {
+	IsFolder     bool   `json:"is_folder"`
+	Name         string `json:"name"`
+	LastModified int64  `json:"last_modified"`
+	Size         int64  `json:"size"`
+}
+
+func buildVisibleFileListEntries(requestPath, absPath string, files []fs.DirEntry) []fileListEntry {
+	entries := make([]fileListEntry, 0, len(files))
+	for _, file := range files {
+		info, err := file.Info()
+		if err != nil || !isVisibleRecordingEntry(requestPath, filepath.Join(absPath, file.Name()), file) {
+			continue
+		}
+		entry := fileListEntry{
+			IsFolder:     file.IsDir(),
+			Name:         file.Name(),
+			LastModified: info.ModTime().Unix(),
+		}
+		if !file.IsDir() {
+			entry.Size = info.Size()
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func isVisibleRecordingEntry(requestPath, absEntryPath string, file fs.DirEntry) bool {
+	if strings.HasPrefix(file.Name(), ".") {
+		return false
+	}
+	if file.IsDir() {
+		return directoryContainsVideo(absEntryPath)
+	}
+	if strings.TrimSpace(requestPath) == "" {
+		return videoExtensions[strings.ToLower(filepath.Ext(file.Name()))]
+	}
+	return true
+}
+
+func directoryContainsVideo(root string) bool {
+	found := false
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if path != root && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+			return fs.SkipDir
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if videoExtensions[strings.ToLower(filepath.Ext(d.Name()))] {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // translateOSError 将系统错误转换为中文，兼容多平台。

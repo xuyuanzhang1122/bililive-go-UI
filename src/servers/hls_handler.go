@@ -1,6 +1,7 @@
 package servers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
 
 var (
@@ -108,7 +110,7 @@ func getSafeVideoFile(cfg *configs.Config, relPath string) (string, os.FileInfo,
 }
 
 func buildHLSCache(r *http.Request, cfg *configs.Config, sourcePath, cacheDir, playlistPath string) error {
-	ffmpegPath, err := findFFmpegPath(cfg)
+	ffmpegPath, err := findFFmpegPath(r.Context(), cfg)
 	if err != nil {
 		return err
 	}
@@ -140,11 +142,14 @@ func buildHLSCache(r *http.Request, cfg *configs.Config, sourcePath, cacheDir, p
 	return fmt.Errorf("HLS 转封装失败: %w: %s", err, strings.TrimSpace(string(output)))
 }
 
-func findFFmpegPath(cfg *configs.Config) (string, error) {
+func findFFmpegPath(ctx context.Context, cfg *configs.Config) (string, error) {
 	if cfg != nil && strings.TrimSpace(cfg.FfmpegPath) != "" {
 		if _, err := os.Stat(cfg.FfmpegPath); err == nil {
 			return cfg.FfmpegPath, nil
 		}
+	}
+	if p, err := utils.GetFFmpegPath(ctx); err == nil {
+		return p, nil
 	}
 	if p, err := exec.LookPath("ffmpeg"); err == nil {
 		return p, nil
@@ -191,8 +196,11 @@ func rewriteHLSPlaylist(content []byte, cacheKey string, cfg *configs.Config) []
 			continue
 		}
 		rawURL := joinEscapedURLPath("/api/stream/hls-segment/"+cacheKey, segment)
-		urlValue, _, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(signedURLTTL(cfg)), cfg.Security.APIKey)
-		if err == nil {
+		if strings.TrimSpace(cfg.Security.APIKey) == "" {
+			lines[i] = rawURL
+			continue
+		}
+		if urlValue, _, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(signedURLTTL(cfg)), cfg.Security.APIKey); err == nil {
 			lines[i] = urlValue
 		}
 	}

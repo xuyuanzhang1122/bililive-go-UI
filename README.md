@@ -29,6 +29,10 @@
 - 自动生成视频缩略图，缩略图按需缓存到 `.appdata/thumbnails/`
 - 新增内嵌播放器，支持 FLV、TS、MP4、MKV、MOV
 - 支持续播、移动端手势、全屏、快进快退和自定义控制栏
+- iOS App 支持视频库、直播间管理、API Key 鉴权与 HLS 转封装播放
+- iOS 播放器支持滑动快进快退、滑动调节音量、双击任意区域暂停、倍速切换（0.78x/1x/1.25x/1.5x/2x）、长按侧边加速
+- 智能网络切换：自动检测局域网/公网，在店里时自动使用局域网地址获得更快的访问速度
+- 文件页只展示录制相关目录和文件，避免 `out_put_path` 指向项目目录时暴露源码文件夹
 - 支持直接从视频库继续观看上次播放的视频
 - 支持删除直播间时一并删除对应录播目录
 - 支持文件列表单个删除和批量删除
@@ -68,6 +72,20 @@
 - 自动保存播放进度，下次打开同一文件可直接续播
 - 移动端支持滑动快进快退、长按倍速、单击显隐控制栏、双击播放暂停
 
+### iOS App
+
+- 视频库、直播间管理、文件删除（单个/批量）
+- 视频播放器手势操作：
+  - 左右滑动：快进/快退
+  - 上下滑动：调节音量
+  - 双击任意区域：播放/暂停
+  - 长按侧边：2x 加速（松手恢复）
+  - 倍速选择：0.78x / 1x / 1.25x / 1.5x / 2x
+- 智能网络切换：
+  - 配置局域网地址和公网地址
+  - 自动检测是否在局域网内
+  - 在店里时自动切换局域网（更快），在外面自动使用公网
+
 ### 删除与整理
 
 - 删除直播间时可同步删除该主播的全部录制视频
@@ -81,7 +99,7 @@
 当前默认镜像仓库：
 
 - Docker Hub: `xuniubi/bililive-go`
-- 当前 compose 示例标签：`myfix-20260221`
+- 当前 compose 示例标签：`v1.2.0`
 
 ```bash
 docker run -d \
@@ -90,7 +108,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/Videos:/srv/bililive \
   -v $(pwd)/config.docker.yml:/etc/bililive-go/config.yml \
-  xuniubi/bililive-go:myfix-20260221
+  xuniubi/bililive-go:v1.2.0
 ```
 
 程序默认监听 `8080` 端口，录制文件输出到容器内 `/srv/bililive`。
@@ -99,7 +117,7 @@ docker run -d \
 
 仓库根目录已提供 [docker-compose.yml](docker-compose.yml)。默认使用：
 
-- 镜像：`xuniubi/bililive-go:myfix-20260221`
+- 镜像：`xuniubi/bililive-go:v1.2.0`
 - 配置文件：`config.docker.yml`
 - 输出目录：`./Videos`
 
@@ -110,7 +128,7 @@ docker compose up -d
 如需切换镜像标签，可以在启动前设置环境变量：
 
 ```bash
-BILILIVE_IMAGE=xuniubi/bililive-go:myfix-20260221 docker compose up -d
+BILILIVE_IMAGE=xuniubi/bililive-go:v1.2.0 docker compose up -d
 ```
 
 
@@ -122,20 +140,40 @@ BILILIVE_IMAGE=xuniubi/bililive-go:myfix-20260221 docker compose up -d
 
 ```bash
 docker build \
-  --build-arg VERSION=myfix-local \
-  -t xuniubi/bililive-go:myfix-local \
+  --build-arg VERSION=v1.2.0 \
+  -t xuniubi/bililive-go:v1.2.0 \
+  .
+```
+
+构建多架构镜像并推送到 Docker Hub：
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --build-arg VERSION=v1.2.0 \
+  -t xuniubi/bililive-go:v1.2.0 \
+  --push \
   .
 ```
 
 ### 方式二：基于本地预编译二进制构建镜像
 
-如果你已经在仓库根目录准备好了 `bililive-linux-amd64`，可以使用 [Dockerfile.local](Dockerfile.local)：
+如果你已经在仓库根目录准备好了 Linux 二进制，可以使用 [Dockerfile.local](Dockerfile.local)：
 
 ```bash
 docker build --platform linux/amd64 -f Dockerfile.local -t xuniubi/bililive-go:local .
 ```
 
-这个方式默认面向你现在仓库里的 `bililive-linux-amd64` 成品二进制，适合已经单独编译好 Linux AMD64 版本、只想快速封装镜像的场景。
+这个方式默认读取仓库根目录的 `bililive-linux-amd64`。如果要封装 arm64 成品，可以改用：
+
+```bash
+docker build \
+  --platform linux/arm64 \
+  --build-arg BILILIVE_BINARY=bililive-linux-arm64 \
+  -f Dockerfile.local \
+  -t xuniubi/bililive-go:local-arm64 \
+  .
+```
 
 ## 本地开发与构建
 
@@ -192,6 +230,17 @@ make dev PLATFORM=linux ARCH=amd64
 - 录制输出目录：`/srv/bililive`
 - 应用数据目录：`/srv/bililive/.appdata`
 - 内置工具目录：`/opt/bililive/tools`
+- 可写工具缓存：`/srv/bililive/.appdata/tools`
+- 移动端播放：FLV/TS/MKV 会按需转为 HLS，签名 URL 默认有效期 1 小时
+
+如需让 iOS App 从局域网或公网访问，建议开启 API Key：
+
+```yaml
+security:
+  enable_api_key: true
+  api_key: "换成一段足够长的随机字符串"
+  signed_url_ttl_seconds: 3600
+```
 
 ### cookie 示例
 

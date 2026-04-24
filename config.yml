@@ -56,7 +56,17 @@ on_record_finished:
     delete_after_upload: false
   upload_timing: after_process
 timeout_in_us: 60000000
-live_rooms: []
+live_rooms:
+  # quality参数目前仅B站启用，默认为0
+  # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
+  # 原画PRO会保存为.ts文件, 原画为.flv
+  # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩
+  - url: https://live.douyin.com/576934229407
+    is_listening: false
+    scheme: ""
+  - url: https://live.douyin.com/184946843426
+    is_listening: false
+    scheme: ""
 cookies: {}
 # 通知服务配置
 notify:

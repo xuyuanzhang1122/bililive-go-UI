@@ -33,6 +33,17 @@ func TestRewriteHLSPlaylistSignsSegments(t *testing.T) {
 	assert.NoError(t, securitypkg.ValidateSignedRequest(req, "secret", time.Now()))
 }
 
+func TestRewriteHLSPlaylistUsesRawSegmentURLWithoutAPIKey(t *testing.T) {
+	cfg := &configs.Config{}
+	cacheKey := strings.Repeat("b", 64)
+	playlist := "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6.0,\nseg_00000.ts\n#EXT-X-ENDLIST\n"
+
+	rewritten := string(rewriteHLSPlaylist([]byte(playlist), cacheKey, cfg))
+	lines := strings.Split(rewritten, "\n")
+	require.Len(t, lines, 6)
+	assert.Equal(t, "/api/stream/hls-segment/"+cacheKey+"/seg_00000.ts", lines[3])
+}
+
 func TestSignedHLSURLForVideoFile(t *testing.T) {
 	cfg := &configs.Config{
 		Security: configs.Security{

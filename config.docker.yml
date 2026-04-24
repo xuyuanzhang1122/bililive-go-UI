@@ -2,6 +2,8 @@ rpc:
   enable: true
   bind: :8080
 security:
+  # 给 iOS App 或外部客户端开放公网访问时建议改为 true，并填写 api_key。
+  # Web UI 与移动端播放地址会使用 Authorization、_key 或签名 URL 访问受保护资源。
   enable_api_key: false
   api_key: ""
   signed_url_ttl_seconds: 3600
@@ -10,6 +12,7 @@ interval: 20
 out_put_path: /srv/bililive
 app_data_path: /srv/bililive/.appdata
 read_only_tool_folder: /opt/bililive/tools
+tool_root_folder: /srv/bililive/.appdata/tools
 feature:
   use_native_flv_parser: false
 live_rooms:

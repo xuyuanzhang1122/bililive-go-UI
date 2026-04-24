@@ -32,7 +32,7 @@ func GenerateAPIKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// ExtractAPIKey 从 Authorization: Bearer 或 X-API-Key 中读取 API Key。
+// ExtractAPIKey 从 Authorization: Bearer / X-API-Key / _key 查询参数中读取 API Key。
 func ExtractAPIKey(r *http.Request) string {
 	if r == nil {
 		return ""
@@ -41,12 +41,16 @@ func ExtractAPIKey(r *http.Request) string {
 		return key
 	}
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
-	if auth == "" {
-		return ""
+	if auth != "" {
+		const bearer = "bearer "
+		if len(auth) > len(bearer) && strings.EqualFold(auth[:len(bearer)], bearer) {
+			return strings.TrimSpace(auth[len(bearer):])
+		}
 	}
-	const bearer = "bearer "
-	if len(auth) > len(bearer) && strings.EqualFold(auth[:len(bearer)], bearer) {
-		return strings.TrimSpace(auth[len(bearer):])
+	if r.URL != nil {
+		if key := strings.TrimSpace(r.URL.Query().Get("_key")); key != "" {
+			return key
+		}
 	}
 	return ""
 }
