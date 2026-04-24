@@ -1,6 +1,6 @@
 import Foundation
 
-struct VideoRoomInfo: Identifiable, Decodable {
+struct VideoRoomInfo: Identifiable, Codable {
     let hostName: String
     let platform: String
     let folderPath: String
@@ -30,7 +30,7 @@ struct VideoRoomInfo: Identifiable, Decodable {
     }
 }
 
-struct VideoFileInfo: Identifiable, Decodable {
+struct VideoFileInfo: Identifiable, Codable {
     let name: String
     let relPath: String
     let size: Int64

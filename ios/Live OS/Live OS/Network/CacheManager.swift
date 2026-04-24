@@ -27,7 +27,7 @@ final class CacheManager {
     
     func load<T: Decodable>(forKey key: String, as type: T.Type) -> T? {
         let url = cacheDirectory.appendingPathComponent(key)
-        guard let data = try? Data(contents: url) else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {

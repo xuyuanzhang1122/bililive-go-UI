@@ -1,6 +1,6 @@
 import Foundation
 
-struct LiveInfo: Identifiable, Decodable, Equatable {
+struct LiveInfo: Identifiable, Codable, Equatable {
     let liveId: String
     let hostName: String
     let roomName: String
