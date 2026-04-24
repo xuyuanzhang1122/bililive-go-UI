@@ -97,3 +97,11 @@ func TestDouyinResolverRejectsUnsupportedURL(t *testing.T) {
 		t.Fatalf("Resolve() error = %v, want ErrUnsupportedURL", err)
 	}
 }
+
+func TestHeadlessResolverCanBeDisabled(t *testing.T) {
+	t.Setenv("BILILIVE_DOUYIN_HEADLESS", "0")
+	_, err := resolveWithHeadlessBrowser(context.Background(), "https://v.douyin.com/abc123/")
+	if !errors.Is(err, errHeadlessBrowserUnavailable) {
+		t.Fatalf("resolveWithHeadlessBrowser() error = %v, want errHeadlessBrowserUnavailable", err)
+	}
+}

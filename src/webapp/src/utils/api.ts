@@ -11,6 +11,8 @@ const utils = new Utils();
 
 const BASE_URL = "api";
 
+export { apiEndpoints, requestApi } from './generated-api';
+
 class API {
     /**
      * 获取录播机状态

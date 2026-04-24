@@ -152,6 +152,12 @@ func GetDownloadProxyEnvVars() []string {
 	return getProxyEnvVarsForURL(GetDownloadProxyURL())
 }
 
+// GetInfoProxyEnvVars 返回用于子进程的信息获取代理环境变量。
+// 可用于无头浏览器等外部解析工具。
+func GetInfoProxyEnvVars() []string {
+	return getProxyEnvVarsForURL(GetInfoProxyURL())
+}
+
 // ==================== 内部辅助函数 ====================
 
 // isSocks5 检查代理 URL 是否为 SOCKS5 代理

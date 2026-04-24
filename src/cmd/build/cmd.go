@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/alecthomas/kingpin"
@@ -48,6 +49,7 @@ func RunCmd() int {
 	app.Command("release-docker", "Build for release docker.").Action(releaseDocker)
 	app.Command("test", "Run tests.").Action(goTest)
 	app.Command("generate", "go generate ./...").Action(goGenerate)
+	app.Command("generate-web-api", "根据后端路由生成前端 API 调用表").Action(generateWebAPI)
 	app.Command("build-web", "Build webapp.").Action(buildWeb)
 	app.Command("sync-agents", "同步 AGENTS.md 到其他 AI 指示文件").Action(syncAgents)
 	app.Command("check-agents", "检查 AI 指示文件是否一致").Action(checkAgents)
@@ -110,6 +112,9 @@ func goGenerate(c *kingpin.ParseContext) error {
 }
 
 func buildWeb(c *kingpin.ParseContext) error {
+	if err := generateWebAPI(c); err != nil {
+		return err
+	}
 	webappDir := filepath.Join("src", "webapp")
 	err := utils.ExecCommandsInDir(
 		[][]string{
@@ -122,6 +127,13 @@ func buildWeb(c *kingpin.ParseContext) error {
 		return err
 	}
 	return nil
+}
+
+func generateWebAPI(c *kingpin.ParseContext) error {
+	cmd := exec.Command("node", filepath.Join("scripts", "generate-web-api.mjs"))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // syncAgents 将 AGENTS.md 同步到其他 AI 指示文件

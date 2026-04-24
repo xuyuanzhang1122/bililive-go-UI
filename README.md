@@ -205,6 +205,13 @@ make dev
 # 前端构建
 make build-web
 
+# 生成前端 API 调用表
+make generate-web-api
+
+# 安装抖音无头浏览器解析依赖（可选，HTTP 解析失败时作为兜底）
+npm install
+npm run install:browser
+
 # 单元测试
 make test
 

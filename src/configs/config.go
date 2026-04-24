@@ -644,7 +644,7 @@ var defaultConfig = Config{
 	Security:   defaultSecurity,
 	Debug:      false,
 	Interval:   30,
-	OutPutPath: "./",
+	OutPutPath: "./recordings",
 	FfmpegPath: "",
 	Log: Log{
 		OutPutFolder: "./",
@@ -741,7 +741,13 @@ func (c *Config) Verify() error {
 		return fmt.Errorf("检测间隔必须大于 0")
 	}
 	if _, err := os.Stat(c.OutPutPath); err != nil {
-		return fmt.Errorf(`输出路径 "%s" 不存在`, c.OutPutPath)
+		if os.IsNotExist(err) {
+			if mkErr := os.MkdirAll(c.OutPutPath, 0755); mkErr != nil {
+				return fmt.Errorf(`输出路径 "%s" 不存在且无法自动创建: %v`, c.OutPutPath, mkErr)
+			}
+		} else {
+			return fmt.Errorf(`输出路径 "%s" 无法访问: %v`, c.OutPutPath, err)
+		}
 	}
 	if maxDur := c.VideoSplitStrategies.MaxDuration; maxDur > 0 && maxDur < time.Minute {
 		return fmt.Errorf("单个视频的最大录制时长最小值为 1 分钟")
@@ -879,7 +885,12 @@ func (c *Config) Marshal() error {
 		return err
 	}
 
-	return os.WriteFile(c.File, buf.Bytes(), 0644)
+	if err := os.WriteFile(c.File, buf.Bytes(), 0644); err != nil {
+		return err
+	}
+	// 额外保存一份跨版本配置镜像，避免覆盖项目目录或替换二进制后丢失直播间列表。
+	_ = MirrorConfigToPortable(c.File, buf.Bytes())
+	return nil
 }
 
 func (c Config) GetFilePath() (string, error) {

@@ -2,6 +2,7 @@ package urlresolver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -82,7 +83,12 @@ func (r *DouyinResolver) Resolve(ctx context.Context, raw string) (string, error
 	if canonical, ok := canonicalFromHTML(body); ok {
 		return canonical, nil
 	}
-	return "", ErrUnresolved
+	if canonical, err := resolveWithHeadlessBrowser(ctx, candidate); err == nil {
+		return canonical, nil
+	} else if !errors.Is(err, errHeadlessBrowserUnavailable) {
+		return "", fmt.Errorf("%w: %v", ErrUnresolved, err)
+	}
+	return "", fmt.Errorf("%w: HTTP 解析未得到稳定地址，且无头浏览器不可用；请运行 npm install && npm run install:browser 后重试，或设置 BILILIVE_DOUYIN_HEADLESS=0 关闭兜底", ErrUnresolved)
 }
 
 func (r *DouyinResolver) follow(ctx context.Context, method, rawURL string) (string, string, error) {

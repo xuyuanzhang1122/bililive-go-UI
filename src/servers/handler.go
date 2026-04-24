@@ -1228,6 +1228,23 @@ func putConfig(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func getConfigSyncStatus(writer http.ResponseWriter, r *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	currentPath := ""
+	if cfg != nil {
+		currentPath = cfg.File
+	}
+	status, err := configs.ConfigSyncInfo(currentPath)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, status)
+}
+
 func getRawConfig(writer http.ResponseWriter, r *http.Request) {
 	b, err := yaml.Marshal(configs.GetCurrentConfig())
 	if err != nil {

@@ -2,6 +2,7 @@ package configs
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,8 +37,14 @@ func TestConfig_Verify(t *testing.T) {
 	cfg.Interval = 0
 	assert.Error(t, cfg.Verify())
 	cfg.Interval = 30
-	cfg.OutPutPath = "foobar"
-	assert.Error(t, cfg.Verify())
+
+	// 测试自动创建不存在的输出目录
+	autoCreatePath := filepath.Join(t.TempDir(), "auto_created_recordings")
+	cfg.OutPutPath = autoCreatePath
+	assert.NoError(t, cfg.Verify())
+	_, err := os.Stat(autoCreatePath)
+	assert.NoError(t, err, "输出目录应该被自动创建")
+
 	cfg.OutPutPath = os.TempDir()
 	cfg.RPC.Enable = false
 	assert.Error(t, cfg.Verify())

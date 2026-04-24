@@ -46,8 +46,15 @@ import (
 
 func getConfig() (*configs.Config, error) {
 	var config *configs.Config
-	if *flag.Conf != "" {
-		c, err := configs.NewConfigWithFile(*flag.Conf)
+	configFile, configMsg, err := configs.ResolveStartupConfigFile(*flag.Conf)
+	if err != nil {
+		return nil, err
+	}
+	if configMsg != "" {
+		fmt.Fprintf(os.Stderr, "[Config] %s\n", configMsg)
+	}
+	if configFile != "" {
+		c, err := configs.NewConfigWithFile(configFile)
 		if err != nil {
 			return nil, err
 		}
@@ -92,12 +99,16 @@ func shouldRunAsLauncher() bool {
 	// 确定 appdata 路径
 	// 优先使用配置文件中的路径，否则使用可执行文件同目录下的 .appdata
 	var appDataPath string
-	if *flag.Conf != "" {
+	configFile := *flag.Conf
+	if resolved, _, err := configs.ResolveStartupConfigFile(configFile); err == nil && resolved != "" {
+		configFile = resolved
+	}
+	if configFile != "" {
 		// 尝试从配置文件读取 appdata 路径
-		if cfg, err := configs.NewConfigWithFile(*flag.Conf); err == nil {
+		if cfg, err := configs.NewConfigWithFile(configFile); err == nil {
 			appDataPath = cfg.AppDataPath
 		} else {
-			fmt.Fprintf(os.Stderr, "[Launcher] 从配置文件 %s 读取 appdata 路径失败: %v\n", *flag.Conf, err)
+			fmt.Fprintf(os.Stderr, "[Launcher] 从配置文件 %s 读取 appdata 路径失败: %v\n", configFile, err)
 		}
 	}
 	if appDataPath == "" {
@@ -200,6 +211,9 @@ func main() {
 		configs.SetDefaultConfigPath(config.File)
 	} else if *flag.Conf != "" {
 		configs.SetDefaultConfigPath(*flag.Conf)
+	}
+	if status, err := configs.ConfigSyncInfo(config.File); err == nil && status.Message != "" {
+		fmt.Fprintf(os.Stderr, "[Config] %s。当前配置：%s；系统默认配置：%s\n", status.Message, status.CurrentPath, status.PortablePath)
 	}
 
 	configs.SetCurrentConfig(config)

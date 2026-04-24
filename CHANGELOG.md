@@ -4,6 +4,19 @@
 
 ### 新增功能
 
+#### 前端 API 生成
+- 新增 `make generate-web-api` / `npm run generate:web-api`，可从后端路由自动生成 `src/webapp/src/utils/generated-api.ts`
+- `make build-web` 会先刷新生成的 API 调用表，减少前后端接口路径不一致
+
+#### 配置自动镜像
+- 保存配置时会同步一份到系统默认配置目录，避免覆盖项目目录或替换二进制后丢失已添加直播间
+- 默认路径：Linux `~/.config/bililive-go/config.yml`，macOS `~/Library/Application Support/bililive-go/config.yml`，Windows `%AppData%\bililive-go\config.yml`
+- 启动时如果指定配置缺失，会自动从系统默认配置镜像恢复；如果镜像较新，会在启动日志和 `/api/config/sync-status` 中提示
+
+#### 抖音链接解析增强
+- 抖音短链 HTTP 解析失败后，会自动尝试 Node + Playwright 无头浏览器兜底
+- 支持通过 `BILILIVE_DOUYIN_HEADLESS=0` 关闭无头浏览器兜底
+
 #### iOS 播放器手势优化
 - 左右滑动：快进/快退（连续滑动，带 ±N 秒 HUD 反馈）
 - 上下滑动：调节系统音量（带音量条 HUD 反馈）

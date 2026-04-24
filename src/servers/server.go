@@ -81,6 +81,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/config/rooms/id/{id}", updateRoomConfigById).Methods("PUT", "PATCH") // 更具体的路由必须在通配符之前
 	apiRoute.HandleFunc("/config/rooms/{url:.*}", updateRoomConfig).Methods("PUT", "PATCH")
 	apiRoute.HandleFunc("/config/preview-template", previewOutputTmpl).Methods("POST") // 新增：模板预览
+	apiRoute.HandleFunc("/config/sync-status", getConfigSyncStatus).Methods("GET")     // 配置镜像状态
 	apiRoute.HandleFunc("/raw-config", getRawConfig).Methods("GET")
 	apiRoute.HandleFunc("/raw-config", putRawConfig).Methods("PUT")
 	apiRoute.HandleFunc("/lives", getAllLives).Methods("GET")
