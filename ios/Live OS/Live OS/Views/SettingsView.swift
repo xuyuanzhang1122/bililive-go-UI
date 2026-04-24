@@ -26,6 +26,11 @@ struct SettingsView: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.large)
+            .scrollContentBackground(.hidden)
+            .background(
+                LinearGradient(colors: [Color(UIColor.systemGroupedBackground), Color.blue.opacity(0.08)], startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
+            )
             .overlay(alignment: .bottom) {
                 if showSaved {
                     savedBadge
@@ -126,21 +131,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Label {
-                HStack {
-                    Text("项目主页")
-                    Spacer()
-                    Image(systemName: "arrow.up.right.square")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                }
-            } icon: {
-                Image(systemName: "globe")
-                    .foregroundStyle(.secondary)
-            }
-            .onTapGesture {
-                UIApplication.shared.open(URL(string: "https://github.com/bililive-go/bililive-go")!)
-            }
         } header: {
             Text("关于")
         }

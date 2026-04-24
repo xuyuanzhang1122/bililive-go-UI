@@ -4,6 +4,7 @@ import Combine
 import MediaPlayer
 import SwiftUI
 import UIKit
+import AVKit
 
 // MARK: - Speed Presets
 
@@ -42,15 +43,19 @@ struct PlayerView: View {
     @State private var volumeDelta: Float = 0
     @State private var showVolumeIndicator = false
     @State private var currentSystemVolume: Float = 0
+    
+    @State private var showBrightnessIndicator = false
+    @State private var currentBrightness: CGFloat = 0
 
     @State private var controlsHideTask: Task<Void, Never>?
+    private let togglePiPSubject = PassthroughSubject<Void, Never>()
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
             if let player {
-                PlayerSurface(player: player)
+                PlayerSurface(player: player, togglePiP: togglePiPSubject)
                     .ignoresSafeArea()
 
                 GestureHandlerView(
@@ -69,17 +74,30 @@ struct PlayerView: View {
                             showSeekIndicator = false
                         }
                     },
-                    onSwipeVertical: { delta in
-                        // delta: negative = swipe up (louder), positive = swipe down (quieter)
-                        let volumeChange = Float(-delta) * 0.008
-                        let newVol = min(max(currentSystemVolume + volumeChange, 0), 1)
-                        setSystemVolume(newVol)
-                        currentSystemVolume = newVol
-                        volumeDelta = volumeChange
-                        showVolumeIndicator = true
-                        Task {
-                            try? await Task.sleep(for: .milliseconds(600))
-                            showVolumeIndicator = false
+                    onSwipeVertical: { location, delta in
+                        let viewWidth = UIScreen.main.bounds.width
+                        if location.x > viewWidth / 2 {
+                            // delta: negative = swipe up (louder), positive = swipe down (quieter)
+                            let volumeChange = Float(-delta) * 0.008
+                            let newVol = min(max(currentSystemVolume + volumeChange, 0), 1)
+                            setSystemVolume(newVol)
+                            currentSystemVolume = newVol
+                            volumeDelta = volumeChange
+                            showVolumeIndicator = true
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(600))
+                                showVolumeIndicator = false
+                            }
+                        } else {
+                            let brightnessChange = CGFloat(-delta) * 0.008
+                            let newBright = min(max(currentBrightness + brightnessChange, 0), 1)
+                            UIScreen.main.brightness = newBright
+                            currentBrightness = newBright
+                            showBrightnessIndicator = true
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(600))
+                                showBrightnessIndicator = false
+                            }
                         }
                     },
                     onLongPressStart: { location, viewWidth in
@@ -104,6 +122,12 @@ struct PlayerView: View {
                         .transition(.opacity)
                 }
 
+                // Brightness indicator
+                if showBrightnessIndicator {
+                    BrightnessIndicator(brightness: currentBrightness)
+                        .transition(.opacity)
+                }
+
                 if showControls {
                     controlsLayer
                         .transition(.opacity)
@@ -121,7 +145,7 @@ struct PlayerView: View {
                 VStack(spacing: 14) {
                     ProgressView()
                         .tint(.white)
-                    Text("准备播放…")
+                    Text("准备播放�?)
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.72))
                 }
@@ -131,6 +155,7 @@ struct PlayerView: View {
         .statusBarHidden(isImmersive)
         .task {
             currentSystemVolume = AVAudioSession.sharedInstance().outputVolume
+            currentBrightness = UIScreen.main.brightness
             await preparePlayer()
         }
         .onDisappear { cleanupPlayer() }
@@ -138,6 +163,7 @@ struct PlayerView: View {
         .animation(.spring(response: 0.24, dampingFraction: 0.84), value: speedBoostSide)
         .animation(.easeInOut(duration: 0.15), value: showSeekIndicator)
         .animation(.easeInOut(duration: 0.15), value: showVolumeIndicator)
+        .animation(.easeInOut(duration: 0.15), value: showBrightnessIndicator)
     }
 
     // MARK: - Controls Layer
@@ -162,7 +188,7 @@ struct PlayerView: View {
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("关闭播放器")
+            .accessibilityLabel("关闭播放�?)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.name)
@@ -176,19 +202,16 @@ struct PlayerView: View {
             Spacer()
 
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    isImmersive.toggle()
-                    showControls = true
-                }
+                togglePiPSubject.send()
                 scheduleControlsAutoHide()
             } label: {
-                Image(systemName: isImmersive ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                Image(systemName: "pip.enter")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 42, height: 42)
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isImmersive ? "退出全屏" : "进入全屏")
+            .accessibilityLabel(isImmersive ? "退出全�? : "进入全屏")
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 18)
@@ -202,13 +225,10 @@ struct PlayerView: View {
 
     private var bottomControls: some View {
         VStack(spacing: 14) {
-            // Progress slider
-            Slider(
-                value: Binding(
-                    get: { min(max(currentTime, 0), max(duration, 1)) },
-                    set: { currentTime = $0 }
-                ),
-                in: 0...max(duration, 1),
+            // Custom Progress slider
+            CustomSlider(
+                value: $currentTime,
+                range: 0...max(duration, 1),
                 onEditingChanged: { editing in
                     isSeeking = editing
                     if !editing {
@@ -216,7 +236,7 @@ struct PlayerView: View {
                     }
                 }
             )
-            .tint(.white)
+            .frame(height: 24)
 
             // Time + controls
             HStack(spacing: 12) {
@@ -232,7 +252,7 @@ struct PlayerView: View {
                 } label: {
                     Image(systemName: "gobackward.10")
                 }
-                .accessibilityLabel("后退 10 秒")
+                .accessibilityLabel("后退 10 �?)
 
                 Button {
                     togglePlay()
@@ -250,7 +270,7 @@ struct PlayerView: View {
                 } label: {
                     Image(systemName: "goforward.10")
                 }
-                .accessibilityLabel("前进 10 秒")
+                .accessibilityLabel("前进 10 �?)
 
                 Spacer()
 
@@ -296,7 +316,7 @@ struct PlayerView: View {
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Label("滑动: 快进/快退 · 音量", systemImage: "hand.draw")
-                    Label("双击: 播放/暂停 · 长按: 加速", systemImage: "hand.tap")
+                    Label("双击: 播放/暂停 · 长按: 加�?, systemImage: "hand.tap")
                 }
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.45))
@@ -478,7 +498,7 @@ private struct GestureHandlerView: UIViewRepresentable {
     var onSingleTap: () -> Void
     var onDoubleTap: (_ location: CGPoint) -> Void
     var onSwipeHorizontal: (_ deltaX: CGFloat) -> Void
-    var onSwipeVertical: (_ deltaY: CGFloat) -> Void
+    var onSwipeVertical: (_ location: CGPoint, _ deltaY: CGFloat) -> Void
     var onLongPressStart: (_ location: CGPoint, _ viewWidth: CGFloat) -> Void
     var onLongPressEnd: () -> Void
 
@@ -508,7 +528,7 @@ private class GestureHandlerUIView: UIView {
     var onSingleTap: (() -> Void)?
     var onDoubleTap: ((_ location: CGPoint) -> Void)?
     var onSwipeHorizontal: ((_ deltaX: CGFloat) -> Void)?
-    var onSwipeVertical: ((_ deltaY: CGFloat) -> Void)?
+    var onSwipeVertical: ((_ location: CGPoint, _ deltaY: CGFloat) -> Void)?
     var onLongPressStart: ((_ location: CGPoint, _ viewWidth: CGFloat) -> Void)?
     var onLongPressEnd: (() -> Void)?
 
@@ -601,7 +621,7 @@ private class GestureHandlerUIView: UIView {
             accumulatedSwipeY = dy
             if abs(step) > 2 {
                 DispatchQueue.main.async {
-                    self.onSwipeVertical?(step)
+                    self.onSwipeVertical?(current, step)
                 }
             }
             touchStartPoint = current
@@ -782,3 +802,93 @@ private struct VolumeIndicator: View {
         .allowsHitTesting(false)
     }
 }
+
+// MARK: - Brightness Indicator
+
+private struct BrightnessIndicator: View {
+    let brightness: CGFloat
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "sun.max.fill")
+                .font(.system(size: 18))
+                .frame(width: 24)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.2))
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: geo.size.width * brightness)
+                }
+            }
+            .frame(width: 120, height: 4)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.3), radius: 12)
+        .allowsHitTesting(false)
+    }
+}
+
+// MARK: - Custom Slider
+
+private struct CustomSlider: View {
+    @Binding var value: Double
+    var range: ClosedRange<Double>
+    var onEditingChanged: (Bool) -> Void
+
+    @State private var dragPercent: Double? = nil
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let percent = dragPercent ?? (max(0, min(value / max(range.upperBound, 1), 1)))
+            
+            ZStack(alignment: .leading) {
+                // Background track
+                Capsule()
+                    .fill(Color.white.opacity(0.3))
+                    .frame(height: 4)
+                
+                // Filled track
+                Capsule()
+                    .fill(Color.red)
+                    .frame(width: max(0, width * percent), height: 4)
+                
+                // Thumb
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 14, height: 14)
+                    .offset(x: max(0, min(width * percent - 7, width - 14)))
+                    .shadow(radius: 2)
+                    .scaleEffect(dragPercent != nil ? 1.4 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.7), value: dragPercent != nil)
+            }
+            .frame(minHeight: 24)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        if dragPercent == nil {
+                            onEditingChanged(true)
+                        }
+                        let p = min(max(gesture.location.x / width, 0), 1)
+                        dragPercent = p
+                        value = p * range.upperBound
+                    }
+                    .onEnded { gesture in
+                        let p = min(max(gesture.location.x / width, 0), 1)
+                        value = p * range.upperBound
+                        dragPercent = nil
+                        onEditingChanged(false)
+                    }
+            )
+        }
+    }
+}
+
+

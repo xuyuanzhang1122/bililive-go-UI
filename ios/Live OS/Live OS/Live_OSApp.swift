@@ -11,6 +11,11 @@ import SwiftUI
 struct Live_OSApp: App {
     @State private var appConfig = AppConfig()
 
+    init() {
+        let cache = URLCache(memoryCapacity: 50_000_000, diskCapacity: 200_000_000)
+        URLCache.shared = cache
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

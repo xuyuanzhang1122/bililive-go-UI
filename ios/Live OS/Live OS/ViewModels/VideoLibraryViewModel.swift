@@ -14,12 +14,23 @@ final class VideoLibraryViewModel {
 
     @MainActor
     func load() async {
-        isLoading = true
+        let cacheKey = "VideoLibraryRooms"
+        // 1. 先读取本地缓存，快速显示
+        if let cached: [VideoRoomInfo] = CacheManager.shared.load(forKey: cacheKey, as: [VideoRoomInfo].self), rooms.isEmpty {
+            self.rooms = cached
+        }
+        
+        // 2. 然后再去取最新数据
+        isLoading = rooms.isEmpty
         errorMessage = nil
         do {
-            rooms = try await client.getVideoLibrary()
+            let newRooms = try await client.getVideoLibrary()
+            self.rooms = newRooms
+            CacheManager.shared.save(newRooms, forKey: cacheKey)
         } catch {
-            errorMessage = error.localizedDescription
+            if rooms.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
         isLoading = false
     }
@@ -42,12 +53,23 @@ final class VideoListViewModel {
 
     @MainActor
     func load() async {
-        isLoading = true
+        let cacheKey = "VideoListFiles_\(room.folderPath.hashValue)"
+        // 1. 先读取本地缓存，快速显示
+        if let cached: [VideoFileInfo] = CacheManager.shared.load(forKey: cacheKey, as: [VideoFileInfo].self), files.isEmpty {
+            self.files = cached
+        }
+        
+        // 2. 然后再去取最新数据
+        isLoading = files.isEmpty
         errorMessage = nil
         do {
-            files = try await client.getVideoFiles(folderPath: room.folderPath)
+            let newFiles = try await client.getVideoFiles(folderPath: room.folderPath)
+            self.files = newFiles
+            CacheManager.shared.save(newFiles, forKey: cacheKey)
         } catch {
-            errorMessage = error.localizedDescription
+            if files.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
         isLoading = false
     }

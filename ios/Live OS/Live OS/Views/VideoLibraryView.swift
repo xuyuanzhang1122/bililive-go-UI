@@ -65,7 +65,18 @@ private struct RoomCard: View {
             AsyncImage(url: thumbnailURL) { phase in
                 switch phase {
                 case .success(let img):
-                    img.resizable().aspectRatio(16/9, contentMode: .fill)
+                    ZStack {
+                        img.resizable()
+                            .aspectRatio(16/9, contentMode: .fill)
+                            .blur(radius: 20)
+                            .scaleEffect(1.2)
+                        
+                        Color.black.opacity(0.3)
+                        
+                        img.resizable()
+                            .aspectRatio(contentMode: .fit)
+                    }
+                    .aspectRatio(16/9, contentMode: .fill)
                 case .failure:
                     placeholder
                 default:

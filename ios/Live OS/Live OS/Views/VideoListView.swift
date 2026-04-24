@@ -99,7 +99,16 @@ private struct FileRow: View {
         HStack(spacing: 12) {
             AsyncImage(url: client.thumbnailURL(for: file)) { phase in
                 if case .success(let img) = phase {
-                    img.resizable().aspectRatio(16/9, contentMode: .fill).frame(width: 80, height: 45).clipped()
+                    ZStack {
+                        img.resizable()
+                            .aspectRatio(16/9, contentMode: .fill)
+                            .blur(radius: 8)
+                            .scaleEffect(1.2)
+                        Color.black.opacity(0.3)
+                        img.resizable()
+                            .aspectRatio(contentMode: .fit)
+                    }
+                    .frame(width: 80, height: 45).clipped()
                 } else {
                     RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.15)).frame(width: 80, height: 45)
                         .overlay { Image(systemName: "video").foregroundStyle(.secondary) }

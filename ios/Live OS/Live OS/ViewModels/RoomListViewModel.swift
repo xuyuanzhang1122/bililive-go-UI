@@ -14,12 +14,23 @@ final class RoomListViewModel {
 
     @MainActor
     func load() async {
-        isLoading = true
+        let cacheKey = "RoomListLiveInfo"
+        // 1. 先读取本地缓存，快速显示
+        if let cached: [LiveInfo] = CacheManager.shared.load(forKey: cacheKey, as: [LiveInfo].self), rooms.isEmpty {
+            self.rooms = cached
+        }
+        
+        // 2. 然后再去取最新数据
+        isLoading = rooms.isEmpty
         errorMessage = nil
         do {
-            rooms = try await client.getLives()
+            let newRooms = try await client.getLives()
+            self.rooms = newRooms
+            CacheManager.shared.save(newRooms, forKey: cacheKey)
         } catch {
-            errorMessage = error.localizedDescription
+            if rooms.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
         isLoading = false
     }
