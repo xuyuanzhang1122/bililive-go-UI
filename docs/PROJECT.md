@@ -298,7 +298,7 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 - `package.json` 修正 name/version/description
 - `README.md` 移除失效链接，指向 `docs/PROJECT.md`
 
-#### ✅ 关闭更新管理入口（2026-04-21，本地实现，PR 待补，对应用户需求 #4）
+#### ✅ 关闭更新管理入口（2026-04-21，PR #1，对应用户需求 #4）
 - 用户原文：*"更新管理，这个项目里的更新管理应该还是原项目的更新获取，这是不行的，做一下数据清洗"*
 - 用户澄清：*"先关闭这个入口"*
 - 前端隐藏 `/update` 路由与菜单项
@@ -307,7 +307,7 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 - 首页不再弹升级提示
 - 验证：`make build-web dev`、`make lint`、`make test` 通过
 
-#### ✅ 修复外部工具下载（2026-04-21，本地实现，PR 待补，对应用户需求 #3）
+#### ✅ 修复外部工具下载（2026-04-21，PR #1，对应用户需求 #3）
 - 用户原文：*"外部工具管理页面基本不能下载使用"*
 - 用户澄清：*"按你的来"*（不新增工具条目，URL 转换走 §7.4）
 - 不新增工具条目；现有 `remote-tools-config.json` 在运行时自动扩展 GitHub 镜像 fallback
@@ -315,7 +315,7 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 - 进度反馈继续复用 remotetools 自带 SSE / WebUI 进度
 - 验证：`go test ./src/tools` 通过，`go test ./src/pkg/proxy` 通过
 
-#### ✅ URL 转换 resolver · 抖音第一阶段（2026-04-21，本地实现，PR 待补，对应用户需求 #5）
+#### ✅ URL 转换 resolver · 抖音第一阶段（2026-04-21，PR #1，对应用户需求 #5）
 - 用户原文：*"直播间的链接转换还是不稳定，是否能开发一个 skill 或者工具，在使用时能够转换（比如装一个无头浏览器），能基本做到 95% 以上的转换率"*
 - 范围收窄：配合 iOS 第一阶段，当前只做抖音；其他平台 resolver 推后到下一版本
 - 新增 `src/pkg/urlresolver/`，原 `GET /api/resolve-url` 已收编进该模块
@@ -326,9 +326,9 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 
 ---
 
-### 7.B iOS 第一阶段（本地已完成，待拆 PR）
+### 7.B iOS 第一阶段（已完成，PR #1）
 
-#### ✅ 7.5 iOS App 后端支持 · 第一阶段仅抖音（2026-04-22，本地实现，PR 待补，对应用户需求 #6）
+#### ✅ 7.5 iOS App 后端支持 · 第一阶段仅抖音（2026-04-22，PR #1，对应用户需求 #6）
 
 **用户原文**：*"使用原生 swift 语言开发一个前端 iOS APP 接入这个项目，能做到视频播放、海报页、增删直播间 URL，以及文件的删除管理（第一阶段），那么是否需要把 web 项目做出来相关的 websocket 或者其他相关的握手协议，视频流传播协议等"*
 **用户澄清**：
@@ -342,7 +342,7 @@ docker build -f Dockerfile.local -t bililive-go:dev .
 
 **需补后端能力**：
 
-1. **API Key 鉴权**（本地已实现，PR 待补）
+1. **API Key 鉴权**（已实现，PR #1）
    - `Config.Security.ApiKey`（启用鉴权且为空时自动生成 32 字节随机串并写回 config.yml）
    - Middleware 校验 `Authorization: Bearer <key>` 或 `X-API-Key`
    - `/files/*` 和 `/api/thumbnail/*` 使用签名 URL（HMAC + expires）
@@ -357,7 +357,7 @@ docker build -f Dockerfile.local -t bililive-go:dev .
    - FLV / TS：新增 `GET /api/stream/hls/{path}`，ffmpeg 按需转封装为 HLS，缓存 `.appdata/hls-cache/`
    - 直播流（进行中的录制）：第一阶段不做
 
-4. **最小 OpenAPI 3.1 文档**（本地已实现，PR 待补）
+4. **最小 OpenAPI 3.1 文档**（已实现，PR #1）
    - 新建 `docs/openapi.yaml`，**只覆盖抖音相关的 endpoint 子集**：
      - `POST /api/lives`（添加直播间，URL 限定 `live.douyin.com`）
      - `GET /api/lives` / `DELETE /api/lives/{id}`

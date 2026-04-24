@@ -1,5 +1,48 @@
 # Changelog
 
+## v1.2 (2026-04-22)
+
+### Bug 修复
+- 修复 Docker 环境及自定义 entrypoint 场景下点击"保存设置"报 `config path not set` 错误（PR #1）
+  - 新增 `SetDefaultConfigPath` 兜底路径，`Marshal()` / `GetFilePath()` 不再硬性要求 `Config.File` 已填充
+
+### 新增功能
+
+#### URL 解析（抖音）
+- `GET /api/resolve-url` 升级为独立模块 `src/pkg/urlresolver`
+- 支持抖音分享文案、无协议短链、`v.douyin.com` 跳转、`live.douyin.com` query/path 清洗
+- GET 失败后自动降级 HEAD；页面 HTML 兜底提取 `web_rid` / `roomId`
+
+#### iOS App 后端支持（第一阶段 · 仅抖音）
+
+**API Key 鉴权**
+- 新增 `Config.Security`：`enable_api_key` / `api_key` / `signed_url_ttl_seconds`
+- 启用鉴权且 `api_key` 为空时自动生成 32 字节随机串并写回配置文件
+- 中间件校验 `Authorization: Bearer <key>` 或 `X-API-Key` 请求头
+- 本地开发可通过环境变量 `BILILIVE_DISABLE_API_AUTH=1` 跳过鉴权
+
+**签名 URL**
+- `GET /api/signed-url?kind=file|thumbnail|hls&path=<rel>&expires_in=<s>` — 为指定资源生成带 HMAC 签名的临时访问 URL
+- 签名 URL 可绕过 Bearer Token 鉴权，适合 `AVPlayer` / `AsyncImage` 等无法附加自定义 Header 的场景
+
+**录播文件 HLS 转封装**
+- `GET /api/stream/hls/{path}` — 对 FLV / TS / MKV 等 AVPlayer 不支持的格式按需调用 ffmpeg 转封装为 HLS，缓存于 `.appdata/hls-cache/`
+- `GET /api/stream/hls-segment/{cache_key}/{segment}` — HLS 分片下载
+
+**OpenAPI 文档**
+- 新增 `docs/openapi.yaml`（OpenAPI 3.1），覆盖抖音相关 API 子集，供 Swift OpenAPI Generator 生成 iOS 客户端
+
+#### 更新管理
+- 关闭前端更新管理入口（`/update` 路由和菜单项隐藏）
+- `GET /api/update/check` 固定返回"无新版本"，不再访问旧上游更新源
+- 启动时跳过后台自动更新检查
+
+#### 外部工具下载
+- 运行时为 `remote-tools-config.json` 自动注入 GitHub 镜像 fallback，提升国内网络下的工具下载成功率
+- 工具下载和预置工具共享代理配置（`download_proxy`）
+
+---
+
 ## v1.1.2 (2026-03-09)
 
 ### 改动

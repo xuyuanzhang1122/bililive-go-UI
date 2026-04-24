@@ -234,3 +234,71 @@
         "data": "OK"
     }
     ```
+---
+
+## 鉴权（API Key Auth）
+
+所有 API 端点均支持 API Key 鉴权。启用后，每个请求需携带以下之一：
+
+- `Authorization: Bearer <api_key>` 请求头
+- `X-API-Key: <api_key>` 请求头
+
+**配置**（`config.yml`）：
+
+```yaml
+security:
+  enable_api_key: false      # 是否启用鉴权（默认关闭，保持 Web UI 兼容）
+  api_key: ""                # 空时启动自动生成 32 字节随机串并写回配置
+  signed_url_ttl_seconds: 3600
+```
+
+**跳过鉴权**（开发用）：设置环境变量 `BILILIVE_DISABLE_API_AUTH=1`。
+
+---
+
+## `GET /api/signed-url` 生成签名 URL
+
+为 `/files/*`、`/api/thumbnail/*`、`/api/stream/hls/*` 生成带 HMAC 签名的临时 URL，供无法附加自定义 Header 的客户端（`AVPlayer`、`AsyncImage` 等）使用。
+
+- Request:
+    ```text
+    method: GET
+    path: http://127.0.0.1:8080/api/signed-url
+    query:
+      kind    - 必填，枚举值：file | thumbnail | hls
+      path    - 必填，相对于输出目录的路径
+      expires_in - 可选，有效期秒数（默认 3600，最大 86400）
+    ```
+- Response:
+    ```json
+    {
+        "err_no": 0,
+        "err_msg": "",
+        "data": {
+            "url": "/files/some/video.mp4?sig=...&expires=1714000000",
+            "expires": 1714000000,
+            "expires_in": 3600
+        }
+    }
+    ```
+
+---
+
+## `GET /api/stream/hls/{path}` 录播文件 HLS 转封装
+
+将 FLV / TS / MKV 等格式的录播文件按需转封装为 HLS（`.m3u8` + `.ts` 分片），供 `AVPlayer` 播放。首次请求会调用 ffmpeg 生成缓存，后续请求秒开。
+
+- Request:
+    ```text
+    method: GET
+    path: http://127.0.0.1:8080/api/stream/hls/<相对路径>
+    example: http://127.0.0.1:8080/api/stream/hls/主播名/2026-04-22_直播标题.flv
+    ```
+- Response: `Content-Type: application/vnd.apple.mpegurl`，返回 HLS playlist（`.m3u8`）。
+
+---
+
+## `GET /api/stream/hls-segment/{cache_key}/{segment}` HLS 分片
+
+HLS playlist 内部引用的分片下载端点，由客户端自动调用，无需手动构造。
+
