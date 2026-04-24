@@ -191,5 +191,10 @@ test/launcher-config-local.json
 # E2E 测试输出（录制文件等）
 /test-output/
 
+# 本地 AI 工作区、构建产物和录制文件
+/.claude/
+/dist/
+/抖音/
+
 # npm 锁文件（项目统一使用 yarn）
 package-lock.json

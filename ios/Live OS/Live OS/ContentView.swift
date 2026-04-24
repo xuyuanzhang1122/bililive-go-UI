@@ -12,15 +12,18 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            Tab("视频库", systemImage: "play.rectangle.on.rectangle") {
-                VideoLibraryView()
-            }
-            Tab("直播间", systemImage: "antenna.radiowaves.left.and.right") {
-                RoomListView()
-            }
-            Tab("设置", systemImage: "gear") {
-                SettingsView(isInitialSetup: false)
-            }
+            VideoLibraryView()
+                .tabItem {
+                    Label("视频库", systemImage: "play.rectangle.on.rectangle")
+                }
+            RoomListView()
+                .tabItem {
+                    Label("直播间", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            SettingsView(isInitialSetup: false)
+                .tabItem {
+                    Label("设置", systemImage: "gear")
+                }
         }
         .overlay(alignment: .top) {
             if appConfig.activeURL.isEmpty {
@@ -33,7 +36,7 @@ struct ContentView: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-            Text("尚未配置服务器，请前往"设置"填写地址")
+            Text("尚未配置服务器，请前往\"设置\"填写地址")
                 .font(.caption)
         }
         .padding(.horizontal, 14)
