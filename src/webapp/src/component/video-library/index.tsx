@@ -54,6 +54,8 @@ interface VideoRoomInfo {
     total_size: number;
     latest_video_at: number;
     latest_video: string;
+    recording?: boolean;
+    url?: string;
 }
 
 interface VideoFileInfo {
@@ -900,6 +902,10 @@ const VideoLibrary: React.FC = () => {
     }, [navigate]);
 
     const openRoom = useCallback((room: VideoRoomInfo) => {
+        if (room.recording && room.url) {
+            window.open(room.url, '_blank', 'noopener,noreferrer');
+            return;
+        }
         const next = new URLSearchParams(searchParams);
         next.set('room', room.folder_path);
         next.delete('play');
@@ -1022,13 +1028,14 @@ const VideoLibrary: React.FC = () => {
                                     title={
                                         <Tooltip title={room.host_name}>
                                             <span className="host-name">{room.host_name}</span>
+                                            {room.recording && <Tag color="red" style={{ marginLeft: 8 }}>直播中</Tag>}
                                         </Tooltip>
                                     }
                                     description={
                                         <div className="card-meta">
                                             <div className="card-meta-row">
                                                 <Tag color="blue">{room.platform}</Tag>
-                                                <Tag color="green">{room.video_count} 个视频</Tag>
+                                                {room.video_count > 0 ? <Tag color="green">{room.video_count} 个视频</Tag> : <Tag color="orange">暂无录像</Tag>}
                                             </div>
                                             <div className="card-meta-row" style={{ color: '#999', fontSize: 12 }}>
                                                 <ClockCircleOutlined style={{ marginRight: 4 }} />

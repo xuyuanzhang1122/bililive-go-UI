@@ -43,10 +43,17 @@ struct VideoLibraryView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(vm.rooms) { room in
-                        NavigationLink(destination: VideoListView(room: room)) {
-                            RoomCard(room: room, client: appConfig.client)
+                        if room.recording, let url = room.url.flatMap(URL.init(string:)) {
+                            Button { UIApplication.shared.open(url) } label: {
+                                RoomCard(room: room, client: appConfig.client)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink(destination: VideoListView(room: room)) {
+                                RoomCard(room: room, client: appConfig.client)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding()
@@ -87,7 +94,18 @@ private struct RoomCard: View {
             .clipped()
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(room.hostName).font(.headline).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(room.hostName).font(.headline).lineLimit(1)
+                    if room.recording {
+                        Text("直播中")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.red, in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
                 HStack {
                     Text("\(room.videoCount) 个视频").font(.caption).foregroundStyle(.secondary)
                     Spacer()
