@@ -1,5 +1,87 @@
 # Changelog
 
+## P2 API Key + 跨端历史记录 (2026-04-27)
+
+### 新增
+- **服务端观看历史**：`watch_history` 表 + `GET/POST/DELETE /api/history` 端点，替代 localStorage 方案
+- **API Key 展示**：Web ConfigInfo 页新增「API Key」tab，展示/复制 key 供 iOS 使用
+- **观看历史页面**：Web `/history` 路由 + iOS 底部「历史」tab，列表展示播放进度，支持续播跳转和删除
+- `/api/auth-status` 端点：前端读取 API Key 鉴权状态
+
+### 鉴权
+- `/api/history` 路由受 `apiAuthMiddleware` 自动保护
+- 未启用鉴权时（`security.enable_api_key: false`）所有请求直接放行（保持旧 Web 兼容）
+
+### 改动文件
+- 后端：`src/pkg/metadata/store.go`、`src/servers/handler.go`、`src/servers/server.go`
+- Web：`src/webapp/src/component/history-page/index.tsx`、`config-info/index.tsx`、`App.tsx`、`layout/index.tsx`
+- iOS：`ios/Live OS/Live OS/Views/HistoryView.swift`、`ContentView.swift`
+
+---
+
+## P3 播放器进度条重写 · iOS (2026-04-27)
+
+### 修复
+- **进度条拖动不再回弹/不跟手**：根因是 `GestureHandlerView`（UIKit touchesBegan/Moved/Ended）与 `PrecisionTimelineSlider`（SwiftUI DragGesture）触摸竞争。改为全 SwiftUI 手势 → 进度条拖动自然流畅
+
+### 改进（iOS PlayerView 重写）
+
+- **展开式进度条**：空闲 4pt 细条，拖动弹簧展开至 8pt + 白色圆形 thumb。渐变 active track（红→橙→金），拖动触觉反馈
+- **Liquid Glass 风格控制栏**：全部按钮改 `.ultraThinMaterial` 毛玻璃圆形 pill，播放/暂停按钮白色实心突出，按钮按下回弹动画
+- **手势全 SwiftUI 化**：双击播放暂停 / 单击显隐控制栏 / 横滑 seek / 竖滑音量亮度 / 长按 2x 加速，不再依赖 UIKit touch 拦截
+
+### 改动文件
+- `ios/Live OS/Live OS/Views/PlayerView.swift`（重写，1073→590 行）
+
+---
+
+## P4 直播间缩略图占位 + 点击跳上游 (2026-04-27)
+
+### 改动
+- **视频库卡片增加直播状态感知**：`/api/video-library` 返回新增 `recording`（是否直播中）和 `url`（上游平台原直播间链接）字段
+- **直播中房间自动合并**：已添加但尚无录像的直播中房间也会出现在视频库主页，以占位卡形式展示
+- **卡片点击分流**：直播中房间点击 → 浏览器新窗口打开上游平台直播间 URL（B 站/斗鱼/抖音等）；非直播房间保持进站内录像列表
+- Web/iOS 卡片均显示红色"直播中"标签
+
+### 范围
+- 只改列表层 UX，不引入站内实时直播流播放（CORS/Referer/带宽约束）、不新建播放路由、不引入 hls.js
+
+### 改动文件
+- `src/servers/handler.go`：VideoRoomInfo 扩字段 + getVideoLibrary 合并 livestate
+- `src/webapp/src/component/video-library/index.tsx`：卡片标签 + 点击分流
+- `ios/Live OS/Live OS/Models/VideoLibrary.swift`：model 加 recording/url
+- `ios/Live OS/Live OS/Views/VideoLibraryView.swift`：卡片标签 + 点击跳系统浏览器
+
+---
+
+## P0 发布流水线规范化 (2026-04-26)
+
+### 新增
+- `scripts/release.sh`：版本号写回 + git tag + git push 三合一脚本
+- `scripts/install.sh`：一行安装脚本，支持 Docker（默认）和二进制两种模式
+- `docs/RELEASE.md`：发布指南 checklist，含故障排查和手动应急发布步骤
+- README 顶部新增「快速开始」section（Docker 一行命令 + curl|sh 一键安装）
+
+### 维护
+- `docker-publish.yml` 保留为手动应急通道，`release.yaml` 作为日常自动发布的主通道
+
+## P1 数据持久化与索引自动重建 (2026-04-27)
+
+### 核心修复
+- **AppDataPath 与 OutPutPath 解耦**：数据库和缩略图不再默认落在 `OutPutPath/.appdata`，改为容器 `/var/lib/bililive`、桌面 `~/.local/share/bililive`，解决「改 OutPutPath 就不小心丢 DB」的耦合 bug
+- **Docker 独立数据卷**：新增 `./Data:/var/lib/bililive`，录播视频与 DB 物理隔离
+- **启动自动迁移**：检测到旧版 `<OutPutPath>/.appdata` 存在时自动复制到新位置，迁移后删旧目录 + 写哨兵文件防重复
+- **启动索引重建（reconcile）**：异步扫描 `OutPutPath` 下所有视频，与 `lives.db` 对账，缺失记录自动创建占位房间（`source='reconcile-unknown'`），根除「实体视频还在但首页空空」的问题
+
+### 改动文件
+- `src/configs/config.go`：新增 `defaultAppDataPath()`，解耦默认值
+- `src/configs/migrate_appdata.go`：旧数据迁移 + 跨设备 fallback
+- `src/reconcile/reconcile.go`：启动扫描重建索引
+- `docker-compose.yml` / `Dockerfile` / `entrypoint.sh` / `config.docker.yml`：新 volume 声明
+- `README.md` / `docs/PROJECT.md`：持久化说明
+
+---
+
 ## v1.3.0 (2026-04-24)
 
 ### iOS 客户端架构重写与全效优化

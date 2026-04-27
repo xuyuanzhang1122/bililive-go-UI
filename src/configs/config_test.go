@@ -208,6 +208,39 @@ platform_configs:
 }
 
 // Helper functions for pointer conversion
+func TestDefaultAppDataPath_Container(t *testing.T) {
+	t.Setenv("IS_DOCKER", "true")
+	path := defaultAppDataPath()
+	assert.Equal(t, "/var/lib/bililive", path)
+}
+
+func TestDefaultAppDataPath_Desktop(t *testing.T) {
+	t.Setenv("IS_DOCKER", "")
+	t.Setenv("HOME", "/home/testuser")
+	path := defaultAppDataPath()
+	assert.Equal(t, "/home/testuser/.local/share/bililive", path)
+}
+
+func TestDefaultAppDataPath_Fallback(t *testing.T) {
+	t.Setenv("IS_DOCKER", "")
+	t.Setenv("HOME", "")
+	// os.UserHomeDir() fails when HOME is empty and not running in a real session,
+	// so it falls through to the exe-adjacent or ./appdata fallback.
+	path := defaultAppDataPath()
+	assert.NotEmpty(t, path)
+	assert.NotEqual(t, "/var/lib/bililive", path)
+}
+
+func TestNewConfig_AppDataPathDecoupled(t *testing.T) {
+	// 显式设置 OutPutPath 不应影响 AppDataPath 默认值
+	t.Setenv("IS_DOCKER", "true")
+	cfg := NewConfig()
+	cfg.OutPutPath = "/some/video/path"
+	newConfigPostProcess(cfg)
+	assert.Equal(t, "/var/lib/bililive", cfg.AppDataPath,
+		"AppDataPath 应与 OutPutPath 解耦，不再落在 OutPutPath/.appdata")
+}
+
 func intPtr(i int) *int {
 	return &i
 }

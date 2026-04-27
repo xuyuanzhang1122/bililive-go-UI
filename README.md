@@ -5,6 +5,26 @@
 
 这是一个基于原版 `bililive-go` 深度优化的直播录制工具，保留多平台录播能力，并补齐了视频管理、播放器体验和 Docker 交付链路。
 
+## 快速开始
+
+### Docker（推荐）
+
+```bash
+docker run -d \
+  --name bililive-go \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v $(pwd)/Videos:/srv/bililive \
+  -v $(pwd)/config.docker.yml:/etc/bililive-go/config.yml \
+  xuniubi/bililive-go:latest
+```
+
+### 一行脚本（自动安装）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash
+```
+
 ## 功能预览
 
 ### 视频库首页
@@ -93,6 +113,8 @@
 - 转码、封面提取、上传后删除等录制后处理能力继续保留
 
 ## Docker 使用
+
+> 持久化需要两条 volume：`./Videos`（录播视频）和 `./Data`（数据库 + 缩略图）。缺一不可，否则重启后直播间列表和缩略图可能丢失。
 
 ### 直接拉取镜像
 

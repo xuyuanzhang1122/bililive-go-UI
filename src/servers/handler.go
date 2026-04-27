@@ -31,6 +31,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/livestate"
+	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/memstats"
@@ -878,6 +879,8 @@ type VideoRoomInfo struct {
 	TotalSize     int64  `json:"total_size"`
 	LatestVideoAt int64  `json:"latest_video_at"` // Unix 时间戳
 	LatestVideo   string `json:"latest_video"`    // 最新视频的相对路径（用于缩略图）
+	Recording     bool   `json:"recording"`       // 是否正在直播
+	URL           string `json:"url"`             // 直播间原始 URL（仅 recording=true 时有值）
 }
 
 // getVideoLibrary 返回所有有录播视频的直播间汇总信息
@@ -995,6 +998,40 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 				LatestVideoAt: latestModTime,
 				LatestVideo:   filepath.ToSlash(latestVideoRelPath),
 			})
+		}
+	}
+
+	// 合并 livestate：标记正在直播的房间，并补充尚无录像的直播房间占位卡
+	if manager, ok := inst.LiveStateManager.(*livestate.Manager); ok && manager != nil {
+		recordingRooms, err := manager.GetStore().GetRecordingLiveRooms(r.Context())
+		if err == nil {
+			// 建立已有房间的快速查找索引（platform + hostName）
+			roomIndex := make(map[string]int) // "platform/hostName" → index
+			for i, room := range rooms {
+				key := room.Platform + "/" + room.HostName
+				roomIndex[key] = i
+			}
+			for _, rr := range recordingRooms {
+				// unknown 房间不标记、不做占位卡
+				if rr.Source == "reconcile-unknown" {
+					continue
+				}
+				key := rr.Platform + "/" + rr.HostName
+				if idx, ok := roomIndex[key]; ok {
+					rooms[idx].Recording = true
+					if rooms[idx].URL == "" {
+						rooms[idx].URL = rr.URL
+					}
+				} else {
+					// 正在直播但还没有录播文件 → 插入占位卡
+					rooms = append(rooms, VideoRoomInfo{
+						HostName:  rr.HostName,
+						Platform:  rr.Platform,
+						Recording: true,
+						URL:       rr.URL,
+					})
+				}
+			}
 		}
 	}
 
@@ -3289,4 +3326,98 @@ func pollBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
 
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write(body)
+}
+
+// getWatchHistory 返回所有观看历史
+func getWatchHistory(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJSON(writer, []metadata.WatchHistoryEntry{})
+		return
+	}
+	entries, err := store.GetWatchHistory(r.Context())
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "获取观看历史失败: " + err.Error(),
+		})
+		return
+	}
+	if entries == nil {
+		entries = []metadata.WatchHistoryEntry{}
+	}
+	writeJSON(writer, entries)
+}
+
+// upsertWatchHistory 保存或更新观看进度
+func upsertWatchHistory(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "数据库未初始化",
+		})
+		return
+	}
+	var entry metadata.WatchHistoryEntry
+	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "请求格式错误: " + err.Error(),
+		})
+		return
+	}
+	if entry.VideoPath == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "video_path 不能为空",
+		})
+		return
+	}
+	if err := store.UpsertWatchHistory(r.Context(), &entry); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "保存失败: " + err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, commonResp{ErrNo: 0, ErrMsg: "ok"})
+}
+
+// deleteWatchHistory 删除单条观看历史
+func deleteWatchHistory(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "数据库未初始化",
+		})
+		return
+	}
+	vars := mux.Vars(r)
+	videoPath := vars["videoPath"]
+	if videoPath == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "videoPath 不能为空",
+		})
+		return
+	}
+	if err := store.DeleteWatchHistory(r.Context(), videoPath); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "删除失败: " + err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, commonResp{ErrNo: 0, ErrMsg: "ok"})
+}
+
+// getAuthStatus 返回 API Key 鉴权状态
+func getAuthStatus(writer http.ResponseWriter, r *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	writeJSON(writer, map[string]interface{}{
+		"enable_api_key": cfg != nil && cfg.Security.EnableAPIKey,
+		"api_key":        func() string { if cfg != nil { return cfg.Security.APIKey }; return "" }(),
+	})
 }

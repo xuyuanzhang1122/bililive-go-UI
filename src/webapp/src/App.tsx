@@ -10,6 +10,7 @@ import FileList from './component/file-list/index';
 import TaskPage from './component/task-page/index';
 import IOStats from './component/io-stats/index';
 import VideoLibrary from './component/video-library/index';
+import HistoryPage from './component/history-page/index';
 
 const App: React.FC = () => {
   return (
@@ -21,6 +22,7 @@ const App: React.FC = () => {
           <Route path="/fileList/*" element={<FileList />} />
           <Route path="/configInfo/*" element={<ConfigInfo />} />
           <Route path="/videoLibrary" element={<VideoLibrary />} />
+          <Route path="/history" element={<HistoryPage />} />
           <Route path="/liveInfo" element={<LiveInfo />} />
           <Route path="/liveList" element={<LiveList />} />
           <Route path="/" element={<VideoLibrary />} />

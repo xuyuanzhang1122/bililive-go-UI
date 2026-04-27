@@ -7,6 +7,7 @@ import DiskIOChart from './DiskIOChart';
 import RequestStatusChart from './RequestStatusChart';
 import MemoryStats from './MemoryStats';
 import MemoryHistoryChart from './MemoryHistoryChart';
+import { authFetch } from '../../utils/common';
 import './index.css';
 
 const { RangePicker } = DatePicker;
@@ -61,7 +62,7 @@ const fetchIOStats = async (params: {
     searchParams.append('aggregation', params.aggregation);
   }
 
-  const response = await fetch(`/api/iostats?${searchParams.toString()}`);
+  const response = await authFetch(`/api/iostats?${searchParams.toString()}`);
   const data = await response.json();
   if (data.err_no !== 0) {
     throw new Error(data.err_msg || '获取 IO 统计失败');
@@ -87,7 +88,7 @@ const fetchRequestStatus = async (params: {
     searchParams.append('platform', params.platform);
   }
 
-  const response = await fetch(`/api/iostats/requests?${searchParams.toString()}`);
+  const response = await authFetch(`/api/iostats/requests?${searchParams.toString()}`);
   const data = await response.json();
   if (data.err_no !== 0) {
     throw new Error(data.err_msg || '获取请求状态失败');
@@ -96,7 +97,7 @@ const fetchRequestStatus = async (params: {
 };
 
 const fetchFilters = async (): Promise<FiltersResponse> => {
-  const response = await fetch('/api/iostats/filters');
+  const response = await authFetch('/api/iostats/filters');
   const data = await response.json();
   if (data.err_no !== 0) {
     throw new Error(data.err_msg || '获取筛选器失败');

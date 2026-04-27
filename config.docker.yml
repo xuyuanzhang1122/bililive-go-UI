@@ -10,7 +10,7 @@ security:
 debug: false
 interval: 20
 out_put_path: /srv/bililive
-app_data_path: /srv/bililive/.appdata
+app_data_path: /var/lib/bililive
 read_only_tool_folder: /opt/bililive/tools
 tool_root_folder: /srv/bililive/.appdata/tools
 feature:

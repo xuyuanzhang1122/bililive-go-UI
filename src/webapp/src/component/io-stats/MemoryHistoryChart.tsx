@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Card, Checkbox, Space, Select, Empty, Spin } from 'antd';
+import { authFetch } from '../../utils/common';
 import dayjs from 'dayjs';
 
 interface MemoryStat {
@@ -83,7 +84,7 @@ const MemoryHistoryChart: React.FC<Props> = ({ startTime, endTime }) => {
         params.append('aggregation', aggregation);
       }
 
-      const response = await fetch(`/api/iostats/memory?${params}`);
+      const response = await authFetch(`/api/iostats/memory?${params}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

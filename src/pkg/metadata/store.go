@@ -71,6 +71,22 @@ func Init(dbDir string) error {
 		return fmt.Errorf("创建表失败: %w", err)
 	}
 
+	// 创建观看历史表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS watch_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			video_path TEXT NOT NULL UNIQUE,
+			video_name TEXT DEFAULT '',
+			position_seconds REAL DEFAULT 0,
+			duration_seconds REAL DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		db.Close()
+		return fmt.Errorf("创建观看历史表失败: %w", err)
+	}
+
 	globalStore = &Store{
 		db:     db,
 		dbPath: dbPath,
@@ -213,3 +229,63 @@ const (
 	// KeyDeviceID Sentry 设备标识
 	KeyDeviceID = "sentry_device_id"
 )
+
+// WatchHistoryEntry 观看历史记录
+type WatchHistoryEntry struct {
+	ID              int64   `json:"id"`
+	VideoPath       string  `json:"video_path"`
+	VideoName       string  `json:"video_name"`
+	PositionSeconds float64 `json:"position_seconds"`
+	DurationSeconds float64 `json:"duration_seconds"`
+	UpdatedAt       string  `json:"updated_at"`
+}
+
+// UpsertWatchHistory 插入或更新观看历史
+func (s *Store) UpsertWatchHistory(ctx context.Context, e *WatchHistoryEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO watch_history (video_path, video_name, position_seconds, duration_seconds, updated_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(video_path) DO UPDATE SET
+			video_name = excluded.video_name,
+			position_seconds = excluded.position_seconds,
+			duration_seconds = excluded.duration_seconds,
+			updated_at = CURRENT_TIMESTAMP
+	`, e.VideoPath, e.VideoName, e.PositionSeconds, e.DurationSeconds)
+	return err
+}
+
+// GetWatchHistory 获取所有观看历史（按更新时间倒序）
+func (s *Store) GetWatchHistory(ctx context.Context) ([]WatchHistoryEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, video_path, video_name, position_seconds, duration_seconds, updated_at
+		FROM watch_history ORDER BY updated_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []WatchHistoryEntry
+	for rows.Next() {
+		var e WatchHistoryEntry
+		if err := rows.Scan(&e.ID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// DeleteWatchHistory 删除单条观看历史
+func (s *Store) DeleteWatchHistory(ctx context.Context, videoPath string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, "DELETE FROM watch_history WHERE video_path = ?", videoPath)
+	return err
+}

@@ -12,6 +12,7 @@ import {
   ClearOutlined,
   StopOutlined
 } from '@ant-design/icons';
+import { authFetch } from '../../utils/common';
 import './index.css';
 
 const { Text, Paragraph } = Typography;
@@ -188,7 +189,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
   // 仅加载统计数据
   loadStats = async () => {
     try {
-      const res = await fetch('/api/pipeline/tasks/stats');
+      const res = await authFetch('/api/pipeline/tasks/stats');
       if (res.ok) {
         const stats = await res.json();
         this.setState({ stats });
@@ -201,8 +202,8 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
   loadData = async () => {
     try {
       const [tasksRes, statsRes] = await Promise.all([
-        fetch('/api/pipeline/tasks'),
-        fetch('/api/pipeline/tasks/stats'),
+        authFetch('/api/pipeline/tasks'),
+        authFetch('/api/pipeline/tasks/stats'),
       ]);
 
       if (tasksRes.ok && statsRes.ok) {
@@ -217,7 +218,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
 
   handleCancel = async (taskId: number) => {
     try {
-      const res = await fetch(`/api/pipeline/tasks/${taskId}/cancel`, { method: 'POST' });
+      const res = await authFetch(`/api/pipeline/tasks/${taskId}/cancel`, { method: 'POST' });
       if (res.ok) {
         message.success('任务已取消');
         this.loadData();
@@ -231,7 +232,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
 
   handleRetry = async (taskId: number) => {
     try {
-      const res = await fetch(`/api/pipeline/tasks/${taskId}/retry`, { method: 'POST' });
+      const res = await authFetch(`/api/pipeline/tasks/${taskId}/retry`, { method: 'POST' });
       if (res.ok) {
         message.success('任务已重新排队');
         this.loadData();
@@ -249,7 +250,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
       content: '确定要删除这个任务吗？',
       onOk: async () => {
         try {
-          const res = await fetch(`/api/pipeline/tasks/${taskId}`, { method: 'DELETE' });
+          const res = await authFetch(`/api/pipeline/tasks/${taskId}`, { method: 'DELETE' });
           if (res.ok) {
             message.success('任务已删除');
             this.loadData();
@@ -269,7 +270,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
       content: '确定要清除所有已完成的任务记录吗？',
       onOk: async () => {
         try {
-          const res = await fetch('/api/pipeline/tasks/clear-completed', { method: 'POST' });
+          const res = await authFetch('/api/pipeline/tasks/clear-completed', { method: 'POST' });
           if (res.ok) {
             const data = await res.json();
             message.success(`已清除 ${data.deleted} 条已完成任务`);

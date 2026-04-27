@@ -48,6 +48,20 @@ bililive-go-UI/
 └── config.docker.yml       # 配置样例（容器）
 ```
 
+### 2.A 持久化目录布局
+
+P1 将 `AppDataPath`（数据库、缩略图、metadata）与 `OutPutPath`（录播视频）解耦为独立目录：
+
+| 数据层 | Docker 路径 | 宿主机挂载 | 说明 |
+|--------|------------|-----------|------|
+| 配置 | `/etc/bililive-go/config.yml` | `./config.docker.yml` | 单个文件直接挂载 |
+| 应用数据 | `/var/lib/bililive` | `./Data` | DB (`/db/lives.db`, `/db/metadata.db`) + 缩略图 (`/thumbnails/`) |
+| 录播视频 | `/srv/bililive` | `./Videos` | 实体视频文件 (`.flv` `.mp4` `.m3u8`) |
+
+启动时自动执行：
+- **旧数据迁移**：若 `<OutPutPath>/.appdata` 存在且新 `AppDataPath` 为空，自动将旧目录复制到新位置
+- **索引重建（reconcile）**：扫描 `OutPutPath` 下所有视频文件，与 `lives.db` 对账，缺失记录自动创建占位房间（source=`reconcile-unknown`）
+
 ---
 
 ## 3. 相对上游的全部改动

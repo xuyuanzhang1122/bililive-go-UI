@@ -111,6 +111,10 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/resolve-url", resolveUrl).Methods("GET") // 解析抓鼿分享短链
 	// 视频库 API
 	apiRoute.HandleFunc("/video-library", getVideoLibrary).Methods("GET")
+		apiRoute.HandleFunc("/auth-status", getAuthStatus).Methods("GET")
+		apiRoute.HandleFunc("/history", getWatchHistory).Methods("GET")
+		apiRoute.HandleFunc("/history", upsertWatchHistory).Methods("POST")
+		apiRoute.HandleFunc("/history/{videoPath:.*}", deleteWatchHistory).Methods("DELETE")
 	apiRoute.HandleFunc("/signed-url", createSignedURL).Methods("GET")
 	apiRoute.HandleFunc("/thumbnail/{path:.*}", getThumbnail).Methods("GET")
 	apiRoute.HandleFunc("/video-files/{path:.*}", getVideoFiles).Methods("GET")

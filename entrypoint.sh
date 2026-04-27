@@ -2,9 +2,12 @@
 
 HOME=/srv/bililive
 
+mkdir -p /var/lib/bililive/db /var/lib/bililive/thumbnails
+
 chown -R ${PUID}:${PGID} ${HOME}
 chown -R ${PUID}:${PGID} /etc/bililive-go
 chown -R ${PUID}:${PGID} /opt/bililive
+chown -R ${PUID}:${PGID} /var/lib/bililive
 
 umask ${UMASK}
 

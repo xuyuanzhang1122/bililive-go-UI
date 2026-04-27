@@ -8,6 +8,8 @@ struct VideoRoomInfo: Identifiable, Codable {
     let totalSize: Int64
     let latestVideoAt: Int64
     let latestVideo: String?
+    let recording: Bool
+    let url: String?
 
     var id: String { folderPath }
 
@@ -27,6 +29,8 @@ struct VideoRoomInfo: Identifiable, Codable {
         case totalSize = "total_size"
         case latestVideoAt = "latest_video_at"
         case latestVideo = "latest_video"
+        case recording
+        case url
     }
 }
 
