@@ -73,6 +73,8 @@ RUN mkdir -p $OUTPUT_DIR && \
 
 COPY --from=go-builder /tmp/bililive-go /usr/bin/bililive-go
 COPY config.docker.yml $CONF_DIR/config.yml
+# 备份默认配置到 bind-mount 不会覆盖的路径（entrypoint.sh 在宿主机缺文件时从此恢复）
+COPY config.docker.yml /opt/bililive/config.docker.yml
 
 RUN chmod +x /usr/bin/bililive-go && \
     mkdir -p /opt/bililive/tools
