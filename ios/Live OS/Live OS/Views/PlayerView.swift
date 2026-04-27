@@ -23,7 +23,6 @@ struct PlayerView: View {
     @State private var duration: Double = 0
     @State private var currentTime: Double = 0
     @State private var isPlaying = false
-    @State private var isSeeking = false
     @State private var showControls = true
     @State private var isImmersive = true
     @State private var errorMessage: String?
@@ -31,26 +30,26 @@ struct PlayerView: View {
     // Speed
     @State private var currentSpeed: Float = 1.0
 
-    // Long-press speed boost
-    @State private var speedBoostSide: PlayerSide?
-    @State private var boostRestoreRate: Float = 1
-    @State private var boostWasPlaying = false
-
-    // Swipe feedback
+    // Swipe seek (accumulated per-gesture)
+    @State private var seekBaseTime: Double = 0
     @State private var seekDelta: Double = 0
     @State private var showSeekIndicator = false
+
+    // Volume / brightness swipe
     @State private var showVolumeIndicator = false
     @State private var currentSystemVolume: Float = 0
-
     @State private var showBrightnessIndicator = false
     @State private var currentBrightness: CGFloat = 0
-    @State private var seekGestureStartTime: Double = 0
-    @State private var seekIndicatorHideTask: Task<Void, Never>?
-    @State private var volumeIndicatorHideTask: Task<Void, Never>?
-    @State private var brightnessIndicatorHideTask: Task<Void, Never>?
 
+    // Long-press speed boost
+    @State private var speedBoosting = false
+
+    // Controls auto-hide
     @State private var controlsHideTask: Task<Void, Never>?
     private let togglePiPSubject = PassthroughSubject<Void, Never>()
+
+    // Progress bar scrub state
+    @State private var isScrubbing = false
 
     var body: some View {
         ZStack {
@@ -60,95 +59,43 @@ struct PlayerView: View {
                 PlayerSurface(player: player, togglePiP: togglePiPSubject)
                     .ignoresSafeArea()
 
-                GestureHandlerView(
-                    onSingleTap: { toggleControls() },
-                    onDoubleTap: { location in
+                // Gesture layer — pure SwiftUI, no UIKit touch interception
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(TapGesture(count: 2).onEnded {
                         togglePlay()
                         revealControlsTemporarily()
-                    },
-                    onSwipeStart: { direction, _ in
-                        controlsHideTask?.cancel()
-                        if direction == .horizontal {
-                            isSeeking = true
-                            seekGestureStartTime = currentTime
-                            showSeekIndicator = true
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                showControls = true
-                            }
-                        }
-                    },
-                    onSwipeHorizontal: { _, translation, width in
-                        let span = horizontalSeekSpan()
-                        let seconds = Double(translation / max(width, 1)) * span
-                        let target = clampedTime(seekGestureStartTime + seconds)
-                        currentTime = target
-                        seekDelta = target - seekGestureStartTime
-                        showSeekIndicator = true
-                    },
-                    onSwipeVertical: { location, delta in
-                        let viewWidth = UIScreen.main.bounds.width
-                        if location.x > viewWidth / 2 {
-                            // delta: negative = swipe up (louder), positive = swipe down (quieter)
-                            let volumeChange = Float(-delta) * 0.006
-                            let newVol = min(max(currentSystemVolume + volumeChange, 0), 1)
-                            setSystemVolume(newVol)
-                            currentSystemVolume = newVol
-                            showVolumeIndicator = true
-                            hideVolumeIndicatorSoon()
-                        } else {
-                            let brightnessChange = CGFloat(-delta) * 0.006
-                            let newBright = min(max(currentBrightness + brightnessChange, 0), 1)
-                            UIScreen.main.brightness = newBright
-                            currentBrightness = newBright
-                            showBrightnessIndicator = true
-                            hideBrightnessIndicatorSoon()
-                        }
-                    },
-                    onSwipeEnd: { direction in
-                        if direction == .horizontal {
-                            isSeeking = false
-                            seek(to: currentTime)
-                            hideSeekIndicatorSoon()
-                        } else {
-                            scheduleControlsAutoHide()
-                        }
-                    },
-                    onLongPressStart: { location, viewWidth in
-                        let side: PlayerSide = location.x < viewWidth / 2 ? .left : .right
-                        startSpeedBoost(side)
-                    },
-                    onLongPressEnd: {
-                        stopSpeedBoost()
-                    }
-                )
-                .ignoresSafeArea()
+                    })
+                    .gesture(TapGesture(count: 1).onEnded {
+                        toggleControls()
+                    })
+                    .gesture(tapAndSwipeGesture)
+                    .gesture(longPressBoostGesture)
 
-                // Seek delta indicator
+                // Seek indicator
                 if showSeekIndicator {
                     SeekDeltaIndicator(delta: seekDelta, targetTime: currentTime, valueFormatter: formatTime)
                         .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
 
                 // Volume indicator
                 if showVolumeIndicator {
                     VolumeIndicator(volume: currentSystemVolume)
                         .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
 
                 // Brightness indicator
                 if showBrightnessIndicator {
                     BrightnessIndicator(brightness: currentBrightness)
                         .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
 
                 if showControls {
                     controlsLayer
-                        .transition(.opacity)
-                }
-
-                if let speedBoostSide {
-                    SpeedBoostIndicator(side: speedBoostSide)
-                        .transition(.scale.combined(with: .opacity))
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             } else if let errorMessage {
                 ContentUnavailableView("无法播放", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
@@ -172,11 +119,106 @@ struct PlayerView: View {
             await preparePlayer()
         }
         .onDisappear { cleanupPlayer() }
-        .animation(.easeInOut(duration: 0.18), value: showControls)
-        .animation(.spring(response: 0.24, dampingFraction: 0.84), value: speedBoostSide)
+        .animation(.easeInOut(duration: 0.22), value: showControls)
         .animation(.easeInOut(duration: 0.15), value: showSeekIndicator)
         .animation(.easeInOut(duration: 0.15), value: showVolumeIndicator)
         .animation(.easeInOut(duration: 0.15), value: showBrightnessIndicator)
+    }
+
+    // MARK: - SwiftUI Gestures
+
+    /// Tap + swipe gesture. Tap for play/pause/controls, swipe for seek/volume/brightness.
+    private var tapAndSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                controlsHideTask?.cancel()
+                let absX = abs(value.translation.width)
+                let absY = abs(value.translation.height)
+
+                if absX > absY {
+                    // Horizontal → seek: compute delta from accumulated translation
+                    if !showSeekIndicator { seekBaseTime = currentTime }
+                    let span = horizontalSeekSpan()
+                    let frac = Double(value.translation.width / max(UIScreen.main.bounds.width, 1))
+                    let target = clampedTime(seekBaseTime + frac * span)
+                    currentTime = target
+                    seekDelta = target - seekBaseTime
+                    showSeekIndicator = true
+                    withAnimation(.easeInOut(duration: 0.18)) { showControls = true }
+                } else {
+                    // Vertical → volume (right side) / brightness (left side)
+                    let locationX = value.startLocation.x
+                    let viewWidth = UIScreen.main.bounds.width
+                    let step = value.translation.height
+                    if locationX > viewWidth / 2 {
+                        let volumeChange = Float(-step) * 0.004
+                        let newVol = min(max(currentSystemVolume + volumeChange, 0), 1)
+                        setSystemVolume(newVol)
+                        currentSystemVolume = newVol
+                        showVolumeIndicator = true
+                        hideVolumeIndicatorSoon()
+                    } else {
+                        let brightnessChange = CGFloat(-step) * 0.004
+                        let newBright = min(max(currentBrightness + brightnessChange, 0), 1)
+                        UIScreen.main.brightness = newBright
+                        currentBrightness = newBright
+                        showBrightnessIndicator = true
+                        hideBrightnessIndicatorSoon()
+                    }
+                }
+            }
+            .onEnded { value in
+                let absX = abs(value.translation.width)
+                let absY = abs(value.translation.height)
+
+                if absX > absY {
+                    // Commit seek
+                    let span = horizontalSeekSpan()
+                    let frac = Double(value.translation.width / max(UIScreen.main.bounds.width, 1))
+                    let target = clampedTime(seekBaseTime + frac * span)
+                    seek(to: target)
+                    hideSeekIndicatorSoon()
+                } else {
+                    scheduleControlsAutoHide()
+                }
+
+                // If very short drag (< 20px, < 0.3s) → treat as tap
+                let dragDist = hypot(value.translation.width, value.translation.height)
+                if dragDist < 20 {
+                    toggleControls()
+                }
+            }
+    }
+
+    /// Long press → temporary 2x speed boost while held.
+    private var longPressBoostGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                switch value {
+                case .second(true, _):
+                    // Long press active
+                    if !speedBoosting {
+                        speedBoosting = true
+                        guard let player else { return }
+                        player.playImmediately(atRate: 2)
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                case .first, .second(false, _):
+                    break
+                }
+            }
+            .onEnded { _ in
+                if speedBoosting {
+                    speedBoosting = false
+                    guard let player else { return }
+                    if isPlaying {
+                        player.rate = currentSpeed
+                    } else {
+                        player.pause()
+                    }
+                }
+            }
     }
 
     // MARK: - Controls Layer
@@ -196,20 +238,21 @@ struct PlayerView: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 42, height: 42)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("关闭播放器")
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(file.name)
-                    .font(.headline)
+                    .font(.subheadline.weight(.medium))
                     .lineLimit(1)
+                    .foregroundStyle(.white)
                 Text(file.sizeFormatted)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.68))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.55))
             }
 
             Spacer()
@@ -219,87 +262,67 @@ struct PlayerView: View {
                 scheduleControlsAutoHide()
             } label: {
                 Image(systemName: "pip.enter")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 42, height: 42)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isImmersive ? "退出全屏" : "进入全屏")
         }
-        .foregroundStyle(.white)
         .padding(.horizontal, 18)
         .padding(.top, isImmersive ? 56 : 18)
         .padding(.bottom, 48)
         .background(
-            LinearGradient(colors: [.black.opacity(0.74), .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.black.opacity(0.7), .black.opacity(0)], startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         )
     }
 
     private var bottomControls: some View {
-        VStack(spacing: 16) {
-            PrecisionTimelineSlider(
-                value: $currentTime,
-                range: 0...max(duration, 1),
-                valueFormatter: formatTime,
-                onEditingChanged: { editing in
-                    isSeeking = editing
-                    if editing {
-                        controlsHideTask?.cancel()
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            showControls = true
-                        }
-                    } else {
-                        seek(to: currentTime)
-                    }
-                }
-            )
-            .frame(height: 52)
+        VStack(spacing: 20) {
+            // Progress bar
+            progressBar
 
-            HStack(spacing: 12) {
+            // Time labels + buttons
+            HStack(spacing: 14) {
                 Text(formatTime(currentTime))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.72))
-                    .frame(width: 54, alignment: .leading)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 46, alignment: .leading)
 
                 Spacer()
 
-                Button {
-                    seek(by: -10)
-                } label: {
-                    Image(systemName: "gobackward.10")
-                }
-                .accessibilityLabel("后退 10 秒")
+                // Skip back 10s
+                ControlPillButton(
+                    icon: "gobackward.10",
+                    size: 18,
+                    action: { seek(by: -10); UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+                )
 
-                Button {
-                    togglePlay()
-                } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .frame(width: 58, height: 58)
-                        .background(.white, in: Circle())
-                        .foregroundStyle(.black)
-                }
-                .accessibilityLabel(isPlaying ? "暂停" : "播放")
+                // Play/pause
+                ControlPillButton(
+                    icon: isPlaying ? "pause.fill" : "play.fill",
+                    size: 22,
+                    isProminent: true,
+                    action: { togglePlay(); UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+                )
 
-                Button {
-                    seek(by: 10)
-                } label: {
-                    Image(systemName: "goforward.10")
-                }
-                .accessibilityLabel("前进 10 秒")
+                // Skip forward 10s
+                ControlPillButton(
+                    icon: "goforward.10",
+                    size: 18,
+                    action: { seek(by: 10); UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+                )
 
                 Spacer()
 
                 Text(formatTime(duration))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.72))
-                    .frame(width: 54, alignment: .trailing)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .frame(width: 46, alignment: .trailing)
             }
-            .font(.system(size: 22, weight: .semibold))
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
 
+            // Speed + hints
             HStack {
                 Menu {
                     ForEach(speedPresets, id: \.self) { speed in
@@ -315,35 +338,107 @@ struct PlayerView: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Image(systemName: "speedometer")
+                            .font(.system(size: 11))
                         Text(String(format: "%.2gx", currentSpeed))
                             .monospacedDigit()
+                            .font(.caption2.weight(.medium))
                     }
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.72))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.white.opacity(0.12), in: Capsule())
+                    .foregroundStyle(.white.opacity(0.65))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.ultraThinMaterial, in: Capsule())
                 }
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 2) {
-                    Label("左侧亮度 · 右侧音量", systemImage: "sun.max")
-                    Label("横滑预览进度 · 松手跳转", systemImage: "arrow.left.and.right")
-                }
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.45))
+                Text("滑动调整进度 · 左侧亮度 · 右侧音量")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.35))
             }
         }
         .padding(.horizontal, 22)
-        .padding(.top, 54)
+        .padding(.top, 48)
         .padding(.bottom, isImmersive ? 36 : 18)
         .background(
-            LinearGradient(colors: [.black.opacity(0), .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.black.opacity(0), .black.opacity(0.78)], startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         )
+    }
+
+    // MARK: - Progress Bar
+
+    private var progressBar: some View {
+        let clampedDuration = max(duration, 1)
+        let progress = clampedDuration > 0 ? min(max(currentTime / clampedDuration, 0), 1) : 0
+
+        return GeometryReader { geometry in
+            let width = geometry.size.width
+            let usableWidth = max(width, 1)
+            let thumbX = usableWidth * progress
+            let trackHeight: CGFloat = isScrubbing ? 8 : 4
+
+            ZStack(alignment: .leading) {
+                // Background track
+                Capsule()
+                    .fill(.white.opacity(0.15))
+                    .frame(height: trackHeight)
+
+                // Active track with gradient
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 1, green: 0.18, blue: 0.22),
+                                Color(red: 1, green: 0.45, blue: 0.18),
+                                Color(red: 1, green: 0.73, blue: 0.22),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(0, thumbX), height: trackHeight)
+
+                // Thumb — only visible when scrubbing
+                if isScrubbing {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 22, height: 22)
+                        .overlay(Circle().stroke(.black.opacity(0.12), lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+                        .position(x: thumbX, y: geometry.size.height / 2)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle().inset(by: -20)) // expand hit area
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        if !isScrubbing {
+                            isScrubbing = true
+                            controlsHideTask?.cancel()
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showControls = true
+                            }
+                        }
+                        let p = min(max(gesture.location.x / usableWidth, 0), 1)
+                        currentTime = clampedDuration * p
+                    }
+                    .onEnded { gesture in
+                        let p = min(max(gesture.location.x / usableWidth, 0), 1)
+                        let target = clampedDuration * p
+                        currentTime = target
+                        seek(to: target)
+                        isScrubbing = false
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        scheduleControlsAutoHide()
+                    }
+            )
+            .animation(.spring(response: 0.24, dampingFraction: 0.78), value: isScrubbing)
+            .animation(.spring(response: 0.24, dampingFraction: 0.78), value: trackHeight)
+        }
+        .frame(height: 40)
     }
 
     // MARK: - Player Logic
@@ -373,7 +468,7 @@ struct PlayerView: View {
             self.timeObserver = nil
         }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { time in
-            if !isSeeking, time.seconds.isFinite {
+            if !isScrubbing, time.seconds.isFinite {
                 currentTime = time.seconds
             }
             if let seconds = player.currentItem?.duration.seconds, seconds.isFinite {
@@ -385,9 +480,6 @@ struct PlayerView: View {
 
     private func cleanupPlayer() {
         controlsHideTask?.cancel()
-        seekIndicatorHideTask?.cancel()
-        volumeIndicatorHideTask?.cancel()
-        brightnessIndicatorHideTask?.cancel()
         controlsHideTask = nil
         if let timeObserver {
             player?.removeTimeObserver(timeObserver)
@@ -397,14 +489,17 @@ struct PlayerView: View {
         player = nil
     }
 
-    private func toggleControls() {
-        withAnimation(.easeInOut(duration: 0.18)) {
-            showControls.toggle()
-        }
-        if showControls {
-            scheduleControlsAutoHide()
-        } else {
+    private func togglePlay() {
+        guard let player else { return }
+        if player.timeControlStatus == .playing {
+            player.pause()
+            isPlaying = false
             controlsHideTask?.cancel()
+        } else {
+            player.play()
+            if currentSpeed != 1.0 { player.rate = currentSpeed }
+            isPlaying = true
+            scheduleControlsAutoHide()
         }
     }
 
@@ -422,27 +517,11 @@ struct PlayerView: View {
             try? await Task.sleep(for: .seconds(3))
             if !Task.isCancelled {
                 await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
                         showControls = false
                     }
                 }
             }
-        }
-    }
-
-    private func togglePlay() {
-        guard let player else { return }
-        if player.timeControlStatus == .playing {
-            player.pause()
-            isPlaying = false
-            controlsHideTask?.cancel()
-        } else {
-            player.play()
-            if currentSpeed != 1.0 {
-                player.rate = currentSpeed
-            }
-            isPlaying = true
-            scheduleControlsAutoHide()
         }
     }
 
@@ -476,24 +555,6 @@ struct PlayerView: View {
         }
     }
 
-    private func startSpeedBoost(_ side: PlayerSide) {
-        guard speedBoostSide == nil, let player else { return }
-        boostWasPlaying = player.timeControlStatus == .playing
-        boostRestoreRate = player.rate > 0 ? player.rate : 1
-        speedBoostSide = side
-        player.playImmediately(atRate: 2)
-    }
-
-    private func stopSpeedBoost() {
-        guard speedBoostSide != nil, let player else { return }
-        if boostWasPlaying {
-            player.rate = max(boostRestoreRate, 1)
-        } else {
-            player.pause()
-        }
-        speedBoostSide = nil
-    }
-
     private func setSystemVolume(_ volume: Float) {
         Task { @MainActor in
             SystemVolumeController.shared.setVolume(volume)
@@ -501,19 +562,15 @@ struct PlayerView: View {
     }
 
     private func hideSeekIndicatorSoon() {
-        seekIndicatorHideTask?.cancel()
-        seekIndicatorHideTask = Task {
+        Task {
             try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled else { return }
             await MainActor.run { showSeekIndicator = false }
         }
     }
 
     private func hideVolumeIndicatorSoon() {
-        volumeIndicatorHideTask?.cancel()
-        volumeIndicatorHideTask = Task {
+        Task {
             try? await Task.sleep(for: .milliseconds(650))
-            guard !Task.isCancelled else { return }
             await MainActor.run {
                 showVolumeIndicator = false
                 scheduleControlsAutoHide()
@@ -522,10 +579,8 @@ struct PlayerView: View {
     }
 
     private func hideBrightnessIndicatorSoon() {
-        brightnessIndicatorHideTask?.cancel()
-        brightnessIndicatorHideTask = Task {
+        Task {
             try? await Task.sleep(for: .milliseconds(650))
-            guard !Task.isCancelled else { return }
             await MainActor.run {
                 showBrightnessIndicator = false
                 scheduleControlsAutoHide()
@@ -546,238 +601,59 @@ struct PlayerView: View {
     }
 }
 
-// MARK: - PlayerSide
+// MARK: - Control Pill Button
 
-private enum PlayerSide {
-    case left
-    case right
-}
+private struct ControlPillButton: View {
+    let icon: String
+    var size: CGFloat = 18
+    var isProminent: Bool = false
+    let action: () -> Void
 
-private enum PlayerGestureDirection {
-    case horizontal
-    case vertical
-}
-
-// MARK: - Gesture Handler (UIKit)
-
-private struct GestureHandlerView: UIViewRepresentable {
-    var onSingleTap: () -> Void
-    var onDoubleTap: (_ location: CGPoint) -> Void
-    var onSwipeStart: (_ direction: PlayerGestureDirection, _ location: CGPoint) -> Void
-    var onSwipeHorizontal: (_ location: CGPoint, _ translationX: CGFloat, _ viewWidth: CGFloat) -> Void
-    var onSwipeVertical: (_ location: CGPoint, _ deltaY: CGFloat) -> Void
-    var onSwipeEnd: (_ direction: PlayerGestureDirection) -> Void
-    var onLongPressStart: (_ location: CGPoint, _ viewWidth: CGFloat) -> Void
-    var onLongPressEnd: () -> Void
-
-    func makeUIView(context: Context) -> GestureHandlerUIView {
-        let view = GestureHandlerUIView()
-        view.onSingleTap = onSingleTap
-        view.onDoubleTap = onDoubleTap
-        view.onSwipeStart = onSwipeStart
-        view.onSwipeHorizontal = onSwipeHorizontal
-        view.onSwipeVertical = onSwipeVertical
-        view.onSwipeEnd = onSwipeEnd
-        view.onLongPressStart = onLongPressStart
-        view.onLongPressEnd = onLongPressEnd
-        view.setupGestures()
-        return view
-    }
-
-    func updateUIView(_ uiView: GestureHandlerUIView, context: Context) {
-        uiView.onSingleTap = onSingleTap
-        uiView.onDoubleTap = onDoubleTap
-        uiView.onSwipeStart = onSwipeStart
-        uiView.onSwipeHorizontal = onSwipeHorizontal
-        uiView.onSwipeVertical = onSwipeVertical
-        uiView.onSwipeEnd = onSwipeEnd
-        uiView.onLongPressStart = onLongPressStart
-        uiView.onLongPressEnd = onLongPressEnd
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size, weight: isProminent ? .semibold : .medium))
+                .foregroundStyle(isProminent ? .black : .white)
+                .frame(
+                    width: isProminent ? 52 : 40,
+                    height: isProminent ? 52 : 40
+                )
+                .background(
+                    isProminent
+                        ? AnyShapeStyle(.white)
+                        : AnyShapeStyle(.ultraThinMaterial)
+                )
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(.white.opacity(isProminent ? 0 : 0.12), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(.plain)
+        .scaleButtonOnPress()
     }
 }
 
-private class GestureHandlerUIView: UIView {
-    var onSingleTap: (() -> Void)?
-    var onDoubleTap: ((_ location: CGPoint) -> Void)?
-    var onSwipeStart: ((_ direction: PlayerGestureDirection, _ location: CGPoint) -> Void)?
-    var onSwipeHorizontal: ((_ location: CGPoint, _ translationX: CGFloat, _ viewWidth: CGFloat) -> Void)?
-    var onSwipeVertical: ((_ location: CGPoint, _ deltaY: CGFloat) -> Void)?
-    var onSwipeEnd: ((_ direction: PlayerGestureDirection) -> Void)?
-    var onLongPressStart: ((_ location: CGPoint, _ viewWidth: CGFloat) -> Void)?
-    var onLongPressEnd: (() -> Void)?
+// MARK: - Scale Button Modifier
 
-    private var touchStartPoint: CGPoint?
-    private var lastTouchPoint: CGPoint?
-    private var touchStartTime: TimeInterval = 0
-    private var isLongPressing = false
-    private var longPressTimer: Timer?
-    private var tapCount = 0
-    private var tapTimer: Timer?
-    private var swipeDirection: SwipeDirection = .none
+private struct ScaleButtonStyle: ViewModifier {
+    @State private var pressed = false
 
-    private enum SwipeDirection {
-        case none, horizontal, vertical
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(pressed ? 0.92 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.7), value: pressed)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in pressed = true }
+                    .onEnded { _ in pressed = false }
+            )
     }
+}
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        isMultipleTouchEnabled = false
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func setupGestures() {
-        // Gestures are handled via touch methods directly
-    }
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
-        let location = touch.location(in: self)
-        touchStartPoint = location
-        lastTouchPoint = location
-        touchStartTime = touch.timestamp
-        isLongPressing = false
-        swipeDirection = .none
-
-        // Start long-press timer (0.35s)
-        longPressTimer?.invalidate()
-        longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
-            guard let self, !self.isLongPressing else { return }
-            self.isLongPressing = true
-            let viewWidth = self.bounds.width
-            DispatchQueue.main.async {
-                self.onLongPressStart?(location, viewWidth)
-            }
-        }
-    }
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first, let start = touchStartPoint else { return }
-        let current = touch.location(in: self)
-        let dx = current.x - start.x
-        let dy = current.y - start.y
-
-        // If long pressing, don't process swipes
-        if isLongPressing { return }
-
-        // Determine swipe direction on first significant movement
-        if swipeDirection == .none {
-            let absDx = abs(dx)
-            let absDy = abs(dy)
-            if absDx > 12 || absDy > 12 {
-                if absDx > absDy {
-                    swipeDirection = .horizontal
-                    longPressTimer?.invalidate()
-                    DispatchQueue.main.async {
-                        self.onSwipeStart?(.horizontal, current)
-                    }
-                } else {
-                    swipeDirection = .vertical
-                    longPressTimer?.invalidate()
-                    DispatchQueue.main.async {
-                        self.onSwipeStart?(.vertical, current)
-                    }
-                }
-            }
-        }
-
-        if swipeDirection == .horizontal {
-            DispatchQueue.main.async {
-                self.onSwipeHorizontal?(current, dx, self.bounds.width)
-            }
-        } else if swipeDirection == .vertical {
-            let previous = lastTouchPoint ?? start
-            let step = current.y - previous.y
-            lastTouchPoint = current
-            if abs(step) > 0.5 {
-                DispatchQueue.main.async {
-                    self.onSwipeVertical?(current, step)
-                }
-            }
-        }
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        longPressTimer?.invalidate()
-        longPressTimer = nil
-
-        if isLongPressing {
-            isLongPressing = false
-            DispatchQueue.main.async {
-                self.onLongPressEnd?()
-            }
-            return
-        }
-
-        guard let touch = touches.first else { return }
-        let endPoint = touch.location(in: self)
-        let duration = touch.timestamp - touchStartTime
-
-        if swipeDirection != .none {
-            let direction = swipeDirection
-            swipeDirection = .none
-            touchStartPoint = nil
-            lastTouchPoint = nil
-            DispatchQueue.main.async {
-                self.onSwipeEnd?(direction == .horizontal ? .horizontal : .vertical)
-            }
-            return
-        }
-
-        // Short tap (< 0.3s, < 20px movement)
-        if duration < 0.3, let start = touchStartPoint {
-            let dist = hypot(endPoint.x - start.x, endPoint.y - start.y)
-            if dist < 20 {
-                handleTap(at: endPoint)
-            }
-        }
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        longPressTimer?.invalidate()
-        longPressTimer = nil
-        if isLongPressing {
-            isLongPressing = false
-            DispatchQueue.main.async {
-                self.onLongPressEnd?()
-            }
-        }
-        if swipeDirection != .none {
-            let direction = swipeDirection
-            DispatchQueue.main.async {
-                self.onSwipeEnd?(direction == .horizontal ? .horizontal : .vertical)
-            }
-        }
-        touchStartPoint = nil
-        lastTouchPoint = nil
-        swipeDirection = .none
-    }
-
-    private func handleTap(at location: CGPoint) {
-        tapCount += 1
-        tapTimer?.invalidate()
-
-        if tapCount >= 2 {
-            // Double tap
-            tapCount = 0
-            DispatchQueue.main.async {
-                self.onDoubleTap?(location)
-            }
-        } else {
-            // Wait for potential second tap
-            tapTimer = Timer.scheduledTimer(withTimeInterval: 0.28, repeats: false) { [weak self] _ in
-                guard let self else { return }
-                if self.tapCount == 1 {
-                    self.tapCount = 0
-                    DispatchQueue.main.async {
-                        self.onSingleTap?()
-                    }
-                }
-            }
-        }
+extension View {
+    func scaleButtonOnPress() -> some View {
+        modifier(ScaleButtonStyle())
     }
 }
 
@@ -802,7 +678,6 @@ private struct PlayerSurface: UIViewRepresentable {
 
 private final class PlayerSurfaceView: UIView {
     override class var layerClass: AnyClass { AVPlayerLayer.self }
-
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 
     private var pipController: AVPictureInPictureController?
@@ -827,36 +702,6 @@ private final class PlayerSurfaceView: UIView {
     }
 }
 
-// MARK: - Speed Boost Indicator
-
-private struct SpeedBoostIndicator: View {
-    let side: PlayerSide
-
-    var body: some View {
-        VStack {
-            Spacer()
-            HStack {
-                if side == .right { Spacer() }
-                HStack(spacing: 7) {
-                    Image(systemName: "bolt.fill")
-                    Text("2.0x")
-                        .font(.headline.monospacedDigit())
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(.black.opacity(0.54), in: Capsule())
-                .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 1))
-                .shadow(color: .black.opacity(0.22), radius: 10, y: 4)
-                if side == .left { Spacer() }
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 110)
-        }
-        .allowsHitTesting(false)
-    }
-}
-
 // MARK: - Seek Delta Indicator
 
 private struct SeekDeltaIndicator: View {
@@ -877,7 +722,7 @@ private struct SeekDeltaIndicator: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 22)
         .padding(.vertical, 16)
-        .background(.black.opacity(0.66), in: RoundedRectangle(cornerRadius: 16))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.3), radius: 12)
         .allowsHitTesting(false)
@@ -892,24 +737,21 @@ private struct VolumeIndicator: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: volume <= 0 ? "speaker.slash.fill" : volume < 0.33 ? "speaker.wave.1.fill" : volume < 0.66 ? "speaker.wave.2.fill" : "speaker.wave.3.fill")
-                .font(.system(size: 18))
+                .font(.system(size: 16))
                 .frame(width: 24)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.white.opacity(0.2))
-                    Capsule()
-                        .fill(.white)
-                        .frame(width: geo.size.width * CGFloat(volume))
+                    Capsule().fill(.white.opacity(0.2))
+                    Capsule().fill(.white).frame(width: geo.size.width * CGFloat(volume))
                 }
             }
             .frame(width: 120, height: 4)
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.3), radius: 12)
         .allowsHitTesting(false)
     }
@@ -923,24 +765,21 @@ private struct BrightnessIndicator: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "sun.max.fill")
-                .font(.system(size: 18))
+                .font(.system(size: 16))
                 .frame(width: 24)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.white.opacity(0.2))
-                    Capsule()
-                        .fill(.white)
-                        .frame(width: geo.size.width * brightness)
+                    Capsule().fill(.white.opacity(0.2))
+                    Capsule().fill(.white).frame(width: geo.size.width * brightness)
                 }
             }
             .frame(width: 120, height: 4)
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.3), radius: 12)
         .allowsHitTesting(false)
     }
@@ -991,82 +830,5 @@ private final class SystemVolumeController {
             return slider
         }
         return nil
-    }
-}
-
-// MARK: - Precision Timeline Slider
-
-private struct PrecisionTimelineSlider: View {
-    @Binding var value: Double
-    var range: ClosedRange<Double>
-    var valueFormatter: (Double) -> String
-    var onEditingChanged: (Bool) -> Void
-
-    @State private var dragPercent: Double? = nil
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let usableWidth = max(width, 1)
-            let lower = range.lowerBound
-            let upper = max(range.upperBound, lower + 1)
-            let percent = dragPercent ?? min(max((value - lower) / (upper - lower), 0), 1)
-            let thumbX = min(max(usableWidth * percent, 0), usableWidth)
-            let isDragging = dragPercent != nil
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.white.opacity(0.18))
-                    .frame(height: isDragging ? 7 : 5)
-
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(red: 1, green: 0.22, blue: 0.22), Color(red: 1, green: 0.62, blue: 0.24)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: max(0, thumbX), height: isDragging ? 7 : 5)
-
-                Circle()
-                    .fill(.white)
-                    .frame(width: isDragging ? 24 : 18, height: isDragging ? 24 : 18)
-                    .overlay(Circle().stroke(.black.opacity(0.18), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.36), radius: 7, y: 3)
-                    .position(x: thumbX, y: 26)
-
-                if isDragging {
-                    Text(valueFormatter(value))
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(.white, in: Capsule())
-                        .position(x: min(max(thumbX, 34), usableWidth - 34), y: 0)
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                }
-            }
-            .frame(height: 52)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { gesture in
-                        if dragPercent == nil {
-                            onEditingChanged(true)
-                        }
-                        let p = min(max(gesture.location.x / usableWidth, 0), 1)
-                        dragPercent = p
-                        value = lower + p * (upper - lower)
-                    }
-                    .onEnded { gesture in
-                        let p = min(max(gesture.location.x / usableWidth, 0), 1)
-                        value = lower + p * (upper - lower)
-                        dragPercent = nil
-                        onEditingChanged(false)
-                    }
-            )
-            .animation(.spring(response: 0.2, dampingFraction: 0.78), value: isDragging)
-        }
     }
 }
