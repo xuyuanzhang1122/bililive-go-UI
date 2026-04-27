@@ -121,7 +121,7 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
 当前默认镜像仓库：
 
 - Docker Hub: `xuniubi/bililive-go`
-- 当前 compose 示例标签：`v1.2.0`
+- 当前 compose 示例标签：`v1.3.0`
 
 ```bash
 docker run -d \
@@ -130,7 +130,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/Videos:/srv/bililive \
   -v $(pwd)/config.docker.yml:/etc/bililive-go/config.yml \
-  xuniubi/bililive-go:v1.2.0
+  xuniubi/bililive-go:v1.3.0
 ```
 
 程序默认监听 `8080` 端口，录制文件输出到容器内 `/srv/bililive`。
@@ -139,7 +139,7 @@ docker run -d \
 
 仓库根目录已提供 [docker-compose.yml](docker-compose.yml)。默认使用：
 
-- 镜像：`xuniubi/bililive-go:v1.2.0`
+- 镜像：`xuniubi/bililive-go:v1.3.0`
 - 配置文件：`config.docker.yml`
 - 输出目录：`./Videos`
 
@@ -150,7 +150,7 @@ docker compose up -d
 如需切换镜像标签，可以在启动前设置环境变量：
 
 ```bash
-BILILIVE_IMAGE=xuniubi/bililive-go:v1.2.0 docker compose up -d
+BILILIVE_IMAGE=xuniubi/bililive-go:v1.3.0 docker compose up -d
 ```
 
 
@@ -162,8 +162,8 @@ BILILIVE_IMAGE=xuniubi/bililive-go:v1.2.0 docker compose up -d
 
 ```bash
 docker build \
-  --build-arg VERSION=v1.2.0 \
-  -t xuniubi/bililive-go:v1.2.0 \
+  --build-arg VERSION=v1.3.0 \
+  -t xuniubi/bililive-go:v1.3.0 \
   .
 ```
 
@@ -172,8 +172,8 @@ docker build \
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --build-arg VERSION=v1.2.0 \
-  -t xuniubi/bililive-go:v1.2.0 \
+  --build-arg VERSION=v1.3.0 \
+  -t xuniubi/bililive-go:v1.3.0 \
   --push \
   .
 ```
