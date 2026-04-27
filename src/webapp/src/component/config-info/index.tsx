@@ -10,7 +10,8 @@ import {
   BellOutlined, LinkOutlined, InfoCircleOutlined, SaveOutlined,
   ReloadOutlined, EditOutlined, DeleteOutlined,
   RightOutlined, PlusOutlined, WarningOutlined,
-  ExclamationCircleOutlined
+  ExclamationCircleOutlined,
+  KeyOutlined, CopyOutlined
 } from '@ant-design/icons';
 import { useLocation, Link } from 'react-router-dom';
 import Editor from 'react-simple-code-editor';
@@ -18,6 +19,7 @@ import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-yaml';
 import 'prismjs/themes/prism.css';
 import API from '../../utils/api';
+import { authFetch } from '../../utils/common';
 import './config-info.css';
 import './config-gui.css';
 import {
@@ -2122,6 +2124,11 @@ const ConfigInfo: React.FC = () => {
         />
       ) : <Spin />,
     },
+    {
+      key: 'apikey',
+      label: <span><KeyOutlined /> API Key</span>,
+      content: <APIKeyPanel />,
+    },
   ];
 
   const renderGuiMode = () => (
@@ -2225,6 +2232,63 @@ const ConfigInfo: React.FC = () => {
         ]}
       />
     </div>
+  );
+};
+
+// API Key 面板组件
+const APIKeyPanel: React.FC = () => {
+  const [apiKey, setApiKey] = useState('');
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    authFetch('/api/auth-status')
+      .then(r => r.json())
+      .then(d => { setEnabled(d.enable_api_key); setApiKey(d.api_key || ''); if (d.api_key) { try { localStorage.setItem('bililive_api_key', d.api_key); } catch {} } })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const copyKey = () => {
+    navigator.clipboard.writeText(apiKey).then(() => message.success('已复制到剪贴板'));
+  };
+
+  if (loading) return <Spin />;
+  if (!enabled) {
+    return (
+      <Alert
+        type="info"
+        message="API Key 未启用"
+        description="在服务器 config.yml 中设置 security.enable_api_key: true 后，API Key 会自动生成。用于 iOS App 或外部客户端访问。"
+        showIcon
+      />
+    );
+  }
+
+  return (
+    <Card title="API Key" size="small" style={{ maxWidth: 600 }}>
+      <Alert
+        type="warning"
+        message="请妥善保管此 Key"
+        description="拥有此 Key 即可访问所有 API。仅分享给信任的设备。修改 config.yml 中的 api_key 并重启服务即可更换。"
+        showIcon
+        style={{ marginBottom: 16 }}
+      />
+      <Space>
+        <Input.Password
+          value={apiKey}
+          readOnly
+          style={{ width: 360 }}
+          addonAfter={
+            <Button type="text" icon={<CopyOutlined />} onClick={copyKey} size="small" />
+          }
+        />
+        <Button icon={<CopyOutlined />} onClick={copyKey}>复制</Button>
+      </Space>
+      <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+        iOS App 设置页粘贴此 Key 即可；留空则不启用鉴权。
+      </div>
+    </Card>
   );
 };
 

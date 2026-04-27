@@ -209,19 +209,20 @@ func (s *SQLiteStore) UpsertLiveRoom(ctx context.Context, room *LiveRoom) error 
 	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO live_rooms (live_id, url, platform, host_name, room_name, last_start_time, last_end_time, is_recording, last_heartbeat)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO live_rooms (live_id, url, platform, host_name, room_name, source, last_start_time, last_end_time, is_recording, last_heartbeat)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(live_id) DO UPDATE SET
 			url = excluded.url,
 			platform = excluded.platform,
 			host_name = CASE WHEN excluded.host_name != '' THEN excluded.host_name ELSE live_rooms.host_name END,
 			room_name = CASE WHEN excluded.room_name != '' THEN excluded.room_name ELSE live_rooms.room_name END,
+			source = CASE WHEN live_rooms.source = 'user' THEN 'user' ELSE excluded.source END,
 			last_start_time = CASE WHEN excluded.last_start_time > 0 THEN excluded.last_start_time ELSE live_rooms.last_start_time END,
 			last_end_time = CASE WHEN excluded.last_end_time > 0 THEN excluded.last_end_time ELSE live_rooms.last_end_time END,
 			is_recording = excluded.is_recording,
 			last_heartbeat = CASE WHEN excluded.last_heartbeat > 0 THEN excluded.last_heartbeat ELSE live_rooms.last_heartbeat END,
 			updated_at = CURRENT_TIMESTAMP
-	`, room.LiveID, room.URL, room.Platform, room.HostName, room.RoomName, lastStartTime, lastEndTime, isRecording, lastHeartbeat)
+	`, room.LiveID, room.URL, room.Platform, room.HostName, room.RoomName, room.Source, lastStartTime, lastEndTime, isRecording, lastHeartbeat)
 
 	return err
 }
@@ -236,10 +237,10 @@ func (s *SQLiteStore) GetLiveRoom(ctx context.Context, liveID string) (*LiveRoom
 	var isRecording int
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, live_id, url, platform, host_name, room_name, last_start_time, last_end_time, is_recording, last_heartbeat, created_at, updated_at
+		SELECT id, live_id, url, platform, host_name, room_name, source, last_start_time, last_end_time, is_recording, last_heartbeat, created_at, updated_at
 		FROM live_rooms WHERE live_id = ?
 	`, liveID).Scan(
-		&room.ID, &room.LiveID, &room.URL, &room.Platform, &room.HostName, &room.RoomName,
+		&room.ID, &room.LiveID, &room.URL, &room.Platform, &room.HostName, &room.RoomName, &room.Source,
 		&lastStartTime, &lastEndTime, &isRecording, &lastHeartbeat, &room.CreatedAt, &room.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -269,7 +270,7 @@ func (s *SQLiteStore) GetAllLiveRooms(ctx context.Context) ([]*LiveRoom, error) 
 	defer s.mu.RUnlock()
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, live_id, url, platform, host_name, room_name, last_start_time, last_end_time, is_recording, last_heartbeat, created_at, updated_at
+		SELECT id, live_id, url, platform, host_name, room_name, source, last_start_time, last_end_time, is_recording, last_heartbeat, created_at, updated_at
 		FROM live_rooms ORDER BY updated_at DESC
 	`)
 	if err != nil {
@@ -286,7 +287,7 @@ func (s *SQLiteStore) GetRecordingLiveRooms(ctx context.Context) ([]*LiveRoom, e
 	defer s.mu.RUnlock()
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, live_id, url, platform, host_name, room_name, last_start_time, last_end_time, is_recording, last_heartbeat, created_at, updated_at
+		SELECT id, live_id, url, platform, host_name, room_name, source, last_start_time, last_end_time, is_recording, last_heartbeat, created_at, updated_at
 		FROM live_rooms WHERE is_recording = 1 ORDER BY last_heartbeat DESC
 	`)
 	if err != nil {
@@ -306,7 +307,7 @@ func (s *SQLiteStore) scanLiveRooms(rows *sql.Rows) ([]*LiveRoom, error) {
 		var isRecording int
 
 		err := rows.Scan(
-			&room.ID, &room.LiveID, &room.URL, &room.Platform, &room.HostName, &room.RoomName,
+			&room.ID, &room.LiveID, &room.URL, &room.Platform, &room.HostName, &room.RoomName, &room.Source,
 			&lastStartTime, &lastEndTime, &isRecording, &lastHeartbeat, &room.CreatedAt, &room.UpdatedAt,
 		)
 		if err != nil {

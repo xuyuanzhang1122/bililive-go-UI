@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Row, Col, Progress, Table, Statistic, Button, Empty } from 'antd';
 import { ReloadOutlined, DashboardOutlined, BuildOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { authFetch } from '../../utils/common';
 
 // 数据单位转换工具函数
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -44,7 +45,7 @@ const MemoryStats: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/memory');
+      const response = await authFetch('/api/memory');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

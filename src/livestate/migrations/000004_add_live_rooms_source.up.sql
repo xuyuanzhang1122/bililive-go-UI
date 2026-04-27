@@ -1,0 +1,1 @@
+ALTER TABLE live_rooms ADD COLUMN source TEXT NOT NULL DEFAULT 'user';

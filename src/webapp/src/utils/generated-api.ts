@@ -12,9 +12,11 @@ export const apiEndpoints = {
   createSignedURL_get: { method: 'GET', path: '/api/signed-url', handler: 'createSignedURL', params: [] },
   deleteFile_delete: { method: 'DELETE', path: '/api/file/{path:.*}', handler: 'deleteFile', params: ['path'] },
   deletePlatformConfig_delete: { method: 'DELETE', path: '/api/config/platforms/{platform}', handler: 'deletePlatformConfig', params: ['platform'] },
+  deleteWatchHistory_delete: { method: 'DELETE', path: '/api/history/{videoPath:.*}', handler: 'deleteWatchHistory', params: ['videoPath'] },
   doRollback_post: { method: 'POST', path: '/api/update/rollback', handler: 'doRollback', params: [] },
   downloadUpdate_post: { method: 'POST', path: '/api/update/download', handler: 'downloadUpdate', params: [] },
   getAllLives_get: { method: 'GET', path: '/api/lives', handler: 'getAllLives', params: [] },
+  getAuthStatus_get: { method: 'GET', path: '/api/auth-status', handler: 'getAuthStatus', params: [] },
   getBilibiliQRCode_get: { method: 'GET', path: '/api/bilibili/qrcode', handler: 'getBilibiliQRCode', params: [] },
   getConfig_get: { method: 'GET', path: '/api/config', handler: 'getConfig', params: [] },
   getConfigSyncStatus_get: { method: 'GET', path: '/api/config/sync-status', handler: 'getConfigSyncStatus', params: [] },
@@ -48,6 +50,7 @@ export const apiEndpoints = {
   getUpdateStatus_get: { method: 'GET', path: '/api/update/status', handler: 'getUpdateStatus', params: [] },
   getVideoFiles_get: { method: 'GET', path: '/api/video-files/{path:.*}', handler: 'getVideoFiles', params: ['path'] },
   getVideoLibrary_get: { method: 'GET', path: '/api/video-library', handler: 'getVideoLibrary', params: [] },
+  getWatchHistory_get: { method: 'GET', path: '/api/history', handler: 'getWatchHistory', params: [] },
   parseLiveAction_get: { method: 'GET', path: '/api/lives/{id}/{action}', handler: 'parseLiveAction', params: ['id', 'action'] },
   pollBilibiliQRCode_get: { method: 'GET', path: '/api/bilibili/qrcode/poll', handler: 'pollBilibiliQRCode', params: [] },
   previewOutputTmpl_post: { method: 'POST', path: '/api/config/preview-template', handler: 'previewOutputTmpl', params: [] },
@@ -67,6 +70,7 @@ export const apiEndpoints = {
   updateRoomConfig_put: { method: 'PUT', path: '/api/config/rooms/{url:.*}', handler: 'updateRoomConfig', params: ['url'] },
   updateRoomConfigById_patch: { method: 'PATCH', path: '/api/config/rooms/id/{id}', handler: 'updateRoomConfigById', params: ['id'] },
   updateRoomConfigById_put: { method: 'PUT', path: '/api/config/rooms/id/{id}', handler: 'updateRoomConfigById', params: ['id'] },
+  upsertWatchHistory_post: { method: 'POST', path: '/api/history', handler: 'upsertWatchHistory', params: [] },
   verifyBilibiliCookie_post: { method: 'POST', path: '/api/bilibili/cookie/verify', handler: 'verifyBilibiliCookie', params: [] },
 } as const;
 

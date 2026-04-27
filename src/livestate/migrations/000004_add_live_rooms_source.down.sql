@@ -1,0 +1,3 @@
+-- SQLite does not support DROP COLUMN directly.
+-- If rollback is needed, recreate the table without the source column.
+-- This is a destructive operation and should only be done if absolutely necessary.

@@ -4,7 +4,29 @@
  * @Description: common utils
  */
 
+const API_KEY_STORAGE_KEY = 'bililive_api_key';
+
+function getAPIKey(): string {
+    try { return localStorage.getItem(API_KEY_STORAGE_KEY) || ''; } catch { return ''; }
+}
+
 function customFetch(arg1: Parameters<typeof fetch>[0], ...args: any[]) {
+    // 注入 API Key 鉴权 header（如果已配置）
+    const apiKey = getAPIKey();
+    const url = typeof arg1 === 'string' ? arg1 : (arg1 instanceof Request ? arg1.url : String(arg1));
+    if (apiKey && typeof url === 'string' && url.includes('/api/')) {
+        if (args.length > 0 && typeof args[0] === 'object' && args[0] !== null) {
+            const init = args[0] as RequestInit;
+            const headers = new Headers(init.headers || {});
+            if (!headers.has('Authorization')) {
+                headers.set('Authorization', `Bearer ${apiKey}`);
+            }
+            args[0] = { ...init, headers };
+        } else if (args.length === 0) {
+            args[0] = { headers: new Headers({ 'Authorization': `Bearer ${apiKey}` }) };
+        }
+    }
+
     return new Promise((resolve, reject) => {
         fetch.call(null, arg1, ...args)
             .then(async (rsp) => {
@@ -35,6 +57,22 @@ function customFetch(arg1: Parameters<typeof fetch>[0], ...args: any[]) {
                 reject(err);
             });
     });
+}
+
+// authFetch：原生 fetch 的薄包装，仅注入 Authorization header
+// 与 fetch 接口完全兼容（返回 Response，不做 .json() 解包）
+// 用于页面级裸 fetch('/api/...') 的鉴权迁移
+export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : input.toString());
+    const apiKey = getAPIKey();
+    if (apiKey && url.includes('/api/') && !url.includes('/api/auth-status')) {
+        const headers = new Headers(init.headers || {});
+        if (!headers.has('Authorization')) {
+            headers.set('Authorization', `Bearer ${apiKey}`);
+        }
+        init = { ...init, headers };
+    }
+    return fetch(input, init);
 }
 
 class Utils {

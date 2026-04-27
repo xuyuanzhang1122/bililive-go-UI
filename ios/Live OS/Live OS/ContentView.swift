@@ -20,6 +20,10 @@ struct ContentView: View {
                 .tabItem {
                     Label("直播间", systemImage: "antenna.radiowaves.left.and.right")
                 }
+            HistoryView()
+                .tabItem {
+                    Label("历史", systemImage: "clock")
+                }
             SettingsView(isInitialSetup: false)
                 .tabItem {
                     Label("设置", systemImage: "gear")

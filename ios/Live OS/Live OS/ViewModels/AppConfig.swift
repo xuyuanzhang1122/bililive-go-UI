@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 
 @Observable
 final class AppConfig {
@@ -37,7 +38,7 @@ final class AppConfig {
 
     var apiKey: String {
         didSet {
-            UserDefaults.standard.set(apiKey, forKey: "apiKey")
+            APIKeychain.save(key: apiKey)
             _cachedClient = nil
         }
     }
@@ -85,7 +86,12 @@ final class AppConfig {
         lanURL = UserDefaults.standard.string(forKey: "lanURL") ?? ""
         publicURL = UserDefaults.standard.string(forKey: "publicURL") ?? ""
         autoSwitchNetwork = UserDefaults.standard.bool(forKey: "autoSwitchNetwork")
-        apiKey = UserDefaults.standard.string(forKey: "apiKey") ?? ""
+        // 优先读 Keychain，缺失则从 UserDefaults 迁移
+        apiKey = APIKeychain.load() ?? UserDefaults.standard.string(forKey: "apiKey") ?? ""
+        if !apiKey.isEmpty && UserDefaults.standard.string(forKey: "apiKey") != nil {
+            APIKeychain.save(key: apiKey)
+            UserDefaults.standard.removeObject(forKey: "apiKey")
+        }
 
         if autoSwitchNetwork && !lanURL.isEmpty && !publicURL.isEmpty {
             startNetworkMonitor()
@@ -168,5 +174,40 @@ final class AppConfig {
         if autoSwitchNetwork && !lanURL.isEmpty && !publicURL.isEmpty {
             checkLANConnectivity()
         }
+    }
+}
+
+// MARK: - Keychain
+
+private enum APIKeychain {
+    private static let service = "com.bililive-go.ios"
+
+    static func save(key: String) {
+        guard !key.isEmpty else { return }
+        let data = Data(key.utf8)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: "apiKey",
+        ]
+        SecItemDelete(query as CFDictionary)
+        var addQuery = query
+        addQuery[kSecValueData] = data
+        addQuery[kSecAttrAccessible] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    static func load() -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: "apiKey",
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }

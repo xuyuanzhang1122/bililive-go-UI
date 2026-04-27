@@ -15,10 +15,17 @@ const (
 	legacyDisableAuthEnv = "BGO_DISABLE_API_AUTH"
 )
 
+func isAuthExemptPath(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+	return strings.HasPrefix(r.URL.Path, "/api/auth-status")
+}
+
 func apiAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := configs.GetCurrentConfig()
-		if !requiresAPIAuth(cfg) || r.Method == http.MethodOptions {
+		if !requiresAPIAuth(cfg) || r.Method == http.MethodOptions || isAuthExemptPath(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

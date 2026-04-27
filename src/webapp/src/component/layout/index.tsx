@@ -13,6 +13,7 @@ import {
     LineChartOutlined,
     MenuOutlined,
     VideoCameraOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons';
 import './layout.css';
 
@@ -33,6 +34,11 @@ const useMenuItems = (onMenuClick?: () => void) => [
         key: '/videoLibrary',
         icon: <VideoCameraOutlined />,
         label: <Link to="/videoLibrary" onClick={onMenuClick}>视频库</Link>,
+    },
+    {
+        key: '/history',
+        icon: <ClockCircleOutlined />,
+        label: <Link to="/history" onClick={onMenuClick}>观看历史</Link>,
     },
     {
         type: 'group' as const,

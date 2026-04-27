@@ -10,6 +10,7 @@ type LiveRoom struct {
 	Platform      string    `json:"platform"`        // 平台标识
 	HostName      string    `json:"host_name"`       // 主播名称
 	RoomName      string    `json:"room_name"`       // 直播间名称
+	Source        string    `json:"source"`          // 来源: user（手动添加）或 reconcile-unknown（自动发现）
 	LastStartTime time.Time `json:"last_start_time"` // 上次开播时间
 	LastEndTime   time.Time `json:"last_end_time"`   // 上次关播时间
 	IsRecording   bool      `json:"is_recording"`    // 上次关闭时是否正在录制

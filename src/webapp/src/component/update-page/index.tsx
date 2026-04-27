@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons';
 import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
 import API from '../../utils/api';
+import { authFetch } from '../../utils/common';
 import './update-page.css';
 
 const api = new API();
@@ -319,7 +320,7 @@ const UpdatePage: React.FC = () => {
 
       try {
         // 尝试请求服务器，如果成功说明新版本已启动
-        const res = await fetch('/api/info', { signal: AbortSignal.timeout(2000) });
+        const res = await authFetch('/api/info', { signal: AbortSignal.timeout(2000) });
         if (res.ok) {
           clearInterval(interval);
           message.success({ content: '服务器已重启，正在刷新页面...', key: 'restart', duration: 2 });
