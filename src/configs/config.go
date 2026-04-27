@@ -717,6 +717,19 @@ func NewConfig() *Config {
 	return &config
 }
 
+func defaultAppDataPath() string {
+	if isInContainer() {
+		return "/var/lib/bililive"
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "bililive")
+	}
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "appdata")
+	}
+	return "./appdata"
+}
+
 func newConfigPostProcess(c *Config) {
 	c.Security.Normalize()
 	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
@@ -724,7 +737,7 @@ func newConfigPostProcess(c *Config) {
 		c.ReadOnlyToolFolder = "/opt/bililive/tools"
 	}
 	if c.AppDataPath == "" {
-		c.AppDataPath = filepath.Join(c.OutPutPath, ".appdata")
+		c.AppDataPath = defaultAppDataPath()
 	}
 }
 

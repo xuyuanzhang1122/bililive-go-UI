@@ -89,6 +89,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 VOLUME $OUTPUT_DIR
+VOLUME /var/lib/bililive
 
 EXPOSE $PORT
 

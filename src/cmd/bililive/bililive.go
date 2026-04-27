@@ -34,6 +34,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	"github.com/bililive-go/bililive-go/src/pkg/openlist"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
+	"github.com/bililive-go/bililive-go/src/reconcile"
 	bilisentryPkg "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/pkg/telemetry"
 	"github.com/bililive-go/bililive-go/src/pkg/update"
@@ -217,6 +218,12 @@ func main() {
 	}
 
 	configs.SetCurrentConfig(config)
+
+	// 一次性迁移：旧版 AppDataPath 在 OutPutPath/.appdata 下，迁到独立 AppDataPath
+	if err := configs.MigrateAppDataDir(config.OutPutPath, config.AppDataPath); err != nil {
+		fmt.Fprintf(os.Stderr, "AppData 迁移失败: %v\n", err)
+		os.Exit(1)
+	}
 
 	// 初始化元数据存储（用于存储设备 ID、升级状态等关键信息）
 	if err := metadata.Init(filepath.Join(config.AppDataPath, "db")); err != nil {
@@ -402,6 +409,23 @@ func main() {
 		if err := liveStateManager.Start(); err != nil {
 			logger.WithError(err).Warn("启动直播间状态管理器失败")
 		}
+	}
+
+	// 启动时对账：扫描 OutPutPath 重建 lives 索引（异步，不阻塞启动）
+	if liveStateManager != nil {
+		store := liveStateManager.GetStore()
+		go func() {
+			result, err := reconcile.Reconcile(context.Background(), store, config.OutPutPath, config.OutputTmpl)
+			if err != nil {
+				logger.WithError(err).Error("reconcile failed")
+			} else {
+				logger.WithField("scanned", result.ScannedFiles).
+					WithField("new", result.NewRooms).
+					WithField("orphan", result.OrphanRooms).
+					WithField("unknown", result.UnknownFiles).
+					Info("reconcile complete")
+			}
+		}()
 	}
 
 	// 先初始化 manager（不启动），因为 server 依赖它们
