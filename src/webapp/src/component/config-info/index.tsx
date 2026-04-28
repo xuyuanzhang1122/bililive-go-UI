@@ -2240,28 +2240,70 @@ const APIKeyPanel: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [enabling, setEnabling] = useState(false);
+
+  const refreshStatus = useCallback(() => {
+    return authFetch('/api/auth-status')
+      .then(r => r.json())
+      .then(d => {
+        setEnabled(d.enable_api_key);
+        setApiKey(d.api_key || '');
+        if (d.api_key) {
+          try { localStorage.setItem('bililive_api_key', d.api_key); } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
-    authFetch('/api/auth-status')
-      .then(r => r.json())
-      .then(d => { setEnabled(d.enable_api_key); setApiKey(d.api_key || ''); if (d.api_key) { try { localStorage.setItem('bililive_api_key', d.api_key); } catch {} } })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    refreshStatus().finally(() => setLoading(false));
+  }, [refreshStatus]);
 
   const copyKey = () => {
     navigator.clipboard.writeText(apiKey).then(() => message.success('已复制到剪贴板'));
   };
 
+  const enableApiKey = async () => {
+    setEnabling(true);
+    try {
+      const resp = await authFetch('/api/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ security: { enable_api_key: true } }),
+      });
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        throw new Error(errText || `HTTP ${resp.status}`);
+      }
+      await refreshStatus();
+      message.success('API Key 已启用并生成');
+    } catch (e: any) {
+      message.error('启用失败：' + (e?.message || '未知错误'));
+    } finally {
+      setEnabling(false);
+    }
+  };
+
   if (loading) return <Spin />;
   if (!enabled) {
     return (
-      <Alert
-        type="info"
-        message="API Key 未启用"
-        description="在服务器 config.yml 中设置 security.enable_api_key: true 后，API Key 会自动生成。用于 iOS App 或外部客户端访问。"
-        showIcon
-      />
+      <Card title="API Key" size="small" style={{ maxWidth: 600 }}>
+        <Alert
+          type="info"
+          message="API Key 未启用"
+          description="启用后，系统会自动生成一段随机 Key 并写入 config.yml。iOS App 或外部客户端在公网访问时需用此 Key 鉴权。"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Button
+          type="primary"
+          icon={<KeyOutlined />}
+          loading={enabling}
+          onClick={enableApiKey}
+        >
+          一键启用并生成 Key
+        </Button>
+      </Card>
     );
   }
 

@@ -7,22 +7,32 @@
 
 ## 快速开始
 
-### Docker（推荐）
+### 一行脚本（推荐，引导式）
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash
+```
+
+脚本会交互式询问安装目录、端口、是否启用 API Key，自动下载配置模板、创建目录、清理旧容器并启动。非交互模式：`bash -s -- --yes`（全默认）或 `bash -s -- --dir /opt/bililive --port 8080 --enable-api-key`。
+
+### Docker（手动）
+
+> 必须挂三条 volume：`Videos`（视频）、`Data`（数据库 + 缩略图）、`config.docker.yml`（配置）。**少挂 Data 会导致重启后直播间和缩略图丢失。**
+
+```bash
+mkdir -p ~/bililive-go/{Videos,Data}
+cd ~/bililive-go
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/config.docker.yml \
+  -o config.docker.yml
+
 docker run -d \
   --name bililive-go \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/Videos:/srv/bililive \
+  -v $(pwd)/Data:/var/lib/bililive \
   -v $(pwd)/config.docker.yml:/etc/bililive-go/config.yml \
   xuniubi/bililive-go:latest
-```
-
-### 一行脚本（自动安装）
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash
 ```
 
 ## 功能预览
@@ -94,6 +104,8 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
 
 ### iOS App
 
+> **iOS 端需要自行用 Xcode 编译安装**，仓库内未提供 .ipa / TestFlight 分发渠道。源码在 [`ios/Live OS/`](ios/Live%20OS/)，用 Xcode 打开 `Live OS.xcodeproj`，连接设备后真机运行即可。每次更新 iOS 端需要重新编译安装；服务端 Docker 升级不会影响已安装的 iOS App。
+
 - 视频库、直播间管理、文件删除（单个/批量）
 - 视频播放器手势操作：
   - 左右滑动：快进/快退
@@ -121,7 +133,7 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
 当前默认镜像仓库：
 
 - Docker Hub: `xuniubi/bililive-go`
-- 当前 compose 示例标签：`v1.3.0`
+- 当前 compose 示例标签：`v1.3.1`
 
 ```bash
 docker run -d \
@@ -129,8 +141,9 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/Videos:/srv/bililive \
+  -v $(pwd)/Data:/var/lib/bililive \
   -v $(pwd)/config.docker.yml:/etc/bililive-go/config.yml \
-  xuniubi/bililive-go:v1.3.0
+  xuniubi/bililive-go:v1.3.1
 ```
 
 程序默认监听 `8080` 端口，录制文件输出到容器内 `/srv/bililive`。
@@ -139,7 +152,7 @@ docker run -d \
 
 仓库根目录已提供 [docker-compose.yml](docker-compose.yml)。默认使用：
 
-- 镜像：`xuniubi/bililive-go:v1.3.0`
+- 镜像：`xuniubi/bililive-go:v1.3.1`
 - 配置文件：`config.docker.yml`
 - 输出目录：`./Videos`
 
@@ -150,7 +163,7 @@ docker compose up -d
 如需切换镜像标签，可以在启动前设置环境变量：
 
 ```bash
-BILILIVE_IMAGE=xuniubi/bililive-go:v1.3.0 docker compose up -d
+BILILIVE_IMAGE=xuniubi/bililive-go:v1.3.1 docker compose up -d
 ```
 
 
@@ -162,8 +175,8 @@ BILILIVE_IMAGE=xuniubi/bililive-go:v1.3.0 docker compose up -d
 
 ```bash
 docker build \
-  --build-arg VERSION=v1.3.0 \
-  -t xuniubi/bililive-go:v1.3.0 \
+  --build-arg VERSION=v1.3.1 \
+  -t xuniubi/bililive-go:v1.3.1 \
   .
 ```
 
@@ -172,8 +185,8 @@ docker build \
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --build-arg VERSION=v1.3.0 \
-  -t xuniubi/bililive-go:v1.3.0 \
+  --build-arg VERSION=v1.3.1 \
+  -t xuniubi/bililive-go:v1.3.1 \
   --push \
   .
 ```
@@ -262,7 +275,10 @@ make dev PLATFORM=linux ARCH=amd64
 - 可写工具缓存：`/srv/bililive/.appdata/tools`
 - 移动端播放：FLV/TS/MKV 会按需转为 HLS，签名 URL 默认有效期 1 小时
 
-如需让 iOS App 从局域网或公网访问，建议开启 API Key：
+如需让 iOS App 从局域网或公网访问，建议开启 API Key。两种方式：
+
+- **Web UI 一键启用（推荐）**：浏览器打开服务后进入"设置 → API Key"，点击"立即启用并生成"，按钮会随机生成一段 Key 并热加载到运行配置，无需手动改 yaml 或重启容器。
+- **手动改 config**：
 
 ```yaml
 security:
