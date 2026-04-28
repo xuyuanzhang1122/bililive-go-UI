@@ -46,7 +46,7 @@ jobs:
           context: .
           file: Dockerfile
           build-args: VERSION=${{ env.VERSION }}
-          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.DOCKER_TAGS }}
           cache-from: type=gha,scope=xuniubi-bililive-go
