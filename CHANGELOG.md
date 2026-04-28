@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.3.1 (2026-04-28)
+
+### 新增
+- **引导式安装脚本**：`scripts/install.sh` 重写为交互式，自动询问安装目录 / 端口 / 是否启用 API Key / 镜像 tag，并自动下载 config 模板、创建 `Videos`/`Data` 目录、清理旧容器、启动并等待健康检查。`curl|bash` 通过 `/dev/tty` 读取输入，支持 `--yes` 全默认与 `--port`/`--dir`/`--enable-api-key` 命令行覆盖
+- **Web UI 一键启用 API Key**：「设置 → API Key」标签未启用时新增「一键启用并生成 Key」按钮，调用 `PATCH /api/config` 写回 `security.enable_api_key: true`，后端 `Security.Normalize()` 自动生成随机 Key 并持久化到 config.yml，无需重启容器或 SSH 改 yaml
+
+### 修复
+- **README 首屏 Docker 命令缺 Data 挂载**：补上 `-v $(pwd)/Data:/var/lib/bililive`，避免重启后直播间和缩略图丢失（之前与 docker-compose.yml 行为不一致）
+- **install.sh 不真正执行**：旧版只 `echo` 命令给用户复制，新版直接安装
+
+### 文档
+- **iOS 自编说明**：README iOS 段加醒目提示——iOS 端无 .ipa / TestFlight 分发，需自行用 Xcode 打开 `ios/Live OS/Live OS.xcodeproj` 真机编译；Docker 服务端升级不会影响已安装的 iOS App
+
+### 改动文件
+- `scripts/install.sh`、`README.md`、`docker-compose.yml`、`CHANGELOG.md`
+- `src/webapp/src/component/config-info/index.tsx`（APIKeyPanel 一键启用按钮）
+
+---
+
 ## P2 API Key + 跨端历史记录 (2026-04-27)
 
 ### 新增
