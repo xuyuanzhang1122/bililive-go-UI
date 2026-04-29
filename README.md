@@ -1,4 +1,5 @@
 # bililive-go 优化版
+## 现在项目在部署时有问题，可能需要二进制自己编译，我会在一周内解决这些问题，如果有需要这个项目的朋友们，可以稍等或者提提issue
 [![CI](https://github.com/xuyuanzhang1122/bililive-go/actions/workflows/tests.yaml/badge.svg?branch=master)](https://github.com/xuyuanzhang1122/bililive-go/actions/workflows/tests.yaml)
 [![GitHub Release](https://img.shields.io/github/v/release/xuyuanzhang1122/bililive-go)](https://github.com/xuyuanzhang1122/bililive-go/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/xuniubi/bililive-go.svg)](https://hub.docker.com/r/xuniubi/bililive-go)
