@@ -2,14 +2,25 @@
 
 FROM node:20-bullseye AS web-builder
 
+ARG NPM_REGISTRY_FALLBACK=https://registry.npmmirror.com
+ARG YARN_NETWORK_TIMEOUT=600000
+
 WORKDIR /build/src/webapp
 
 COPY src/webapp/package.json src/webapp/yarn.lock src/webapp/tsconfig.json ./
 COPY src/webapp/public ./public
 COPY src/webapp/src ./src
 
-RUN corepack enable && \
-    yarn install --frozen-lockfile && \
+RUN --mount=type=cache,id=bililive-yarn-cache,target=/usr/local/share/.cache/yarn \
+    set -eux; \
+    corepack enable; \
+    yarn config set network-timeout "${YARN_NETWORK_TIMEOUT}"; \
+    yarn install --frozen-lockfile --network-timeout "${YARN_NETWORK_TIMEOUT}" || ( \
+        echo "yarn install failed, retrying with fallback registry ${NPM_REGISTRY_FALLBACK}"; \
+        yarn config set registry "${NPM_REGISTRY_FALLBACK}"; \
+        sed -i "s#https://registry.yarnpkg.com#${NPM_REGISTRY_FALLBACK}#g" yarn.lock; \
+        yarn install --frozen-lockfile --network-timeout "${YARN_NETWORK_TIMEOUT}" \
+    ); \
     yarn build
 
 FROM golang:1.25 AS go-builder
