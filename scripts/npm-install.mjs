@@ -3,10 +3,10 @@
 import { createServer } from 'node:net'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
-import { mkdir, writeFile, copyFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { resolve } from 'node:path'
+import { homedir, platform, tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 
@@ -18,9 +18,11 @@ const CONTAINER_NAME = 'bililive-go'
 const args = process.argv.slice(2)
 
 const options = {
+  mode: 'binary',
   dir: '',
   port: '',
   image: '',
+  version: '',
   enableApiKey: undefined,
   apiKey: '',
   yes: false,
@@ -33,14 +35,19 @@ function usage() {
 用法:
   npx bililive-go-ui install
   npx bililive-go-ui install --yes
+  npx bililive-go-ui install --docker
+  npx bililive-go-ui install --source
   npx bililive-go-ui install --dir ~/bililive-go --port 8080 --enable-api-key
 
 参数:
-  install              安装 Docker 版 bililive-go（可省略）
+  install              安装 bililive-go（可省略）
+  --binary             安装 GitHub Release 二进制（默认，不需要 Docker）
+  --source             从源码构建并安装（需要 Git、Go、Node.js、Make）
+  --docker             使用 Docker 安装并启动容器
   --dir PATH           安装目录，默认 ~/bililive-go
-  --port N             Web UI 主机端口，默认 8080
-  --image TAG          Docker 镜像 tag，默认 latest
-  --version TAG        等同于 --image
+  --port N             Web UI 端口，默认 8080（Docker 模式为主机端口）
+  --image TAG          Docker 镜像 tag，默认 latest（仅 --docker）
+  --version TAG        GitHub Release tag 或 Docker tag
   --enable-api-key     自动启用 API Key 并随机生成
   --api-key STR        指定 API Key（仅在 --enable-api-key 时生效）
   --yes, -y            非交互模式，全部使用默认值或命令行参数
@@ -61,6 +68,15 @@ for (let i = 0; i < args.length; i += 1) {
   switch (arg) {
     case 'install':
       break
+    case '--binary':
+      options.mode = 'binary'
+      break
+    case '--source':
+      options.mode = 'source'
+      break
+    case '--docker':
+      options.mode = 'docker'
+      break
     case '--dir':
       options.dir = takeValue(i, arg)
       i += 1
@@ -70,8 +86,11 @@ for (let i = 0; i < args.length; i += 1) {
       i += 1
       break
     case '--image':
-    case '--version':
       options.image = takeValue(i, arg)
+      i += 1
+      break
+    case '--version':
+      options.version = takeValue(i, arg)
       i += 1
       break
     case '--enable-api-key':
@@ -127,6 +146,7 @@ function run(command, commandArgs, runOptions = {}) {
   const result = spawnSync(command, commandArgs, {
     stdio: runOptions.capture ? 'pipe' : 'inherit',
     encoding: 'utf8',
+    cwd: runOptions.cwd,
   })
   if (result.error) {
     throw result.error
@@ -135,6 +155,12 @@ function run(command, commandArgs, runOptions = {}) {
     throw new Error(`${command} ${commandArgs.join(' ')} 执行失败`)
   }
   return result
+}
+
+function commandExists(command) {
+  const checker = platform() === 'win32' ? 'where' : 'sh'
+  const checkerArgs = platform() === 'win32' ? [command] : ['-c', `command -v ${command}`]
+  return run(checker, checkerArgs, { capture: true, allowFailure: true }).status === 0
 }
 
 async function ask(rl, prompt, defaultValue) {
@@ -185,6 +211,119 @@ async function downloadText(url) {
     throw new Error(`下载失败: ${url} (${response.status})`)
   }
   return response.text()
+}
+
+async function downloadFile(url, target) {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`下载失败: ${url} (${response.status})`)
+  }
+  const body = Buffer.from(await response.arrayBuffer())
+  await writeFile(target, body)
+}
+
+async function fetchLatestRelease() {
+  const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    headers: { 'User-Agent': 'bililive-go-ui-installer' },
+  })
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw new Error(`查询 GitHub Release 失败 (${response.status})`)
+  }
+  return response.json()
+}
+
+function getTarget() {
+  const os = platform()
+  const cpu = process.arch
+  const platformName = {
+    win32: 'windows',
+    linux: 'linux',
+    darwin: 'darwin',
+  }[os]
+  const archName = {
+    x64: 'amd64',
+    arm64: 'arm64',
+    arm: 'arm',
+  }[cpu]
+
+  if (!platformName || !archName) {
+    throw new Error(`暂不支持当前系统: ${os}/${cpu}`)
+  }
+  return { platformName, archName }
+}
+
+function getAssetName() {
+  const { platformName, archName } = getTarget()
+  const suffix = platformName === 'windows' ? 'zip' : 'tar.gz'
+  return `bililive-${platformName}-${archName}.${suffix}`
+}
+
+async function findBinary(dir) {
+  const entries = await readdir(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const nested = await findBinary(fullPath)
+      if (nested) return nested
+      continue
+    }
+    const name = entry.name.toLowerCase()
+    if (
+      name.startsWith('bililive-') &&
+      !name.endsWith('.zip') &&
+      !name.endsWith('.tar.gz') &&
+      !name.endsWith('.7z') &&
+      !name.endsWith('.yml') &&
+      !name.endsWith('.yaml')
+    ) {
+      return fullPath
+    }
+  }
+  return ''
+}
+
+async function extractArchive(archive, targetDir) {
+  await mkdir(targetDir, { recursive: true })
+  if (archive.endsWith('.zip')) {
+    if (platform() === 'win32') {
+      run('powershell', ['-NoProfile', '-Command', 'Expand-Archive', '-LiteralPath', archive, '-DestinationPath', targetDir, '-Force'])
+      return
+    }
+    if (!commandExists('unzip')) {
+      throw new Error('解压 zip 需要 unzip，请安装 unzip 后重试')
+    }
+    run('unzip', ['-q', archive, '-d', targetDir])
+    return
+  }
+  run('tar', ['-xzf', archive, '-C', targetDir])
+}
+
+function yamlPath(path) {
+  return path.replaceAll('\\', '/')
+}
+
+function configurePortableConfig(config, installDir, port) {
+  const videosPath = yamlPath(resolve(installDir, 'Videos'))
+  const dataPath = yamlPath(resolve(installDir, 'Data'))
+  return config
+    .replace(/^(\s*bind:\s*).*/m, `$1:${port}`)
+    .replace(/^out_put_path:\s*.*/m, `out_put_path: ${videosPath}`)
+    .replace(/^app_data_path:\s*.*/m, `app_data_path: ${dataPath}`)
+}
+
+async function writeConfig(configFile, installDir, port, enableApiKey, apiKey) {
+  if (existsSync(configFile)) {
+    warn(`配置文件已存在: ${configFile}`)
+    return
+  }
+  log(`下载配置模板 -> ${configFile}`)
+  let config = await downloadText(`${RAW_BASE}/config.yml`)
+  config = configurePortableConfig(config, installDir, port)
+  if (enableApiKey) config = enableApiKeyInConfig(config, apiKey)
+  await writeFile(configFile, config)
 }
 
 function enableApiKeyInConfig(config, apiKey) {
@@ -249,9 +388,8 @@ async function waitReady(port) {
   return false
 }
 
-async function main() {
+async function dockerInstall() {
   log('bililive-go 一次性安装（Docker 模式）')
-
   try {
     run('docker', ['--version'], { capture: true })
     run('docker', ['info'], { capture: true })
@@ -264,7 +402,7 @@ async function main() {
   try {
     const installDir = expandHome(options.dir || await ask(rl, '安装目录（数据/视频/配置都放这里）', '~/bililive-go'))
     const portText = options.port || await ask(rl, 'Web UI 端口（主机侧）', '8080')
-    const tag = options.image || await ask(rl, 'Docker 镜像 tag', 'latest')
+    const tag = options.image || options.version || await ask(rl, 'Docker 镜像 tag', 'latest')
 
     const port = Number.parseInt(portText, 10)
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -367,6 +505,186 @@ ${enableApiKey ? `  API Key  : ${apiKey}
   } finally {
     rl.close()
   }
+}
+
+async function binaryInstall() {
+  log('bililive-go 一次性安装（二进制模式，无需 Docker）')
+
+  const rl = createInterface({ input, output })
+  try {
+    const installDir = expandHome(options.dir || await ask(rl, '安装目录', '~/bililive-go'))
+    const portText = options.port || await ask(rl, 'Web UI 端口', '8080')
+    const port = Number.parseInt(portText, 10)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`端口非法: ${portText}`)
+    }
+
+    let enableApiKey = options.enableApiKey
+    if (enableApiKey === undefined) {
+      enableApiKey = await askYesNo(rl, '启用 API Key 鉴权？（公网部署建议开启）', false)
+    }
+    const apiKey = enableApiKey ? options.apiKey || generateApiKey() : ''
+
+    await mkdir(resolve(installDir, 'Videos'), { recursive: true })
+    await mkdir(resolve(installDir, 'Data'), { recursive: true })
+
+    const release = options.version
+      ? {
+          tag_name: options.version,
+          assets: [{
+            name: getAssetName(),
+            browser_download_url: `https://github.com/${REPO}/releases/download/${options.version}/${getAssetName()}`,
+          }],
+        }
+      : await fetchLatestRelease()
+
+    if (!release) {
+      warn('当前仓库还没有 GitHub Release，无法下载预编译二进制')
+      await sourceInstall({ installDir, port, enableApiKey, apiKey, skipPrompt: true })
+      return
+    }
+
+    const assetName = getAssetName()
+    const asset = release.assets.find((item) => item.name === assetName)
+    if (!asset) {
+      throw new Error(`Release ${release.tag_name} 中没有当前系统资产: ${assetName}`)
+    }
+
+    const workDir = await mkdtemp(join(tmpdir(), 'bililive-go-install-'))
+    try {
+      const archive = join(workDir, assetName)
+      log(`下载 ${release.tag_name}: ${asset.browser_download_url}`)
+      await downloadFile(asset.browser_download_url, archive)
+
+      const extractDir = join(workDir, 'extract')
+      log('解压安装包')
+      await extractArchive(archive, extractDir)
+
+      const binary = await findBinary(extractDir)
+      if (!binary) {
+        throw new Error(`安装包内未找到 bililive 二进制: ${assetName}`)
+      }
+
+      const targetBinary = resolve(installDir, platform() === 'win32' ? 'bililive-go.exe' : 'bililive-go')
+      await copyFile(binary, targetBinary)
+      if (platform() !== 'win32') {
+        await chmod(targetBinary, 0o755)
+      }
+
+      const configFile = resolve(installDir, 'config.yml')
+      await writeConfig(configFile, installDir, port, enableApiKey, apiKey)
+      await writeRunScript(installDir, targetBinary, configFile, port)
+
+      printBinaryDone(installDir, targetBinary, configFile, port, enableApiKey, apiKey)
+    } finally {
+      await rm(workDir, { recursive: true, force: true })
+    }
+  } finally {
+    rl.close()
+  }
+}
+
+async function sourceInstall(prepared = {}) {
+  log('bililive-go 一次性安装（源码构建模式，无需 Docker）')
+
+  if (!commandExists('git')) throw new Error('源码构建需要 Git，请先安装 Git')
+  if (!commandExists('go')) throw new Error('源码构建需要 Go，请先安装 Go 1.25+')
+  if (!commandExists('make')) throw new Error('源码构建需要 GNU Make，请先安装 Make')
+
+  const rl = prepared.skipPrompt ? null : createInterface({ input, output })
+  try {
+    const installDir = prepared.installDir || expandHome(options.dir || await ask(rl, '安装目录', '~/bililive-go'))
+    const portText = prepared.port ? String(prepared.port) : options.port || await ask(rl, 'Web UI 端口', '8080')
+    const port = Number.parseInt(portText, 10)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`端口非法: ${portText}`)
+    }
+
+    let enableApiKey = prepared.enableApiKey ?? options.enableApiKey
+    if (enableApiKey === undefined) {
+      enableApiKey = await askYesNo(rl, '启用 API Key 鉴权？（公网部署建议开启）', false)
+    }
+    const apiKey = prepared.apiKey || (enableApiKey ? options.apiKey || generateApiKey() : '')
+
+    await mkdir(resolve(installDir, 'Videos'), { recursive: true })
+    await mkdir(resolve(installDir, 'Data'), { recursive: true })
+
+    const workDir = await mkdtemp(join(tmpdir(), 'bililive-go-src-'))
+    try {
+      log('克隆源码')
+      run('git', ['clone', '--depth', '1', `https://github.com/${REPO}.git`, workDir])
+
+      log('构建前端和后端')
+      run('make', ['build-web', 'dev'], { cwd: workDir })
+
+      const binDir = join(workDir, 'bin')
+      const binary = await findBinary(binDir)
+      if (!binary) {
+        throw new Error('源码构建完成后未找到二进制产物')
+      }
+
+      const targetBinary = resolve(installDir, platform() === 'win32' ? 'bililive-go.exe' : 'bililive-go')
+      await copyFile(binary, targetBinary)
+      if (platform() !== 'win32') {
+        await chmod(targetBinary, 0o755)
+      }
+
+      const configFile = resolve(installDir, 'config.yml')
+      await writeConfig(configFile, installDir, port, enableApiKey, apiKey)
+      await writeRunScript(installDir, targetBinary, configFile, port)
+
+      printBinaryDone(installDir, targetBinary, configFile, port, enableApiKey, apiKey)
+    } finally {
+      await rm(workDir, { recursive: true, force: true })
+    }
+  } finally {
+    if (rl) rl.close()
+  }
+}
+
+async function writeRunScript(installDir, binary, configFile, port) {
+  if (platform() === 'win32') {
+    const script = resolve(installDir, 'start-bililive-go.ps1')
+    await writeFile(script, `Set-Location -LiteralPath "${installDir.replaceAll('"', '`"')}"
+& "${binary.replaceAll('"', '`"')}" -c "${configFile.replaceAll('"', '`"')}"
+`)
+    return
+  }
+  const script = resolve(installDir, 'start-bililive-go.sh')
+  await writeFile(script, `#!/usr/bin/env sh
+cd "${installDir.replaceAll('"', '\\"')}"
+exec "${binary.replaceAll('"', '\\"')}" -c "${configFile.replaceAll('"', '\\"')}"
+`)
+  await chmod(script, 0o755)
+}
+
+function printBinaryDone(installDir, binary, configFile, port, enableApiKey, apiKey) {
+  const startCommand = platform() === 'win32'
+    ? `powershell -ExecutionPolicy Bypass -File "${resolve(installDir, 'start-bililive-go.ps1')}"`
+    : `"${resolve(installDir, 'start-bililive-go.sh')}"`
+  console.log(`
+=== 安装完成 ===
+
+  启动命令 : ${startCommand}
+  Web UI   : http://127.0.0.1:${port}
+  程序文件 : ${binary}
+  配置文件 : ${configFile}
+  数据目录 : ${resolve(installDir, 'Data')}
+  视频目录 : ${resolve(installDir, 'Videos')}
+${enableApiKey ? `  API Key  : ${apiKey}
+` : '  API Key  : 未启用（公网访问建议开启）\n'}`)
+}
+
+async function main() {
+  if (options.mode === 'docker') {
+    await dockerInstall()
+    return
+  }
+  if (options.mode === 'source') {
+    await sourceInstall()
+    return
+  }
+  await binaryInstall()
 }
 
 main().catch((error) => {
