@@ -1,5 +1,4 @@
 # bililive-go 优化版
-## 现在项目在部署时有问题，可能需要二进制自己编译，我会在一周内解决这些问题，如果有需要这个项目的朋友们，可以稍等或者提提issue
 [![CI](https://github.com/xuyuanzhang1122/bililive-go/actions/workflows/tests.yaml/badge.svg?branch=master)](https://github.com/xuyuanzhang1122/bililive-go/actions/workflows/tests.yaml)
 [![GitHub Release](https://img.shields.io/github/v/release/xuyuanzhang1122/bililive-go)](https://github.com/xuyuanzhang1122/bililive-go/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/xuniubi/bililive-go.svg)](https://hub.docker.com/r/xuniubi/bililive-go)
@@ -8,13 +7,53 @@
 
 ## 快速开始
 
-### 一行脚本（推荐，引导式）
+推荐直接用 Docker 版，一条命令即可完成目录创建、配置下载、镜像拉取和容器启动。两种入口都支持交互式安装，也都支持 `--yes` 非交互安装。
+
+### curl 一键安装（Linux / macOS / WSL 推荐）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash
 ```
 
-脚本会交互式询问安装目录、端口、是否启用 API Key，自动下载配置模板、创建目录、清理旧容器并启动。非交互模式：`bash -s -- --yes`（全默认）或 `bash -s -- --dir /opt/bililive --port 8080 --enable-api-key`。
+非交互安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh \
+  | bash -s -- --yes --dir /opt/bililive --port 8080 --enable-api-key
+```
+
+### npx 一键安装（Windows / Linux / macOS）
+
+如果已经安装 Node.js 20+，可以用 npm/npx 直接拉起跨平台安装器：
+
+```bash
+npx -y --package github:xuyuanzhang1122/bililive-go-UI bililive-go-ui install
+```
+
+非交互安装：
+
+```bash
+npx -y --package github:xuyuanzhang1122/bililive-go-UI bililive-go-ui install \
+  --yes --dir ~/bililive-go --port 8080 --enable-api-key
+```
+
+发布到 npm 后可简化为：
+
+```bash
+npx bililive-go-ui install
+```
+
+安装器会询问安装目录、端口、是否启用 API Key，自动下载配置模板、创建目录、清理旧容器并启动。常用参数：
+
+| 参数 | 说明 |
+|------|------|
+| `--dir PATH` | 安装目录，默认 `~/bililive-go` |
+| `--port N` | Web UI 主机端口，默认 `8080` |
+| `--image TAG` / `--version TAG` | Docker 镜像 tag，默认 `latest` |
+| `--enable-api-key` | 启用 API Key 并自动生成随机 Key |
+| `--api-key STR` | 指定 API Key |
+| `--yes` / `-y` | 非交互模式 |
+| `--binary` | 仅 curl 脚本支持，安装 GitHub Release 裸机二进制 |
 
 ### Docker（手动）
 

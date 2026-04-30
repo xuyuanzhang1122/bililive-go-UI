@@ -3,6 +3,18 @@
   "version": "1.1.2",
   "description": "bililive-go 优化版 — 多平台直播录制 + 视频库管理 + iOS App 接入",
   "main": "index.js",
+  "bin": {
+    "bililive-go-ui": "scripts/npm-install.mjs",
+    "bililive-go": "scripts/npm-install.mjs"
+  },
+  "files": [
+    "scripts/npm-install.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "directories": {
     "doc": "docs",
     "test": "test"
