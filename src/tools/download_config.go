@@ -10,6 +10,7 @@ import (
 )
 
 var githubDownloadMirrors = []string{
+	"https://ghfast.top/",
 	"https://gh-proxy.com/",
 	"https://github.moeyy.xyz/",
 }

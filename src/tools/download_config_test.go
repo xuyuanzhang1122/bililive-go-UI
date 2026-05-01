@@ -30,6 +30,7 @@ func TestAddDownloadFallbacksExpandsGitHubURLs(t *testing.T) {
 	got := parsed["demo"]["v1"].DownloadURL
 	want := []string{
 		"https://github.com/example/project/releases/download/v1/tool.zip",
+		"https://ghfast.top/https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://gh-proxy.com/https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://github.moeyy.xyz/https://github.com/example/project/releases/download/v1/tool.zip",
 	}
@@ -67,6 +68,7 @@ func TestAddDownloadFallbacksExpandsNestedOSArchURLs(t *testing.T) {
 	got := parsed["demo"]["v1"].DownloadURL["linux"]["amd64"]
 	want := []string{
 		"https://github.com/example/project/releases/download/v1/linux.zip",
+		"https://ghfast.top/https://github.com/example/project/releases/download/v1/linux.zip",
 		"https://gh-proxy.com/https://github.com/example/project/releases/download/v1/linux.zip",
 		"https://github.moeyy.xyz/https://github.com/example/project/releases/download/v1/linux.zip",
 	}
@@ -101,6 +103,7 @@ func TestAddDownloadFallbacksExpandsRemoteProxyUpstream(t *testing.T) {
 	want := []string{
 		"https://bililive-go.com/remotetools/download?downloadurl=https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://github.com/example/project/releases/download/v1/tool.zip",
+		"https://ghfast.top/https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://gh-proxy.com/https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://github.moeyy.xyz/https://github.com/example/project/releases/download/v1/tool.zip",
 	}
