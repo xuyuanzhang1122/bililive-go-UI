@@ -28,10 +28,7 @@ jobs:
             echo "DOCKER_TAGS=xuniubi/bililive-go:$VERSION,xuniubi/bililive-go:latest"
           } >> "$GITHUB_ENV"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
+      - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
@@ -46,7 +43,7 @@ jobs:
           context: .
           file: Dockerfile
           build-args: VERSION=${{ env.VERSION }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ env.DOCKER_TAGS }}
           cache-from: type=gha,scope=xuniubi-bililive-go

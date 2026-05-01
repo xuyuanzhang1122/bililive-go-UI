@@ -26,7 +26,6 @@ RUN --mount=type=cache,id=bililive-yarn-cache,target=/usr/local/share/.cache/yar
 FROM golang:1.25 AS go-builder
 
 ARG VERSION=dev-docker
-ARG TARGETARCH
 
 WORKDIR /build
 
@@ -35,21 +34,10 @@ COPY src ./src
 COPY --from=web-builder /build/src/webapp/build ./src/webapp/build
 
 RUN set -eux; \
-    case "${TARGETARCH}" in \
-        amd64) go_arch=amd64 ;; \
-        arm64) go_arch=arm64 ;; \
-        arm) go_arch=arm ;; \
-        386) go_arch=386 ;; \
-        *) echo "Unsupported TARGETARCH: ${TARGETARCH}"; exit 1 ;; \
-    esac; \
-    APP_VERSION="${VERSION}" NO_TELEMETRY=1 PLATFORM=linux ARCH="${go_arch}" go run ./build.go release; \
-    cp "bin/bililive-linux-${go_arch}" /tmp/bililive-go
+    APP_VERSION="${VERSION}" NO_TELEMETRY=1 PLATFORM=linux ARCH=amd64 go run ./build.go release; \
+    cp bin/bililive-linux-amd64 /tmp/bililive-go
 
 FROM ubuntu:22.04
-
-ARG TARGETOS
-ARG TARGETARCH
-ARG TARGETVARIANT
 
 ENV IS_DOCKER=true
 ENV WORKDIR="/srv/bililive"
@@ -66,19 +54,8 @@ RUN mkdir -p $OUTPUT_DIR && \
     curl \
     tzdata \
     ca-certificates \
-    libatomic1 && \
-    sh -c '\
-    if [ "$TARGETARCH" = "arm" ]; then \
-    echo "skip gosu for arm (armv7/armhf)"; \
-    else \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gosu; \
-    fi' && \
-    sh -c '\
-    if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then \
-    echo "skip apt ffmpeg for $TARGETARCH"; \
-    else \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg; \
-    fi' && \
+    libatomic1 \
+    gosu && \
     cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -88,11 +65,10 @@ COPY config.docker.yml $CONF_DIR/config.yml
 RUN chmod +x /usr/bin/bililive-go && \
     mkdir -p /opt/bililive/tools
 
-RUN --mount=type=cache,id=bililive-tools-$TARGETOS-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/cache/bililive/tools \
+RUN --mount=type=cache,id=bililive-tools-amd64,sharing=locked,target=/cache/bililive/tools \
     set -eux; \
-    echo "Preparing bililive tools cache for bililive-tools-$TARGETOS-$TARGETARCH$TARGETVARIANT..."; \
+    echo "Preparing bililive tools cache..."; \
     mkdir -p /opt/bililive/tools /cache/bililive/tools; \
-    ls -lR /cache/bililive/tools || true; \
     /usr/bin/bililive-go --sync-built-in-tools-to-path /cache/bililive/tools || true; \
     cp -a /cache/bililive/tools/. /opt/bililive/tools/
 

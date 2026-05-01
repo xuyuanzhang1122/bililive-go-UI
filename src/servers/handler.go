@@ -699,6 +699,14 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") {
 		urlStr = "https://" + urlStr
 	}
+
+	// 尝试使用 urlresolver 解析抖音分享文案/短链
+	// 支持 v.douyin.com、iesdouyin.com 等抖音域名自动转换为标准 live.douyin.com 地址
+	if resolved, resolveErr := urlresolver.Resolve(ctx, urlStr); resolveErr == nil && resolved != "" {
+		applog.GetLogger().Infof("URL 已自动解析: %s -> %s", urlStr, resolved)
+		urlStr = resolved
+	}
+
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, errors.New("can't parse url: " + urlStr)
@@ -713,6 +721,7 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		}
 		needAppend = true
 	}
+
 	newLive, err := live.New(ctx, liveRoom, inst.Cache)
 	if err != nil {
 		return nil, err

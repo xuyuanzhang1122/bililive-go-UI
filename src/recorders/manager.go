@@ -184,12 +184,37 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 }
 
 func (m *manager) RestartRecorder(ctx context.Context, live live.Live) error {
-	if err := m.RemoveRecorder(ctx, live.GetLiveId()); err != nil {
+	m.lock.Lock()
+	liveId := live.GetLiveId()
+
+	// 在锁内取出旧 recorder 并从 map 中移除
+	oldRecorder, ok := m.savers[liveId]
+	if !ok {
+		m.lock.Unlock()
+		return ErrRecorderNotExist
+	}
+
+	// 在锁内创建新 recorder 并放入 map，保证外部观察者始终能看到录制器存在
+	newRec, err := newRecorder(ctx, live)
+	if err != nil {
+		// 创建失败时恢复旧 recorder，避免数据丢失
+		m.lock.Unlock()
 		return err
 	}
-	if err := m.AddRecorder(ctx, live); err != nil {
+	m.savers[liveId] = newRec
+	m.lock.Unlock()
+
+	// 在锁外执行耗时操作：关闭旧 recorder、启动新 recorder
+	oldRecorder.Close()
+
+	if err := newRec.Start(ctx); err != nil {
+		// 启动失败时移除新 recorder
+		m.lock.Lock()
+		delete(m.savers, liveId)
+		m.lock.Unlock()
 		return err
 	}
+
 	return nil
 }
 

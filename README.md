@@ -89,19 +89,19 @@ docker run -d \
 
 ### 视频库首页
 
-![视频库首页](img/%E6%88%AA%E5%B1%8F2026-03-09%2017.13.50.png)
+![视频库首页](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.13.50.png)
 
 ### 视频列表与缩略图
 
-![视频列表与缩略图](img/%E6%88%AA%E5%B1%8F2026-03-09%2017.13.59.png)
+![视频列表与缩略图](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.13.59.png)
 
 ### 内嵌播放器
 
-![内嵌播放器](img/%E6%88%AA%E5%B1%8F2026-03-09%2017.14.21.png)
+![内嵌播放器](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.14.21.png)
 
 ### 管理与配置界面
 
-![管理与配置界面](img/%E6%88%AA%E5%B1%8F2026-03-09%2017.14.27.png)
+![管理与配置界面](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.14.27.png)
 
 ## 当前版本重点
 
@@ -154,19 +154,11 @@ docker run -d \
 
 ### iOS App
 
-> **iOS 端需要自行用 Xcode 编译安装**，仓库内未提供 .ipa / TestFlight 分发渠道。源码在 [`ios/Live OS/`](ios/Live%20OS/)，用 Xcode 打开 `Live OS.xcodeproj`，连接设备后真机运行即可。每次更新 iOS 端需要重新编译安装；服务端 Docker 升级不会影响已安装的 iOS App。
+> iOS 端已迁移到独立仓库，请访问 [bililive-go-ios](https://github.com/xuyuanzhang1122/bililive-go-ios) 获取源码和使用说明。
 
 - 视频库、直播间管理、文件删除（单个/批量）
-- 视频播放器手势操作：
-  - 左右滑动：快进/快退
-  - 上下滑动：调节音量
-  - 双击任意区域：播放/暂停
-  - 长按侧边：2x 加速（松手恢复）
-  - 倍速选择：0.78x / 1x / 1.25x / 1.5x / 2x
-- 智能网络切换：
-  - 配置局域网地址和公网地址
-  - 自动检测是否在局域网内
-  - 在店里时自动切换局域网（更快），在外面自动使用公网
+- 视频播放器手势操作、智能网络切换等功能
+- 需要自行用 Xcode 编译安装
 
 ### 删除与整理
 

@@ -166,9 +166,15 @@ node_modules
 .vscode/*
 !.vscode/*.example.json
 
-# AI agent 临时文件（保留 rules 目录）
-.agent/*
-!.agent/rules/
+# AI agent / 编辑器配置
+.agent/
+.gemini/
+
+# iOS App（已迁移到独立仓库）
+ios/
+
+# 项目截图（改用 GitHub 图床链接）
+img/
 
 !src/cmd/build/
 .appdata/

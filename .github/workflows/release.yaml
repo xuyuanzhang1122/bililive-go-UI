@@ -92,8 +92,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
       - run: if ! echo $GIT_TAG | grep "rc" >/dev/null; then DOCKER_TAGS=xuniubi/bililive-go:$GIT_TAG,xuniubi/bililive-go:latest; else DOCKER_TAGS=xuniubi/bililive-go:$GIT_TAG; fi; echo "DOCKER_TAGS=$DOCKER_TAGS" >> $GITHUB_ENV
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
@@ -106,7 +104,7 @@ jobs:
         with:
           file: Dockerfile
           build-args: VERSION=${{ env.GIT_TAG }}
-          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
+          platforms: linux/amd64
           push: true
           tags: ${{ env.DOCKER_TAGS }}
           cache-from: type=gha,scope=xuniubi-bililive-go
