@@ -15,10 +15,10 @@ import (
 
 // API 地址常量
 const (
-	// GitHubReleasesAPI GitHub Releases API 地址
-	GitHubReleasesAPI = "https://api.github.com/repos/bililive-go/bililive-go/releases"
-	// DefaultVersionAPIURL 默认的版本检测 API 地址
-	DefaultVersionAPIURL = "https://bililive-go.com/api/versions"
+	// GitHubReleasesAPI GitHub Releases API 地址（指向本仓库）
+	GitHubReleasesAPI = "https://api.github.com/repos/xuyuanzhang1122/bililive-go-UI/releases"
+	// DefaultVersionAPIURL 默认的版本检测 API 地址（已禁用，直接使用 GitHub API）
+	DefaultVersionAPIURL = ""
 )
 
 // ReleaseInfo 包含版本发布信息
@@ -369,16 +369,9 @@ func (c *Checker) CheckForUpdateViaBililiveGoCom(includePrerelease bool) (*Relea
 	return info, nil
 }
 
-// CheckForUpdateWithFallback 检查更新，带回退逻辑
-// 优先使用 bililive-go.com API，失败时回退到 GitHub API
+// CheckForUpdateWithFallback 检查更新
+// 直接使用 GitHub Releases API 检查本仓库的最新版本
 func (c *Checker) CheckForUpdateWithFallback(includePrerelease bool) (*ReleaseInfo, error) {
-	// 先尝试 bililive-go.com
-	info, err := c.CheckForUpdateViaBililiveGoCom(includePrerelease)
-	if err == nil {
-		return info, nil
-	}
-
-	// 回退到 GitHub API
 	return c.CheckForUpdate(includePrerelease)
 }
 

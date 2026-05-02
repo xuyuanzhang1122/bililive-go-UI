@@ -7,7 +7,7 @@
 
 ## 快速开始
 
-推荐直接用一键安装入口完成目录创建、配置下载和程序安装。`curl` 脚本适合服务器 Docker 部署；`npx` 默认安装裸机二进制，不需要 Docker。两种入口都支持交互式安装，也都支持 `--yes` 非交互安装。
+推荐使用一键安装入口完成目录创建、配置下载和程序安装。**默认安装裸机二进制，不需要 Docker。**
 
 ### curl 一键安装（Linux / macOS / WSL 推荐）
 
@@ -22,7 +22,14 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
   | bash -s -- --yes --dir /opt/bililive --port 8080 --enable-api-key
 ```
 
-### npx 一键安装（Windows / Linux / macOS，无需 Docker）
+如果明确想用 Docker 部署：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh \
+  | bash -s -- --docker
+```
+
+### npx 一键安装（Windows / Linux / macOS）
 
 如果已经安装 Node.js 20+，可以用 npm/npx 直接拉起跨平台安装器。默认会安装 GitHub Release 里的当前系统二进制；如果仓库暂时没有 Release，会退回源码构建模式：
 
@@ -53,17 +60,16 @@ npx -y --package github:xuyuanzhang1122/bililive-go-UI bililive-go-ui install --
 
 | 参数 | 说明 |
 |------|------|
-| `--binary` | 安装 GitHub Release 二进制，默认模式，不需要 Docker |
+| `--binary` | 安装 GitHub Release 二进制（**默认模式**，不需要 Docker） |
 | `--source` | 从源码构建并安装，需要 Git、Go、Node.js、Make |
 | `--docker` | 使用 Docker 安装并启动容器 |
 | `--dir PATH` | 安装目录，默认 `~/bililive-go` |
-| `--port N` | Web UI 主机端口，默认 `8080` |
+| `--port N` | Web UI 端口，默认 `8080` |
 | `--version TAG` | 指定 GitHub Release tag；Docker 模式下也可作为镜像 tag |
 | `--image TAG` | Docker 镜像 tag，默认 `latest`，仅 `--docker` |
 | `--enable-api-key` | 启用 API Key 并自动生成随机 Key |
 | `--api-key STR` | 指定 API Key |
 | `--yes` / `-y` | 非交互模式 |
-| `--binary` | 仅 curl 脚本支持，安装 GitHub Release 裸机二进制 |
 
 ### Docker（手动）
 

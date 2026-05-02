@@ -28,6 +28,18 @@ jobs:
             echo "DOCKER_TAGS=xuniubi/bililive-go:$VERSION,xuniubi/bililive-go:latest"
           } >> "$GITHUB_ENV"
 
+      - name: Download pre-built binary from Release
+        run: |
+          ASSET_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/bililive-linux-amd64.tar.gz"
+          echo "Downloading: $ASSET_URL"
+          curl -fsSL "$ASSET_URL" -o /tmp/bililive-linux-amd64.tar.gz
+          tar xzf /tmp/bililive-linux-amd64.tar.gz -C /tmp
+          BINARY=$(find /tmp -maxdepth 2 -name 'bililive-linux-amd64' -type f | head -1)
+          if [ -z "$BINARY" ]; then echo "Binary not found in archive"; exit 1; fi
+          cp "$BINARY" ./bililive-linux-amd64
+          chmod +x ./bililive-linux-amd64
+          ls -la ./bililive-linux-amd64
+
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -41,10 +53,11 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile
-          build-args: VERSION=${{ env.VERSION }}
+          file: Dockerfile.local
+          build-args: BILILIVE_BINARY=bililive-linux-amd64
           platforms: linux/amd64
           push: true
           tags: ${{ env.DOCKER_TAGS }}
           cache-from: type=gha,scope=xuniubi-bililive-go
           cache-to: type=gha,mode=max,scope=xuniubi-bililive-go
+

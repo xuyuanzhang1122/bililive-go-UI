@@ -4,7 +4,10 @@ set -o nounset
 set -o pipefail
 
 # ============================================================
-# install.sh — bililive-go 引导式安装脚本（Docker）
+# install.sh — bililive-go 一键安装脚本
+#
+# 默认模式：下载 GitHub Release 预编译二进制，无需 Docker。
+# 如需 Docker 部署，请加 --docker 参数。
 #
 # 交互模式：
 #   curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash
@@ -15,11 +18,12 @@ set -o pipefail
 # 全部参数：
 #   --dir PATH            安装目录（默认 ~/bililive-go）
 #   --port N              主机端口（默认 8080）
-#   --image TAG           镜像 tag（默认 latest）
+#   --version TAG         指定 GitHub Release tag
+#   --image TAG           Docker 镜像 tag（默认 latest，仅 --docker）
 #   --enable-api-key      自动启用 API Key 并随机生成
 #   --api-key STR         指定 API Key（仅在 --enable-api-key 时生效）
 #   --yes / -y            非交互，全部走默认值或命令行参数
-#   --binary              改装裸机二进制（旧模式，跳过 Docker）
+#   --docker              使用 Docker 安装并启动容器
 #   --help                显示帮助
 # ============================================================
 
@@ -33,7 +37,7 @@ TAG=""
 ENABLE_API_KEY=""
 API_KEY=""
 ASSUME_YES="false"
-MODE="docker"
+MODE="binary"
 CONTAINER_NAME="bililive-go"
 
 # ---- 颜色 ----
@@ -64,16 +68,17 @@ while [[ $# -gt 0 ]]; do
         --api-key)        API_KEY="$2"; shift 2 ;;
         --yes|-y)         ASSUME_YES="true"; shift ;;
         --binary)         MODE="binary"; shift ;;
+        --docker)         MODE="docker"; shift ;;
         --help|-h)        usage ;;
         *)  err "未知参数: $1"; usage ;;
     esac
 done
 
 # ============================================================
-# 二进制模式（保留兼容路径，仅当显式 --binary 时进入）
+# 二进制模式（默认）
 # ============================================================
 if [[ "$MODE" == "binary" ]]; then
-    log "bililive-go 安装脚本（二进制模式）"
+    log "bililive-go 一键安装（二进制模式，无需 Docker）"
     : "${TAG:=latest}"
     if [[ "$TAG" == "latest" ]]; then
         log "查询最新版本…"
@@ -90,7 +95,40 @@ if [[ "$MODE" == "binary" ]]; then
         armv7l|armv6l) GOARCH="arm" ;;
         *) err "不支持的 CPU: $(uname -m)"; exit 1 ;;
     esac
-    case "$OS" in linux|darwin) ;; *) err "不支持的 OS: $OS，请用 Docker 模式"; exit 1 ;; esac
+    case "$OS" in linux|darwin) ;; *) err "不支持的 OS: $OS，请用 --docker 模式"; exit 1 ;; esac
+
+    # ---- 交互输入 ----
+    echo
+    log "请确认以下安装参数（回车使用默认值）："
+    echo
+
+    DEFAULT_DIR="${HOME}/bililive-go"
+    if [[ -z "$INSTALL_DIR" ]]; then
+        INSTALL_DIR=$(read_default "安装目录（数据/视频/配置都放这里）" "$DEFAULT_DIR")
+    fi
+    INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
+    INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
+
+    if [[ -z "$HOST_PORT" ]]; then
+        HOST_PORT=$(read_default "Web UI 端口" "8080")
+    fi
+    if ! [[ "$HOST_PORT" =~ ^[0-9]+$ ]] || (( HOST_PORT < 1 || HOST_PORT > 65535 )); then
+        err "端口非法: $HOST_PORT"; exit 1
+    fi
+
+    if [[ -z "$ENABLE_API_KEY" ]]; then
+        ans=$(ask_yes_no "启用 API Key 鉴权？（公网部署建议开启；可稍后在 Web UI 一键启用）" "n")
+        if [[ "$ans" == "y" ]]; then ENABLE_API_KEY="true"; else ENABLE_API_KEY="false"; fi
+    fi
+
+    if [[ "$ENABLE_API_KEY" == "true" && -z "$API_KEY" ]]; then
+        API_KEY=$(generate_api_key)
+        if [[ -z "$API_KEY" ]]; then
+            err "无法生成 API Key（缺少 openssl/xxd/hexdump）"; exit 1
+        fi
+    fi
+
+    # ---- 下载二进制 ----
     ASSET="bililive-${OS}-${GOARCH}.tar.gz"
     URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
     log "下载: $URL"
@@ -99,14 +137,112 @@ if [[ "$MODE" == "binary" ]]; then
     tar xzf "${TMPDIR}/${ASSET}" -C "$TMPDIR"
     BIN=$(find "$TMPDIR" -name 'bililive-*' -type f | head -1)
     [[ -n "$BIN" ]] || { err "压缩包内未找到二进制"; exit 1; }
-    if command -v sudo &>/dev/null && sudo -n true 2>/dev/null; then
-        sudo install -m755 "$BIN" /usr/local/bin/bililive-go
-        ok "已安装到 /usr/local/bin/bililive-go"
+
+    # ---- 创建目录 ----
+    log "创建安装目录: $INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR/Videos" "$INSTALL_DIR/Data"
+
+    # ---- 安装二进制 ----
+    TARGET_BIN="$INSTALL_DIR/bililive-go"
+    install -m755 "$BIN" "$TARGET_BIN"
+    ok "已安装到 $TARGET_BIN"
+
+    # ---- 下载 / 生成配置 ----
+    CONFIG_FILE="$INSTALL_DIR/config.yml"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        warn "配置文件已存在: $CONFIG_FILE"
+        overwrite=$(ask_yes_no "用最新模板覆盖？（旧文件会备份为 .bak）" "n")
+        if [[ "$overwrite" == "y" ]]; then
+            cp -f "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+            log "下载配置模板 → $CONFIG_FILE"
+            curl -fsSL "${RAW_BASE}/config.yml" -o "$CONFIG_FILE"
+        else
+            log "保留现有配置文件"
+        fi
     else
-        mkdir -p "$HOME/.local/bin"
-        install -m755 "$BIN" "$HOME/.local/bin/bililive-go"
-        ok "已安装到 $HOME/.local/bin/bililive-go（请确保该目录在 PATH 中）"
+        log "下载配置模板 → $CONFIG_FILE"
+        curl -fsSL "${RAW_BASE}/config.yml" -o "$CONFIG_FILE"
     fi
+
+    # ---- 替换配置路径和端口 ----
+    if [[ -f "$CONFIG_FILE" ]]; then
+        sed -i.bak \
+            -e "s|^out_put_path:.*|out_put_path: $INSTALL_DIR/Videos|" \
+            -e "s|^app_data_path:.*|app_data_path: $INSTALL_DIR/Data|" \
+            -e "s|^\(  *\)bind:.*|\1bind: :${HOST_PORT}|" \
+            "$CONFIG_FILE"
+        rm -f "${CONFIG_FILE}.bak"
+    fi
+
+    # ---- 写入 API Key ----
+    if [[ "$ENABLE_API_KEY" == "true" && -f "$CONFIG_FILE" ]]; then
+        log "写入 API Key 到配置"
+        tmp_cfg="$(mktemp)"
+        awk -v key="$API_KEY" '
+            BEGIN { in_security=0 }
+            /^security:[[:space:]]*$/ { in_security=1; print; next }
+            /^[A-Za-z]/ && !/^security:/ { in_security=0 }
+            in_security==1 && /^[[:space:]]*enable_api_key:/ {
+                sub(/enable_api_key:.*/, "enable_api_key: true"); print; next
+            }
+            in_security==1 && /^[[:space:]]*api_key:/ {
+                sub(/api_key:.*/, "api_key: \"" key "\""); print; next
+            }
+            { print }
+        ' "$CONFIG_FILE" > "$tmp_cfg"
+        mv "$tmp_cfg" "$CONFIG_FILE"
+    fi
+
+    # ---- 生成启动脚本 ----
+    START_SCRIPT="$INSTALL_DIR/start.sh"
+    cat > "$START_SCRIPT" <<STARTEOF
+#!/usr/bin/env sh
+cd "$INSTALL_DIR"
+exec "$TARGET_BIN" -c "$CONFIG_FILE"
+STARTEOF
+    chmod +x "$START_SCRIPT"
+
+    # ---- 完成 ----
+    echo
+    ok "bililive-go 已安装"
+
+    cat <<EOF
+
+${C_GREEN}=== 安装完成 ===${C_RESET}
+
+  启动命令     : ${START_SCRIPT}
+  Web UI       : http://<服务器 IP>:${HOST_PORT}
+  本机访问     : http://127.0.0.1:${HOST_PORT}
+  程序文件     : ${TARGET_BIN}
+  配置文件     : ${CONFIG_FILE}
+  数据目录     : ${INSTALL_DIR}/Data
+  视频目录     : ${INSTALL_DIR}/Videos
+
+EOF
+
+    if [[ "$ENABLE_API_KEY" == "true" ]]; then
+        cat <<EOF
+  ${C_YELLOW}API Key（请妥善保存）${C_RESET}: ${API_KEY}
+
+  iOS App / 外部客户端请把上面这串粘贴进设置页。
+  如需更换：编辑 ${CONFIG_FILE} 的 api_key 字段后重启即可。
+
+EOF
+    else
+        cat <<EOF
+  API Key      : 未启用（公网访问建议开启）
+  ${C_DIM}稍后可在 Web UI "设置 → API Key" 页一键启用并生成。${C_RESET}
+
+EOF
+    fi
+
+    cat <<EOF
+  常用命令     :
+    ${START_SCRIPT}               # 启动
+    kill \$(pgrep bililive-go)     # 停止
+    nohup ${START_SCRIPT} &       # 后台运行
+
+EOF
     exit 0
 fi
 
