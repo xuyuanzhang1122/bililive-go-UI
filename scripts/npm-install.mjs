@@ -575,7 +575,8 @@ async function binaryInstall() {
       await writeConfig(configFile, installDir, port, enableApiKey, apiKey)
       await writeRunScript(installDir, targetBinary, configFile, port)
 
-      printBinaryDone(installDir, targetBinary, configFile, port, enableApiKey, apiKey)
+      const systemdInstalled = await setupSystemdAndStart(installDir, targetBinary, configFile, port)
+      printBinaryDone(installDir, targetBinary, configFile, port, enableApiKey, apiKey, systemdInstalled)
     } finally {
       await rm(workDir, { recursive: true, force: true })
     }
@@ -633,7 +634,8 @@ async function sourceInstall(prepared = {}) {
       await writeConfig(configFile, installDir, port, enableApiKey, apiKey)
       await writeRunScript(installDir, targetBinary, configFile, port)
 
-      printBinaryDone(installDir, targetBinary, configFile, port, enableApiKey, apiKey)
+      const systemdInstalled = await setupSystemdAndStart(installDir, targetBinary, configFile, port)
+      printBinaryDone(installDir, targetBinary, configFile, port, enableApiKey, apiKey, systemdInstalled)
     } finally {
       await rm(workDir, { recursive: true, force: true })
     }
@@ -645,34 +647,109 @@ async function sourceInstall(prepared = {}) {
 async function writeRunScript(installDir, binary, configFile, port) {
   if (platform() === 'win32') {
     const script = resolve(installDir, 'start-bililive-go.ps1')
-    await writeFile(script, `Set-Location -LiteralPath "${installDir.replaceAll('"', '`"')}"
-& "${binary.replaceAll('"', '`"')}" -c "${configFile.replaceAll('"', '`"')}"
-`)
-    return
+    await writeFile(script, `Set-Location -LiteralPath "${installDir.replaceAll('"', '`"')}"\n& "${binary.replaceAll('"', '`"')}" -c "${configFile.replaceAll('"', '`"')}"\n`)
+    return script
   }
   const script = resolve(installDir, 'start-bililive-go.sh')
-  await writeFile(script, `#!/usr/bin/env sh
-cd "${installDir.replaceAll('"', '\\"')}"
-exec "${binary.replaceAll('"', '\\"')}" -c "${configFile.replaceAll('"', '\\"')}"
-`)
+  await writeFile(script, `#!/usr/bin/env sh\ncd "${installDir.replaceAll('"', '\\"')}"\nexec "${binary.replaceAll('"', '\\"')}" -c "${configFile.replaceAll('"', '\\"')}"\n`)
   await chmod(script, 0o755)
+  return script
 }
 
-function printBinaryDone(installDir, binary, configFile, port, enableApiKey, apiKey) {
-  const startCommand = platform() === 'win32'
-    ? `powershell -ExecutionPolicy Bypass -File "${resolve(installDir, 'start-bililive-go.ps1')}"`
-    : `"${resolve(installDir, 'start-bililive-go.sh')}"`
+// 创建 systemd 服务并启动，或回退到 nohup
+async function setupSystemdAndStart(installDir, binary, configFile, port) {
+  let systemdInstalled = false
+
+  if (platform() === 'linux' && commandExists('systemctl')) {
+    const serviceContent = `[Unit]
+Description=bililive-go 直播录制服务
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${installDir}
+ExecStart=${binary} -c ${configFile}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`
+    const serviceFile = '/etc/systemd/system/bililive-go.service'
+    const isRoot = process.getuid && process.getuid() === 0
+
+    try {
+      if (isRoot) {
+        const { writeFileSync } = await import('node:fs')
+        writeFileSync(serviceFile, serviceContent)
+        run('systemctl', ['daemon-reload'])
+        run('systemctl', ['enable', 'bililive-go.service'], { stdio: 'ignore' })
+        run('systemctl', ['start', 'bililive-go.service'])
+        systemdInstalled = true
+        ok('systemd 服务已创建并启动')
+      } else if (commandExists('sudo')) {
+        const { execSync } = await import('node:child_process')
+        execSync(`sudo tee ${serviceFile} > /dev/null`, { input: serviceContent })
+        run('sudo', ['systemctl', 'daemon-reload'])
+        run('sudo', ['systemctl', 'enable', 'bililive-go.service'], { stdio: 'ignore' })
+        run('sudo', ['systemctl', 'start', 'bililive-go.service'])
+        systemdInstalled = true
+        ok('systemd 服务已创建并启动')
+      } else {
+        warn('需要 root 权限创建 systemd 服务，跳过')
+      }
+    } catch (e) {
+      warn(`创建 systemd 服务失败: ${e.message}，回退到后台启动`)
+    }
+  }
+
+  if (!systemdInstalled && platform() !== 'win32') {
+    const startScript = resolve(installDir, 'start-bililive-go.sh')
+    const logFile = resolve(installDir, 'bililive-go.log')
+    const { execSync } = await import('node:child_process')
+    execSync(`nohup "${startScript}" > "${logFile}" 2>&1 &`)
+    ok('已后台启动')
+  }
+
+  // 等待服务就绪
+  log('等待服务就绪 …')
+  const ready = await waitReady(port)
+  console.log('')
+  if (ready) {
+    ok('bililive-go 已启动并就绪')
+  } else {
+    if (systemdInstalled) {
+      warn('服务未在 30s 内响应，请检查: journalctl -u bililive-go -f')
+    } else {
+      warn(`服务未在 30s 内响应，请检查: tail -f ${resolve(installDir, 'bililive-go.log')}`)
+    }
+  }
+
+  return systemdInstalled
+}
+
+function printBinaryDone(installDir, binary, configFile, port, enableApiKey, apiKey, systemdInstalled) {
+  const serviceCmd = systemdInstalled
+    ? `  服务管理 :
+    systemctl status bililive-go     # 状态
+    systemctl restart bililive-go    # 重启
+    systemctl stop bililive-go       # 停止
+    journalctl -u bililive-go -f     # 日志`
+    : `  常用命令 :
+    ${resolve(installDir, 'start-bililive-go.sh')}   # 启动`
+
   console.log(`
 === 安装完成 ===
 
-  启动命令 : ${startCommand}
   Web UI   : http://127.0.0.1:${port}
   程序文件 : ${binary}
   配置文件 : ${configFile}
   数据目录 : ${resolve(installDir, 'Data')}
   视频目录 : ${resolve(installDir, 'Videos')}
-${enableApiKey ? `  API Key  : ${apiKey}
-` : '  API Key  : 未启用（公网访问建议开启）\n'}`)
+${enableApiKey ? `  API Key  : ${apiKey}` : '  API Key  : 未启用（公网访问建议开启）'}
+${serviceCmd}
+`)
 }
 
 async function main() {

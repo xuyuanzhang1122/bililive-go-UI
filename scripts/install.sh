@@ -193,24 +193,96 @@ if [[ "$MODE" == "binary" ]]; then
         mv "$tmp_cfg" "$CONFIG_FILE"
     fi
 
-    # ---- 生成启动脚本 ----
-    START_SCRIPT="$INSTALL_DIR/start.sh"
-    cat > "$START_SCRIPT" <<STARTEOF
-#!/usr/bin/env sh
-cd "$INSTALL_DIR"
-exec "$TARGET_BIN" -c "$CONFIG_FILE"
-STARTEOF
-    chmod +x "$START_SCRIPT"
+    # ---- systemd 服务（仅 Linux 且有 systemctl） ----
+    SYSTEMD_INSTALLED=""
+    if [[ "$OS" == "linux" ]] && command -v systemctl &>/dev/null; then
+        SERVICE_FILE="/etc/systemd/system/bililive-go.service"
+        log "创建 systemd 服务: $SERVICE_FILE"
+        # 需要 root 权限写 /etc/systemd/system
+        if [[ "$(id -u)" -eq 0 ]]; then
+            cat > "$SERVICE_FILE" <<SVCEOF
+[Unit]
+Description=bililive-go 直播录制服务
+After=network-online.target
+Wants=network-online.target
 
-    # ---- 完成 ----
+[Service]
+Type=simple
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$TARGET_BIN -c $CONFIG_FILE
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+            systemctl daemon-reload
+            systemctl enable bililive-go.service >/dev/null 2>&1
+            systemctl start bililive-go.service
+            SYSTEMD_INSTALLED="true"
+            ok "systemd 服务已创建并启动"
+        elif command -v sudo &>/dev/null; then
+            sudo tee "$SERVICE_FILE" >/dev/null <<SVCEOF
+[Unit]
+Description=bililive-go 直播录制服务
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$(whoami)
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$TARGET_BIN -c $CONFIG_FILE
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+            sudo systemctl daemon-reload
+            sudo systemctl enable bililive-go.service >/dev/null 2>&1
+            sudo systemctl start bililive-go.service
+            SYSTEMD_INSTALLED="true"
+            ok "systemd 服务已创建并启动"
+        else
+            warn "需要 root 权限创建 systemd 服务，跳过"
+        fi
+    fi
+
+    # 非 systemd 环境：直接后台启动
+    if [[ -z "$SYSTEMD_INSTALLED" ]]; then
+        log "启动 bililive-go …"
+        nohup "$START_SCRIPT" > "$INSTALL_DIR/bililive-go.log" 2>&1 &
+        ok "已后台启动 (PID: $!)"
+    fi
+
+    # ---- 等待服务就绪 ----
+    log "等待服务就绪 …"
+    url="http://127.0.0.1:${HOST_PORT}/api/auth-status"
+    ready=""
+    for _ in $(seq 1 15); do
+        if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
+            ready="true"; break
+        fi
+        sleep 1
+    done
+
     echo
-    ok "bililive-go 已安装"
+    if [[ "$ready" == "true" ]]; then
+        ok "bililive-go 已启动并就绪"
+    else
+        warn "服务未在 15s 内响应，请检查日志"
+        if [[ -n "$SYSTEMD_INSTALLED" ]]; then
+            echo "  查看日志: journalctl -u bililive-go -f"
+        else
+            echo "  查看日志: tail -f $INSTALL_DIR/bililive-go.log"
+        fi
+    fi
 
     cat <<EOF
 
 ${C_GREEN}=== 安装完成 ===${C_RESET}
 
-  启动命令     : ${START_SCRIPT}
   Web UI       : http://<服务器 IP>:${HOST_PORT}
   本机访问     : http://127.0.0.1:${HOST_PORT}
   程序文件     : ${TARGET_BIN}
@@ -236,13 +308,24 @@ EOF
 EOF
     fi
 
-    cat <<EOF
+    if [[ -n "$SYSTEMD_INSTALLED" ]]; then
+        cat <<EOF
+  服务管理     :
+    systemctl status bililive-go     # 状态
+    systemctl restart bililive-go    # 重启
+    systemctl stop bililive-go       # 停止
+    journalctl -u bililive-go -f     # 日志
+
+EOF
+    else
+        cat <<EOF
   常用命令     :
     ${START_SCRIPT}               # 启动
     kill \$(pgrep bililive-go)     # 停止
     nohup ${START_SCRIPT} &       # 后台运行
 
 EOF
+    fi
     exit 0
 fi
 
