@@ -1,13 +1,50 @@
 # bililive-go 优化版
-[![CI](https://github.com/xuyuanzhang1122/bililive-go/actions/workflows/tests.yaml/badge.svg?branch=master)](https://github.com/xuyuanzhang1122/bililive-go/actions/workflows/tests.yaml)
-[![GitHub Release](https://img.shields.io/github/v/release/xuyuanzhang1122/bililive-go)](https://github.com/xuyuanzhang1122/bililive-go/releases)
+[![CI](https://github.com/xuyuanzhang1122/bililive-go-UI/actions/workflows/tests.yaml/badge.svg?branch=main)](https://github.com/xuyuanzhang1122/bililive-go-UI/actions/workflows/tests.yaml)
+[![GitHub Release](https://img.shields.io/github/v/release/xuyuanzhang1122/bililive-go-UI)](https://github.com/xuyuanzhang1122/bililive-go-UI/releases)
+[![npm](https://img.shields.io/npm/v/bililive-go-ui)](https://www.npmjs.com/package/bililive-go-ui)
 [![Docker Pulls](https://img.shields.io/docker/pulls/xuniubi/bililive-go.svg)](https://hub.docker.com/r/xuniubi/bililive-go)
 
-这是一个基于原版 `bililive-go` 深度优化的直播录制工具，保留多平台录播能力，并补齐了视频管理、播放器体验和 Docker 交付链路。
+这是一个基于原版 `bililive-go` 深度优化的直播录制工具，保留多平台录播能力，并补齐了视频管理、播放器体验和 npm / Docker 交付链路。
 
 ## 快速开始
 
 推荐使用一键安装入口完成目录创建、配置下载和程序安装。**默认安装裸机二进制，不需要 Docker。**
+
+### npm 安装（Windows / Linux / macOS 推荐）
+
+如果已经安装 Node.js 20+，可以直接安装已发布的 npm 包，然后拉起跨平台安装器。默认会安装 GitHub Release 里的当前系统二进制；如果仓库暂时没有 Release，会退回源码构建模式：
+
+```bash
+npm i bililive-go-ui
+npx bililive-go-ui install
+```
+
+非交互安装：
+
+```bash
+npm i bililive-go-ui
+npx bililive-go-ui install \
+  --yes --dir ~/bililive-go --port 8080 --enable-api-key
+```
+
+如果明确想用 Docker 方式，也可以加 `--docker`：
+
+```bash
+npm i bililive-go-ui
+npx bililive-go-ui install --docker
+```
+
+如需一次性运行、不保留本地依赖，也可以使用：
+
+```bash
+npx -y bililive-go-ui@latest install
+```
+
+如需测试 GitHub main 分支上的未发布安装器，可以使用：
+
+```bash
+npx -y --package github:xuyuanzhang1122/bililive-go-UI bililive-go-ui install
+```
 
 ### curl 一键安装（Linux / macOS / WSL 推荐）
 
@@ -27,33 +64,6 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh \
   | bash -s -- --docker
-```
-
-### npx 一键安装（Windows / Linux / macOS）
-
-如果已经安装 Node.js 20+，可以用 npm/npx 直接拉起跨平台安装器。默认会安装 GitHub Release 里的当前系统二进制；如果仓库暂时没有 Release，会退回源码构建模式：
-
-```bash
-npx -y --package github:xuyuanzhang1122/bililive-go-UI bililive-go-ui install
-```
-
-非交互安装：
-
-```bash
-npx -y --package github:xuyuanzhang1122/bililive-go-UI bililive-go-ui install \
-  --yes --dir ~/bililive-go --port 8080 --enable-api-key
-```
-
-发布到 npm 后可简化为：
-
-```bash
-npx bililive-go-ui install
-```
-
-如果明确想用 Docker 方式，也可以加 `--docker`：
-
-```bash
-npx -y --package github:xuyuanzhang1122/bililive-go-UI bililive-go-ui install --docker
 ```
 
 安装器会询问安装目录、端口、是否启用 API Key，并自动下载配置模板、创建目录。常用参数：
@@ -90,24 +100,6 @@ docker run -d \
   -v $(pwd)/config.docker.yml:/etc/bililive-go/config.yml \
   xuniubi/bililive-go:latest
 ```
-
-## 功能预览
-
-### 视频库首页
-
-![视频库首页](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.13.50.png)
-
-### 视频列表与缩略图
-
-![视频列表与缩略图](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.13.59.png)
-
-### 内嵌播放器
-
-![内嵌播放器](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.14.21.png)
-
-### 管理与配置界面
-
-![管理与配置界面](https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/img/%E6%88%AA%E5%B1%8F2026-03-09%2017.14.27.png)
 
 ## 当前版本重点
 
@@ -272,8 +264,8 @@ docker build \
 ### 克隆仓库
 
 ```bash
-git clone https://github.com/xuyuanzhang1122/bililive-go.git
-cd bililive-go
+git clone https://github.com/xuyuanzhang1122/bililive-go-UI.git
+cd bililive-go-UI
 ```
 
 ### 常用命令
