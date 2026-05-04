@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -26,6 +27,118 @@ type Store struct {
 	db     *sql.DB
 	dbPath string
 	mu     sync.RWMutex
+}
+
+const DefaultAPIKeyUserID = "default"
+
+func ensureAPIKeyUserSchema(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS api_key_users (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			key_suffix TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_used_at DATETIME,
+			revoked_at DATETIME
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("创建 API Key 用户表失败: %w", err)
+	}
+	return nil
+}
+
+func ensureWatchHistorySchema(db *sql.DB) error {
+	var tableName string
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='watch_history'").Scan(&tableName)
+	if err == sql.ErrNoRows {
+		_, err = db.Exec(`
+			CREATE TABLE watch_history (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				api_key_user_id TEXT NOT NULL DEFAULT 'default',
+				video_path TEXT NOT NULL,
+				video_name TEXT DEFAULT '',
+				position_seconds REAL DEFAULT 0,
+				duration_seconds REAL DEFAULT 0,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(api_key_user_id, video_path)
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("创建观看历史表失败: %w", err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("检查观看历史表失败: %w", err)
+	}
+
+	columns, err := tableColumns(db, "watch_history")
+	if err != nil {
+		return err
+	}
+	if columns["api_key_user_id"] {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		CREATE TABLE watch_history_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			api_key_user_id TEXT NOT NULL DEFAULT 'default',
+			video_path TEXT NOT NULL,
+			video_name TEXT DEFAULT '',
+			position_seconds REAL DEFAULT 0,
+			duration_seconds REAL DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(api_key_user_id, video_path)
+		)
+	`); err != nil {
+		return fmt.Errorf("创建观看历史迁移表失败: %w", err)
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO watch_history_new (id, api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at)
+		SELECT id, 'default', video_path, video_name, position_seconds, duration_seconds, updated_at
+		FROM watch_history
+	`); err != nil {
+		return fmt.Errorf("迁移观看历史失败: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE watch_history`); err != nil {
+		return fmt.Errorf("删除旧观看历史表失败: %w", err)
+	}
+	if _, err := tx.Exec(`ALTER TABLE watch_history_new RENAME TO watch_history`); err != nil {
+		return fmt.Errorf("重命名观看历史表失败: %w", err)
+	}
+	return tx.Commit()
+}
+
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return nil, fmt.Errorf("读取表结构失败: %w", err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
 }
 
 // Init 初始化全局元数据存储
@@ -71,20 +184,14 @@ func Init(dbDir string) error {
 		return fmt.Errorf("创建表失败: %w", err)
 	}
 
-	// 创建观看历史表
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS watch_history (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			video_path TEXT NOT NULL UNIQUE,
-			video_name TEXT DEFAULT '',
-			position_seconds REAL DEFAULT 0,
-			duration_seconds REAL DEFAULT 0,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
-	if err != nil {
+	if err := ensureAPIKeyUserSchema(db); err != nil {
 		db.Close()
-		return fmt.Errorf("创建观看历史表失败: %w", err)
+		return err
+	}
+
+	if err := ensureWatchHistorySchema(db); err != nil {
+		db.Close()
+		return err
 	}
 
 	globalStore = &Store{
@@ -233,6 +340,7 @@ const (
 // WatchHistoryEntry 观看历史记录
 type WatchHistoryEntry struct {
 	ID              int64   `json:"id"`
+	APIKeyUserID    string  `json:"api_key_user_id,omitempty"`
 	VideoPath       string  `json:"video_path"`
 	VideoName       string  `json:"video_name"`
 	PositionSeconds float64 `json:"position_seconds"`
@@ -242,30 +350,46 @@ type WatchHistoryEntry struct {
 
 // UpsertWatchHistory 插入或更新观看历史
 func (s *Store) UpsertWatchHistory(ctx context.Context, e *WatchHistoryEntry) error {
+	return s.UpsertWatchHistoryForUser(ctx, DefaultAPIKeyUserID, e)
+}
+
+func (s *Store) UpsertWatchHistoryForUser(ctx context.Context, userID string, e *WatchHistoryEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if strings.TrimSpace(userID) == "" {
+		userID = DefaultAPIKeyUserID
+	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO watch_history (video_path, video_name, position_seconds, duration_seconds, updated_at)
-		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(video_path) DO UPDATE SET
+		INSERT INTO watch_history (api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at)
+		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(api_key_user_id, video_path) DO UPDATE SET
 			video_name = excluded.video_name,
 			position_seconds = excluded.position_seconds,
 			duration_seconds = excluded.duration_seconds,
 			updated_at = CURRENT_TIMESTAMP
-	`, e.VideoPath, e.VideoName, e.PositionSeconds, e.DurationSeconds)
+	`, userID, e.VideoPath, e.VideoName, e.PositionSeconds, e.DurationSeconds)
 	return err
 }
 
 // GetWatchHistory 获取所有观看历史（按更新时间倒序）
 func (s *Store) GetWatchHistory(ctx context.Context) ([]WatchHistoryEntry, error) {
+	return s.GetWatchHistoryForUser(ctx, DefaultAPIKeyUserID)
+}
+
+func (s *Store) GetWatchHistoryForUser(ctx context.Context, userID string) ([]WatchHistoryEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if strings.TrimSpace(userID) == "" {
+		userID = DefaultAPIKeyUserID
+	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, video_path, video_name, position_seconds, duration_seconds, updated_at
-		FROM watch_history ORDER BY updated_at DESC
-	`)
+		SELECT id, api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at
+		FROM watch_history
+		WHERE api_key_user_id = ?
+		ORDER BY updated_at DESC
+	`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +398,7 @@ func (s *Store) GetWatchHistory(ctx context.Context) ([]WatchHistoryEntry, error
 	var entries []WatchHistoryEntry
 	for rows.Next() {
 		var e WatchHistoryEntry
-		if err := rows.Scan(&e.ID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.APIKeyUserID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
@@ -282,10 +406,36 @@ func (s *Store) GetWatchHistory(ctx context.Context) ([]WatchHistoryEntry, error
 	return entries, rows.Err()
 }
 
+func (s *Store) GetWatchHistoryItemForUser(ctx context.Context, userID, videoPath string) (*WatchHistoryEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if strings.TrimSpace(userID) == "" {
+		userID = DefaultAPIKeyUserID
+	}
+
+	var e WatchHistoryEntry
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at
+		FROM watch_history
+		WHERE api_key_user_id = ? AND video_path = ?
+	`, userID, videoPath).Scan(&e.ID, &e.APIKeyUserID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
 // DeleteWatchHistory 删除单条观看历史
 func (s *Store) DeleteWatchHistory(ctx context.Context, videoPath string) error {
+	return s.DeleteWatchHistoryForUser(ctx, DefaultAPIKeyUserID, videoPath)
+}
+
+func (s *Store) DeleteWatchHistoryForUser(ctx context.Context, userID, videoPath string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx, "DELETE FROM watch_history WHERE video_path = ?", videoPath)
+	if strings.TrimSpace(userID) == "" {
+		userID = DefaultAPIKeyUserID
+	}
+	_, err := s.db.ExecContext(ctx, "DELETE FROM watch_history WHERE api_key_user_id = ? AND video_path = ?", userID, videoPath)
 	return err
 }

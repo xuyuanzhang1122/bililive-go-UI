@@ -65,7 +65,7 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 		http.Error(writer, "读取 HLS 播放列表失败", http.StatusInternalServerError)
 		return
 	}
-	content = rewriteHLSPlaylist(content, cacheKey, cfg)
+	content = rewriteHLSPlaylist(r, content, cacheKey, cfg)
 	writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	writer.Header().Set("Cache-Control", "no-store")
 	_, _ = writer.Write(content)
@@ -184,8 +184,9 @@ func getHLSCacheLock(cacheKey string) *sync.Mutex {
 	return lock.(*sync.Mutex)
 }
 
-func rewriteHLSPlaylist(content []byte, cacheKey string, cfg *configs.Config) []byte {
+func rewriteHLSPlaylist(r *http.Request, content []byte, cacheKey string, cfg *configs.Config) []byte {
 	lines := strings.Split(string(content), "\n")
+	signingKey := signingSecretForRequest(r, cfg)
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
@@ -196,21 +197,21 @@ func rewriteHLSPlaylist(content []byte, cacheKey string, cfg *configs.Config) []
 			continue
 		}
 		rawURL := joinEscapedURLPath("/api/stream/hls-segment/"+cacheKey, segment)
-		if strings.TrimSpace(cfg.Security.APIKey) == "" {
+		if strings.TrimSpace(signingKey) == "" {
 			lines[i] = rawURL
 			continue
 		}
-		if urlValue, _, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(signedURLTTL(cfg)), cfg.Security.APIKey); err == nil {
+		if urlValue, _, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(signedURLTTL(cfg)), signingKey); err == nil {
 			lines[i] = urlValue
 		}
 	}
 	return []byte(strings.Join(lines, "\n"))
 }
 
-func signedHLSURLForVideoFile(ext, relPath string, cfg *configs.Config) string {
+func signedHLSURLForVideoFile(r *http.Request, ext, relPath string, cfg *configs.Config) string {
 	switch strings.ToLower(ext) {
 	case ".flv", ".ts", ".mkv":
-		return signedURLForAsset("hls", relPath, cfg)
+		return signedURLForAsset(r, "hls", relPath, cfg)
 	default:
 		return ""
 	}

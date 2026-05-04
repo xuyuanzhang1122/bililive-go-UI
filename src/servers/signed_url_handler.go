@@ -73,7 +73,8 @@ func createSignedURL(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	urlValue, expires, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(ttl), cfg.Security.APIKey)
+	signingKey := signingSecretForRequest(r, cfg)
+	urlValue, expires, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(ttl), signingKey)
 	if err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
@@ -123,15 +124,16 @@ func signedURLRawPath(kind, relPath string) (string, error) {
 	}
 }
 
-func signedURLForAsset(kind, relPath string, cfg *configs.Config) string {
-	if cfg == nil || strings.TrimSpace(cfg.Security.APIKey) == "" {
+func signedURLForAsset(r *http.Request, kind, relPath string, cfg *configs.Config) string {
+	signingKey := signingSecretForRequest(r, cfg)
+	if strings.TrimSpace(signingKey) == "" {
 		return ""
 	}
 	rawURL, err := signedURLRawPath(kind, relPath)
 	if err != nil {
 		return ""
 	}
-	urlValue, _, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(signedURLTTL(cfg)), cfg.Security.APIKey)
+	urlValue, _, err := securitypkg.SignURL(rawURL, http.MethodGet, time.Now().Add(signedURLTTL(cfg)), signingKey)
 	if err != nil {
 		return ""
 	}

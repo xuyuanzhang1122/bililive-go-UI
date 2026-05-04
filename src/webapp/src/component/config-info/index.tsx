@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Tabs, Button, message, Spin, Input, Switch, InputNumber, Form,
-  Tag, Space, Divider, Alert, Modal, Select,
+  Tag, Space, Divider, Alert, Modal, Select, Table,
   List, Badge, Tooltip, Card, Collapse
 } from 'antd';
 // @ts-ignore
@@ -2197,8 +2197,36 @@ const ConfigInfo: React.FC = () => {
   );
 };
 
-// API Key 面板组件
-const APIKeyPanel: React.FC = () => {
+interface APIKeyUser {
+  id: string;
+  name: string;
+  key_suffix?: string;
+  enabled?: boolean;
+  created_at?: string;
+  last_used_at?: string;
+  revoked_at?: string;
+}
+
+interface CreatedAPIKeyUser extends APIKeyUser {
+  api_key: string;
+}
+
+const unwrapResponseData = <T,>(payload: any, fallback: T): T => {
+  if (payload && typeof payload === 'object' && 'data' in payload && payload.data !== undefined) {
+    return payload.data as T;
+  }
+  return (payload ?? fallback) as T;
+};
+
+const formatDateTime = (value?: string) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+};
+
+// 旧版单 Key 面板：仅在后端尚未支持 /api/api-keys 时作为过渡入口展示
+const LegacyAPIKeyPanel: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -2290,9 +2318,315 @@ const APIKeyPanel: React.FC = () => {
         <Button icon={<CopyOutlined />} onClick={copyKey}>复制</Button>
       </Space>
       <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
-        iOS App 设置页粘贴此 Key 即可；留空则不启用鉴权。
+        这是旧版全局 Key。多 Key 后端上线后，请改用上方的用户化 Key 管理。
       </div>
     </Card>
+  );
+};
+
+// API Key 用户管理面板
+const APIKeyPanel: React.FC = () => {
+  const [users, setUsers] = useState<APIKeyUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [endpointReady, setEndpointReady] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [newKeyUser, setNewKeyUser] = useState<CreatedAPIKeyUser | null>(null);
+  const [updatingId, setUpdatingId] = useState<string>('');
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const payload = await api.getAPIKeyUsers();
+      const list = unwrapResponseData<APIKeyUser[]>(payload, []);
+      setUsers(Array.isArray(list) ? list : []);
+      setEndpointReady(true);
+    } catch (error: any) {
+      setEndpointReady(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const copyText = (text: string, successText = '已复制到剪贴板') => {
+    navigator.clipboard.writeText(text).then(() => message.success(successText));
+  };
+
+  const createUser = async () => {
+    const name = createName.trim();
+    if (!name) {
+      message.warning('请输入设备或用户名称');
+      return;
+    }
+    setCreating(true);
+    try {
+      const payload = await api.createAPIKeyUser(name);
+      const created = unwrapResponseData<CreatedAPIKeyUser>(payload, {} as CreatedAPIKeyUser);
+      setNewKeyUser(created);
+      setCreateOpen(false);
+      setCreateName('');
+      await loadUsers();
+      message.success('API Key 用户已创建');
+    } catch (error: any) {
+      message.error('创建失败：' + (error?.message || '未知错误'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const renameUser = (record: APIKeyUser) => {
+    let nextName = record.name;
+    Modal.confirm({
+      title: '修改 Key 名称',
+      icon: <EditOutlined />,
+      content: (
+        <Input
+          defaultValue={record.name}
+          placeholder="例如：iPhone 15 Pro"
+          onChange={e => { nextName = e.target.value; }}
+        />
+      ),
+      okText: '保存',
+      cancelText: '取消',
+      onOk: async () => {
+        const name = nextName.trim();
+        if (!name) {
+          message.warning('名称不能为空');
+          return Promise.reject();
+        }
+        setUpdatingId(record.id);
+        try {
+          await api.updateAPIKeyUser(record.id, { name });
+          await loadUsers();
+          message.success('名称已更新');
+        } finally {
+          setUpdatingId('');
+        }
+      }
+    });
+  };
+
+  const setUserEnabled = async (record: APIKeyUser, enabled: boolean) => {
+    setUpdatingId(record.id);
+    try {
+      await api.updateAPIKeyUser(record.id, { enabled });
+      await loadUsers();
+      message.success(enabled ? 'Key 已启用' : 'Key 已禁用');
+    } catch (error: any) {
+      message.error('更新失败：' + (error?.message || '未知错误'));
+    } finally {
+      setUpdatingId('');
+    }
+  };
+
+  const revokeUser = (record: APIKeyUser) => {
+    Modal.confirm({
+      title: '确认吊销此 Key？',
+      icon: <ExclamationCircleOutlined />,
+      content: `吊销后，${record.name} 将无法继续同步观看历史或访问媒体资源。`,
+      okText: '吊销',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setUpdatingId(record.id);
+        try {
+          await api.deleteAPIKeyUser(record.id);
+          await loadUsers();
+          message.success('Key 已吊销');
+        } finally {
+          setUpdatingId('');
+        }
+      }
+    });
+  };
+
+  const columns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string, record: APIKeyUser) => (
+        <Space direction="vertical" size={0}>
+          <span style={{ fontWeight: 600 }}>{name}</span>
+          <span style={{ fontSize: 12, color: '#888' }}>{record.id}</span>
+        </Space>
+      ),
+    },
+    {
+      title: '尾号',
+      dataIndex: 'key_suffix',
+      key: 'key_suffix',
+      width: 110,
+      render: (suffix?: string) => suffix ? <Tag color="blue">{suffix}</Tag> : '-',
+    },
+    {
+      title: '状态',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      width: 110,
+      render: (enabled: boolean | undefined, record: APIKeyUser) => {
+        if (record.revoked_at) return <Tag color="red">已吊销</Tag>;
+        return enabled === false ? <Tag>已禁用</Tag> : <Tag color="success">启用中</Tag>;
+      },
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 180,
+      render: formatDateTime,
+    },
+    {
+      title: '最近使用',
+      dataIndex: 'last_used_at',
+      key: 'last_used_at',
+      width: 180,
+      render: formatDateTime,
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 230,
+      render: (_: unknown, record: APIKeyUser) => {
+        const disabled = !!record.revoked_at || updatingId === record.id;
+        const nextEnabled = record.enabled === false;
+        return (
+          <Space size="small" wrap>
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => renameUser(record)}
+              loading={updatingId === record.id}
+              disabled={!!record.revoked_at}
+            >
+              改名
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setUserEnabled(record, nextEnabled)}
+              loading={updatingId === record.id}
+              disabled={disabled}
+            >
+              {nextEnabled ? '启用' : '禁用'}
+            </Button>
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => revokeUser(record)}
+              loading={updatingId === record.id}
+              disabled={!!record.revoked_at}
+            >
+              吊销
+            </Button>
+          </Space>
+        );
+      },
+    },
+  ];
+
+  if (!endpointReady && !loading) {
+    return (
+      <div className="config-content">
+        <Alert
+          type="warning"
+          message="当前后端尚未启用多 Key 用户管理接口"
+          description="Web 端已按 /api/api-keys 和 /api/auth/me 契约完成接入。后端更新前，暂时仍显示旧版全局 API Key 面板。"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <LegacyAPIKeyPanel />
+      </div>
+    );
+  }
+
+  return (
+    <div className="config-content">
+      <Alert
+        type="info"
+        message="API Key 即用户"
+        description="每个设备或用户使用独立 Key，同步观看历史时会按 Key 用户隔离。完整 Key 只会在创建后展示一次，请立即复制。"
+        showIcon
+        style={{ marginBottom: 16 }}
+      />
+
+      <Card
+        size="small"
+        title={<><KeyOutlined /> API Key 用户</>}
+        extra={
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={loadUsers} loading={loading}>刷新</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              新建 Key
+            </Button>
+          </Space>
+        }
+      >
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={users}
+          loading={loading}
+          pagination={{ pageSize: 8, hideOnSinglePage: true }}
+          scroll={{ x: 900 }}
+          locale={{ emptyText: '还没有 API Key 用户' }}
+        />
+      </Card>
+
+      <Modal
+        title="新建 API Key 用户"
+        open={createOpen}
+        onOk={createUser}
+        confirmLoading={creating}
+        onCancel={() => {
+          setCreateOpen(false);
+          setCreateName('');
+        }}
+        okText="创建"
+        cancelText="取消"
+      >
+        <Form layout="vertical">
+          <Form.Item label="名称" required>
+            <Input
+              value={createName}
+              onChange={e => setCreateName(e.target.value)}
+              placeholder="例如：iPhone 15 Pro"
+              autoFocus
+              onPressEnter={createUser}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="请立即复制完整 Key"
+        open={!!newKeyUser}
+        onCancel={() => setNewKeyUser(null)}
+        footer={[
+          <Button key="copy" type="primary" icon={<CopyOutlined />} onClick={() => newKeyUser?.api_key && copyText(newKeyUser.api_key, '完整 Key 已复制')}>
+            复制完整 Key
+          </Button>,
+          <Button key="close" onClick={() => setNewKeyUser(null)}>我已保存</Button>
+        ]}
+      >
+        <Alert
+          type="warning"
+          message="完整 Key 只展示一次"
+          description="关闭此窗口后，Web 端只会显示 Key 尾号。"
+          showIcon
+          style={{ marginBottom: 12 }}
+        />
+        <Input.Password value={newKeyUser?.api_key || ''} readOnly />
+        <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+          用户：{newKeyUser?.name || '-'}；尾号：{newKeyUser?.key_suffix || '-'}
+        </div>
+      </Modal>
+    </div>
   );
 };
 

@@ -32,6 +32,12 @@ func GenerateAPIKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
+// HashAPIKey 返回 API Key 的不可逆 SHA-256 摘要，用于持久化匹配。
+func HashAPIKey(key string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(key)))
+	return hex.EncodeToString(sum[:])
+}
+
 // ExtractAPIKey 从 Authorization: Bearer / X-API-Key / _key 查询参数中读取 API Key。
 func ExtractAPIKey(r *http.Request) string {
 	if r == nil {

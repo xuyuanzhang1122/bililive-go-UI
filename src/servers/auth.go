@@ -1,6 +1,8 @@
 package servers
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"net/url"
 	"os"
@@ -8,12 +10,20 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
 )
 
 const (
 	disableAPIAuthEnv    = "BILILIVE_DISABLE_API_AUTH"
 	legacyDisableAuthEnv = "BGO_DISABLE_API_AUTH"
+)
+
+type authContextKey string
+
+const (
+	authAPIKeyUserKey authContextKey = "api_key_user"
+	authRawAPIKeyKey  authContextKey = "raw_api_key"
 )
 
 func isAuthExemptPath(r *http.Request) bool {
@@ -58,20 +68,25 @@ func apiAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := configs.GetCurrentConfig()
 		if !requiresAPIAuth(cfg) || r.Method == http.MethodOptions || isAuthExemptPath(r) {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withDefaultAPIKeyUser(r))
 			return
 		}
-		// 同源请求（内嵌 Web UI）免认证
+		if user, rawKey, ok, status := authenticateAPIKeyRequest(r, cfg); ok {
+			next.ServeHTTP(w, withAPIKeyUser(r, user, rawKey))
+			return
+		} else if status == http.StatusForbidden {
+			if !isSameOriginRequest(r) {
+				writeForbiddenError(w)
+				return
+			}
+		}
+		// 同源请求（内嵌 Web UI）免认证；如果带了有效 Key，上方已经绑定到对应用户。
 		if isSameOriginRequest(r) {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withDefaultAPIKeyUser(r))
 			return
 		}
-		if securitypkg.HasValidAPIKey(r, cfg.Security.APIKey) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if canUseSignedURL(r) && securitypkg.ValidateSignedRequest(r, cfg.Security.APIKey, time.Now()) == nil {
-			next.ServeHTTP(w, r)
+		if user, rawKey, ok := authenticateSignedRequest(r, cfg); ok {
+			next.ServeHTTP(w, withAPIKeyUser(r, user, rawKey))
 			return
 		}
 		writeAuthError(w)
@@ -82,17 +97,25 @@ func fileAccessMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := configs.GetCurrentConfig()
 		if !requiresAPIAuth(cfg) || r.Method == http.MethodOptions {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withDefaultAPIKeyUser(r))
 			return
 		}
-		// 同源请求（内嵌 Web UI）免认证
+		if user, rawKey, ok, status := authenticateAPIKeyRequest(r, cfg); ok {
+			next.ServeHTTP(w, withAPIKeyUser(r, user, rawKey))
+			return
+		} else if status == http.StatusForbidden {
+			if !isSameOriginRequest(r) {
+				writeForbiddenError(w)
+				return
+			}
+		}
+		// 同源请求（内嵌 Web UI）免认证；如果带了有效 Key，上方已经绑定到对应用户。
 		if isSameOriginRequest(r) {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withDefaultAPIKeyUser(r))
 			return
 		}
-		if securitypkg.HasValidAPIKey(r, cfg.Security.APIKey) ||
-			securitypkg.ValidateSignedRequest(r, cfg.Security.APIKey, time.Now()) == nil {
-			next.ServeHTTP(w, r)
+		if user, rawKey, ok := authenticateSignedRequest(r, cfg); ok {
+			next.ServeHTTP(w, withAPIKeyUser(r, user, rawKey))
 			return
 		}
 		writeAuthError(w)
@@ -100,13 +123,62 @@ func fileAccessMiddleware(next http.Handler) http.Handler {
 }
 
 func requiresAPIAuth(cfg *configs.Config) bool {
-	if cfg == nil || !cfg.Security.EnableAPIKey {
-		return false
-	}
 	if truthyEnv(disableAPIAuthEnv) || truthyEnv(legacyDisableAuthEnv) {
 		return false
 	}
-	return true
+	if cfg != nil && cfg.Security.EnableAPIKey {
+		return true
+	}
+	if store := metadata.GetStore(); store != nil && store.HasAPIKeyUsers(context.Background()) {
+		return true
+	}
+	return false
+}
+
+func authenticateAPIKeyRequest(r *http.Request, cfg *configs.Config) (*metadata.APIKeyUser, string, bool, int) {
+	rawKey := securitypkg.ExtractAPIKey(r)
+	if rawKey == "" {
+		return nil, "", false, http.StatusUnauthorized
+	}
+	if store := metadata.GetStore(); store != nil {
+		user, err := store.FindActiveAPIKeyUserByKey(r.Context(), rawKey)
+		if err == nil {
+			return user, rawKey, true, http.StatusOK
+		}
+		if err != sql.ErrNoRows {
+			return nil, "", false, http.StatusForbidden
+		}
+	}
+	if cfg != nil && securitypkg.ConstantTimeEqual(rawKey, cfg.Security.APIKey) {
+		return defaultAPIKeyUser(), rawKey, true, http.StatusOK
+	}
+	return nil, "", false, http.StatusForbidden
+}
+
+func authenticateSignedRequest(r *http.Request, cfg *configs.Config) (*metadata.APIKeyUser, string, bool) {
+	if !canUseSignedURL(r) {
+		return nil, "", false
+	}
+	rawKey := securitypkg.ExtractAPIKey(r)
+	if rawKey != "" {
+		if user, _, ok, _ := authenticateAPIKeyRequest(r, cfg); ok &&
+			securitypkg.ValidateSignedRequest(r, signingSecretForAPIKey(user, rawKey), time.Now()) == nil {
+			return user, rawKey, true
+		}
+	}
+	if store := metadata.GetStore(); store != nil {
+		user, err := store.FindActiveAPIKeyUserBySignedRequest(r.Context(), func(secret string) bool {
+			return securitypkg.ValidateSignedRequest(r, secret, time.Now()) == nil
+		})
+		if err == nil {
+			return user, "", true
+		}
+	}
+	if cfg != nil && strings.TrimSpace(cfg.Security.APIKey) != "" &&
+		securitypkg.ValidateSignedRequest(r, cfg.Security.APIKey, time.Now()) == nil {
+		return defaultAPIKeyUser(), cfg.Security.APIKey, true
+	}
+	return nil, "", false
 }
 
 func canUseSignedURL(r *http.Request) bool {
@@ -135,4 +207,79 @@ func writeAuthError(w http.ResponseWriter) {
 		ErrNo:  http.StatusUnauthorized,
 		ErrMsg: "未授权：缺少或无效的 API Key",
 	})
+}
+
+func writeForbiddenError(w http.ResponseWriter) {
+	writeJsonWithStatusCode(w, http.StatusForbidden, commonResp{
+		ErrNo:  http.StatusForbidden,
+		ErrMsg: "无权限：API Key 无效、已禁用或已吊销",
+	})
+}
+
+func withAPIKeyUser(r *http.Request, user *metadata.APIKeyUser, rawKey string) *http.Request {
+	if user == nil {
+		user = defaultAPIKeyUser()
+	}
+	ctx := context.WithValue(r.Context(), authAPIKeyUserKey, user)
+	if strings.TrimSpace(rawKey) != "" {
+		ctx = context.WithValue(ctx, authRawAPIKeyKey, strings.TrimSpace(rawKey))
+	}
+	return r.WithContext(ctx)
+}
+
+func withDefaultAPIKeyUser(r *http.Request) *http.Request {
+	return withAPIKeyUser(r, defaultAPIKeyUser(), "")
+}
+
+func currentAPIKeyUser(r *http.Request) *metadata.APIKeyUser {
+	if r != nil {
+		if user, ok := r.Context().Value(authAPIKeyUserKey).(*metadata.APIKeyUser); ok && user != nil {
+			return user
+		}
+	}
+	return defaultAPIKeyUser()
+}
+
+func currentAPIKeyUserID(r *http.Request) string {
+	return currentAPIKeyUser(r).ID
+}
+
+func currentRawAPIKey(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if key, ok := r.Context().Value(authRawAPIKeyKey).(string); ok {
+		return key
+	}
+	return securitypkg.ExtractAPIKey(r)
+}
+
+func signingSecretForAPIKey(user *metadata.APIKeyUser, rawKey string) string {
+	rawKey = strings.TrimSpace(rawKey)
+	if rawKey == "" {
+		return ""
+	}
+	if user != nil && user.ID != "" && user.ID != metadata.DefaultAPIKeyUserID {
+		return securitypkg.HashAPIKey(rawKey)
+	}
+	return rawKey
+}
+
+func signingSecretForRequest(r *http.Request, cfg *configs.Config) string {
+	rawKey := currentRawAPIKey(r)
+	if rawKey != "" {
+		return signingSecretForAPIKey(currentAPIKeyUser(r), rawKey)
+	}
+	if cfg != nil {
+		return cfg.Security.APIKey
+	}
+	return ""
+}
+
+func defaultAPIKeyUser() *metadata.APIKeyUser {
+	return &metadata.APIKeyUser{
+		ID:      metadata.DefaultAPIKeyUserID,
+		Name:    "默认用户",
+		Enabled: true,
+	}
 }
