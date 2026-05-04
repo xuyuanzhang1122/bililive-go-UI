@@ -340,6 +340,41 @@ class API {
     }
 
     /**
+     * 获取当前 API Key 用户信息
+     */
+    getAuthMe() {
+        return utils.requestGet(`${BASE_URL}/auth/me`);
+    }
+
+    /**
+     * 获取 API Key 用户列表（不返回完整 Key）
+     */
+    getAPIKeyUsers() {
+        return utils.requestGet(`${BASE_URL}/api-keys`);
+    }
+
+    /**
+     * 创建 API Key 用户，响应中只会返回一次完整 Key
+     */
+    createAPIKeyUser(name: string) {
+        return utils.requestPost(`${BASE_URL}/api-keys`, { name });
+    }
+
+    /**
+     * 更新 API Key 用户名称或启用状态
+     */
+    updateAPIKeyUser(id: string, updates: { name?: string; enabled?: boolean }) {
+        return utils.requestPatch(`${BASE_URL}/api-keys/${encodeURIComponent(id)}`, updates);
+    }
+
+    /**
+     * 吊销/删除 API Key 用户
+     */
+    deleteAPIKeyUser(id: string) {
+        return utils.requestDelete(`${BASE_URL}/api-keys/${encodeURIComponent(id)}`);
+    }
+
+    /**
      * 切换直播间的流设置
      * 更新直播间的流配置并重启录制（如果正在录制中）
      * @param liveId 直播间ID
@@ -434,4 +469,3 @@ class API {
 }
 
 export default API;
-

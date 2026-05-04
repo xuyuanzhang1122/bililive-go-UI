@@ -24,7 +24,8 @@ func TestRewriteHLSPlaylistSignsSegments(t *testing.T) {
 	cacheKey := strings.Repeat("a", 64)
 	playlist := "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6.0,\nseg_00000.ts\n#EXT-X-ENDLIST\n"
 
-	rewritten := string(rewriteHLSPlaylist([]byte(playlist), cacheKey, cfg))
+	playlistReq := httptest.NewRequest(http.MethodGet, "/api/stream/hls/video.flv?_key=secret", nil)
+	rewritten := string(rewriteHLSPlaylist(playlistReq, []byte(playlist), cacheKey, cfg))
 	lines := strings.Split(rewritten, "\n")
 	require.Len(t, lines, 6)
 	assert.True(t, strings.HasPrefix(lines[3], "/api/stream/hls-segment/"+cacheKey+"/seg_00000.ts?"))
@@ -38,7 +39,8 @@ func TestRewriteHLSPlaylistUsesRawSegmentURLWithoutAPIKey(t *testing.T) {
 	cacheKey := strings.Repeat("b", 64)
 	playlist := "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6.0,\nseg_00000.ts\n#EXT-X-ENDLIST\n"
 
-	rewritten := string(rewriteHLSPlaylist([]byte(playlist), cacheKey, cfg))
+	playlistReq := httptest.NewRequest(http.MethodGet, "/api/stream/hls/video.flv", nil)
+	rewritten := string(rewriteHLSPlaylist(playlistReq, []byte(playlist), cacheKey, cfg))
 	lines := strings.Split(rewritten, "\n")
 	require.Len(t, lines, 6)
 	assert.Equal(t, "/api/stream/hls-segment/"+cacheKey+"/seg_00000.ts", lines[3])
@@ -52,6 +54,7 @@ func TestSignedHLSURLForVideoFile(t *testing.T) {
 		},
 	}
 
-	assert.NotEmpty(t, signedHLSURLForVideoFile(".flv", "抖音/主播/video.flv", cfg))
-	assert.Empty(t, signedHLSURLForVideoFile(".mp4", "抖音/主播/video.mp4", cfg))
+	req := httptest.NewRequest(http.MethodGet, "/api/video-files/%E6%8A%96%E9%9F%B3/%E4%B8%BB%E6%92%AD?_key=secret", nil)
+	assert.NotEmpty(t, signedHLSURLForVideoFile(req, ".flv", "抖音/主播/video.flv", cfg))
+	assert.Empty(t, signedHLSURLForVideoFile(req, ".mp4", "抖音/主播/video.mp4", cfg))
 }

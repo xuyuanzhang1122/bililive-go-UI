@@ -3,6 +3,7 @@ package servers
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,10 +32,10 @@ import (
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/livestate"
-	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/memstats"
+	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/pkg/urlresolver"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
@@ -1205,9 +1206,9 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
 			RelPath:      relPath,
 			Size:         info.Size(),
 			ModTime:      info.ModTime().Unix(),
-			FileURL:      signedURLForAsset("file", relPath, cfg),
-			ThumbnailURL: signedURLForAsset("thumbnail", relPath, cfg),
-			HLSURL:       signedHLSURLForVideoFile(ext, relPath, cfg),
+			FileURL:      signedURLForAsset(r, "file", relPath, cfg),
+			ThumbnailURL: signedURLForAsset(r, "thumbnail", relPath, cfg),
+			HLSURL:       signedHLSURLForVideoFile(r, ext, relPath, cfg),
 		})
 		return nil
 	})
@@ -3344,7 +3345,7 @@ func getWatchHistory(writer http.ResponseWriter, r *http.Request) {
 		writeJSON(writer, []metadata.WatchHistoryEntry{})
 		return
 	}
-	entries, err := store.GetWatchHistory(r.Context())
+	entries, err := store.GetWatchHistoryForUser(r.Context(), currentAPIKeyUserID(r))
 	if err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
@@ -3356,6 +3357,38 @@ func getWatchHistory(writer http.ResponseWriter, r *http.Request) {
 		entries = []metadata.WatchHistoryEntry{}
 	}
 	writeJSON(writer, entries)
+}
+
+// getWatchHistoryItem 返回当前 Key 用户的单条观看历史
+func getWatchHistoryItem(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "数据库未初始化",
+		})
+		return
+	}
+	videoPath := mux.Vars(r)["videoPath"]
+	if videoPath == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "videoPath 不能为空",
+		})
+		return
+	}
+	entry, err := store.GetWatchHistoryItemForUser(r.Context(), currentAPIKeyUserID(r), videoPath)
+	if err != nil {
+		status := http.StatusInternalServerError
+		msg := "获取观看历史失败: " + err.Error()
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+			msg = "观看历史不存在"
+		}
+		writeJsonWithStatusCode(writer, status, commonResp{ErrNo: status, ErrMsg: msg})
+		return
+	}
+	writeJSON(writer, entry)
 }
 
 // upsertWatchHistory 保存或更新观看进度
@@ -3383,7 +3416,7 @@ func upsertWatchHistory(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := store.UpsertWatchHistory(r.Context(), &entry); err != nil {
+	if err := store.UpsertWatchHistoryForUser(r.Context(), currentAPIKeyUserID(r), &entry); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
 			ErrMsg: "保存失败: " + err.Error(),
@@ -3412,7 +3445,7 @@ func deleteWatchHistory(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if err := store.DeleteWatchHistory(r.Context(), videoPath); err != nil {
+	if err := store.DeleteWatchHistoryForUser(r.Context(), currentAPIKeyUserID(r), videoPath); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
 			ErrMsg: "删除失败: " + err.Error(),
@@ -3427,6 +3460,129 @@ func getAuthStatus(writer http.ResponseWriter, r *http.Request) {
 	cfg := configs.GetCurrentConfig()
 	writeJSON(writer, map[string]interface{}{
 		"enable_api_key": cfg != nil && cfg.Security.EnableAPIKey,
-		"api_key":        func() string { if cfg != nil { return cfg.Security.APIKey }; return "" }(),
+		"api_key": func() string {
+			if cfg != nil {
+				return cfg.Security.APIKey
+			}
+			return ""
+		}(),
 	})
+}
+
+func getAuthMe(writer http.ResponseWriter, r *http.Request) {
+	writeJSON(writer, currentAPIKeyUser(r))
+}
+
+func getAPIKeyUsers(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJSON(writer, []metadata.APIKeyUser{})
+		return
+	}
+	users, err := store.ListAPIKeyUsers(r.Context())
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "获取 API Key 用户失败: " + err.Error(),
+		})
+		return
+	}
+	if users == nil {
+		users = []metadata.APIKeyUser{}
+	}
+	writeJSON(writer, users)
+}
+
+func createAPIKeyUser(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "数据库未初始化",
+		})
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "请求格式错误: " + err.Error(),
+		})
+		return
+	}
+	user, apiKey, err := store.CreateAPIKeyUser(r.Context(), req.Name)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "创建 API Key 用户失败: " + err.Error(),
+		})
+		return
+	}
+	writeJsonWithStatusCode(writer, http.StatusCreated, map[string]any{
+		"id":           user.ID,
+		"name":         user.Name,
+		"api_key":      apiKey,
+		"key_suffix":   user.KeySuffix,
+		"enabled":      user.Enabled,
+		"created_at":   user.CreatedAt,
+		"last_used_at": user.LastUsedAt,
+	})
+}
+
+func updateAPIKeyUser(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "数据库未初始化",
+		})
+		return
+	}
+	id := mux.Vars(r)["id"]
+	var req struct {
+		Name    *string `json:"name"`
+		Enabled *bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "请求格式错误: " + err.Error(),
+		})
+		return
+	}
+	user, err := store.UpdateAPIKeyUser(r.Context(), id, req.Name, req.Enabled)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		writeJsonWithStatusCode(writer, status, commonResp{
+			ErrNo:  status,
+			ErrMsg: "更新 API Key 用户失败: " + err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, user)
+}
+
+func deleteAPIKeyUser(writer http.ResponseWriter, r *http.Request) {
+	store := metadata.GetStore()
+	if store == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "数据库未初始化",
+		})
+		return
+	}
+	id := mux.Vars(r)["id"]
+	if err := store.RevokeAPIKeyUser(r.Context(), id); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "吊销 API Key 用户失败: " + err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, commonResp{ErrNo: 0, ErrMsg: "ok"})
 }
