@@ -96,7 +96,7 @@ func appendUniqueURL(out *[]any, seen map[string]struct{}, rawURL string) {
 }
 
 func mirrorURLsFor(rawURL string) []string {
-	if strings.Contains(rawURL, "bililive-go.com/remotetools/download") {
+	if strings.Contains(rawURL, "image.xumy.art/remotetools/download") {
 		if parsed, err := url.Parse(rawURL); err == nil {
 			if upstream := parsed.Query().Get("downloadurl"); upstream != "" {
 				return append([]string{upstream}, mirrorURLsFor(upstream)...)

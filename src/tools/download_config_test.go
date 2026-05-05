@@ -80,7 +80,7 @@ func TestAddDownloadFallbacksExpandsRemoteProxyUpstream(t *testing.T) {
 		"demo": {
 			"v1": {
 				"downloadUrl": [
-					"https://bililive-go.com/remotetools/download?downloadurl=https://github.com/example/project/releases/download/v1/tool.zip"
+					"https://image.xumy.art/remotetools/download?downloadurl=https://github.com/example/project/releases/download/v1/tool.zip"
 				],
 				"pathToEntry": "tool"
 			}
@@ -101,7 +101,7 @@ func TestAddDownloadFallbacksExpandsRemoteProxyUpstream(t *testing.T) {
 
 	got := parsed["demo"]["v1"].DownloadURL
 	want := []string{
-		"https://bililive-go.com/remotetools/download?downloadurl=https://github.com/example/project/releases/download/v1/tool.zip",
+		"https://image.xumy.art/remotetools/download?downloadurl=https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://ghfast.top/https://github.com/example/project/releases/download/v1/tool.zip",
 		"https://gh-proxy.com/https://github.com/example/project/releases/download/v1/tool.zip",

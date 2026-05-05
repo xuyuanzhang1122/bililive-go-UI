@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/pkg/proxy"
 )
 
@@ -99,6 +100,11 @@ func (r *DouyinResolver) follow(ctx context.Context, method, rawURL string) (str
 	req.Header.Set("User-Agent", douyinDesktopUA)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	if cfg := configs.GetCurrentConfig(); cfg != nil {
+		if cookie := strings.TrimSpace(cfg.Douyin.Cookie); cookie != "" {
+			req.Header.Set("Cookie", cookie)
+		}
+	}
 
 	resp, err := r.client.Do(req)
 	if err != nil {

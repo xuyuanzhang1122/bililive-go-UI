@@ -3,7 +3,7 @@
     "v2.17.3": {
       "downloadUrl": [
         "https://github.com/BililiveRecorder/BililiveRecorder/releases/download/v2.17.3/BililiveRecorder-CLI-any.zip",
-        "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/BililiveRecorder/BililiveRecorder/releases/download/v2.17.3/BililiveRecorder-CLI-any.zip"
+        "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/BililiveRecorder/BililiveRecorder/releases/download/v2.17.3/BililiveRecorder-CLI-any.zip"
       ],
       "pathToEntry": "BililiveRecorder.Cli.dll",
       "printInfoCmd": [
@@ -16,7 +16,7 @@
     "mod-v0.0.2": {
       "downloadUrl": [
         "https://github.com/kira1928/BililiveRecorder/releases/download/mod-v0.0.2/BililiveRecorder-CLI-any.zip",
-        "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/BililiveRecorder/releases/download/mod-v0.0.2/BililiveRecorder-CLI-any.zip"
+        "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/BililiveRecorder/releases/download/mod-v0.0.2/BililiveRecorder-CLI-any.zip"
       ],
       "pathToEntry": "BililiveRecorder.Cli.dll",
       "printInfoCmd": [
@@ -31,21 +31,21 @@
         "linux": {
           "amd64": [
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linux64-gpl-8.0.tar.xz",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linux64-gpl-8.0.tar.xz"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linux64-gpl-8.0.tar.xz"
           ],
           "arm64": [
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linuxarm64-gpl-8.0.tar.xz",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linuxarm64-gpl-8.0.tar.xz"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linuxarm64-gpl-8.0.tar.xz"
           ]
         },
         "windows": {
           "amd64": [
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip"
           ],
           "arm64": [
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-winarm64-gpl-8.0.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-winarm64-gpl-8.0.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-winarm64-gpl-8.0.zip"
           ]
         }
       },
@@ -118,27 +118,27 @@
         "darwin": {
           "amd64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-x64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-x64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-x64.zip"
           ],
           "arm64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-arm64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-arm64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-arm64.zip"
           ]
         },
         "linux": {
           "amd64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-x64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-x64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-x64.zip"
           ],
           "arm64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-arm64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-arm64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-arm64.zip"
           ]
         },
         "windows": {
           "amd64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-windows-x64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-windows-x64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-windows-x64.zip"
           ]
         }
       },
@@ -153,31 +153,31 @@
         "darwin": {
           "amd64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-macos-x64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-macos-x64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-macos-x64.zip"
           ],
           "arm64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-macos-arm64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-macos-arm64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-macos-arm64.zip"
           ]
         },
         "linux": {
           "amd64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-x64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-x64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-x64.zip"
           ],
           "arm64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-arm64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-arm64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-arm64.zip"
           ],
           "arm": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-armv7.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-armv7.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-ubuntu-armv7.zip"
           ]
         },
         "windows": {
           "amd64": [
             "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-windows-x64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-windows-x64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.2/bililive-cli-lib-windows-x64.zip"
           ]
         }
       },
@@ -194,31 +194,31 @@
         "darwin": {
           "amd64": [
             "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-amd64.tar.gz",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-amd64.tar.gz"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-amd64.tar.gz"
           ],
           "arm64": [
             "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-arm64.tar.gz",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-arm64.tar.gz"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-arm64.tar.gz"
           ]
         },
         "linux": {
           "amd64": [
             "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-amd64.tar.gz",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-amd64.tar.gz"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-amd64.tar.gz"
           ],
           "arm64": [
             "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-arm64.tar.gz",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-arm64.tar.gz"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-arm64.tar.gz"
           ],
           "arm": [
             "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-armv7.tar.gz",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-armv7.tar.gz"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-armv7.tar.gz"
           ]
         },
         "windows": {
           "amd64": [
             "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-windows-amd64.zip",
-            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-windows-amd64.zip"
+            "https://image.xumy.art/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-windows-amd64.zip"
           ]
         }
       },

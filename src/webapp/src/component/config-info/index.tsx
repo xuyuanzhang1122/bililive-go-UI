@@ -11,7 +11,7 @@ import {
   ReloadOutlined, EditOutlined, DeleteOutlined,
   RightOutlined, PlusOutlined, WarningOutlined,
   ExclamationCircleOutlined,
-  KeyOutlined, CopyOutlined
+  KeyOutlined, CopyOutlined, ExperimentOutlined
 } from '@ant-design/icons';
 import { useLocation, Link } from 'react-router-dom';
 import Editor from 'react-simple-code-editor';
@@ -1866,6 +1866,190 @@ const RoomSettings: React.FC<{
   );
 };
 
+interface HeadlessBrowserConfigState {
+  path?: string;
+  auto_install?: boolean;
+  timeout_seconds?: number;
+  detected_path?: string;
+  available?: boolean;
+  version?: string;
+  error?: string;
+}
+
+interface DouyinCookieState {
+  configured?: boolean;
+  updated_at?: string;
+}
+
+const ResolverToolsPanel: React.FC = () => {
+  const [headless, setHeadless] = useState<HeadlessBrowserConfigState>({});
+  const [cookieInfo, setCookieInfo] = useState<DouyinCookieState>({});
+  const [cookieDraft, setCookieDraft] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [probing, setProbing] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [browserPayload, cookiePayload] = await Promise.all([
+        api.getHeadlessBrowserConfig(),
+        api.getDouyinCookieConfig(),
+      ]);
+      setHeadless(unwrapResponseData<HeadlessBrowserConfigState>(browserPayload, {}));
+      setCookieInfo(unwrapResponseData<DouyinCookieState>(cookiePayload, {}));
+    } catch (error: any) {
+      message.error('加载解析工具配置失败：' + (error?.message || '未知错误'));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const saveHeadless = async () => {
+    setSaving(true);
+    try {
+      const payload = await api.updateHeadlessBrowserConfig({
+        path: headless.path || '',
+        auto_install: !!headless.auto_install,
+        timeout_seconds: Number(headless.timeout_seconds || 15),
+      });
+      setHeadless(unwrapResponseData<HeadlessBrowserConfigState>(payload, headless));
+      message.success('无头浏览器配置已保存');
+    } catch (error: any) {
+      message.error('保存失败：' + (error?.message || '未知错误'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const probeBrowser = async () => {
+    setProbing(true);
+    try {
+      const payload = await api.probeHeadlessBrowser();
+      const result = unwrapResponseData<HeadlessBrowserConfigState>(payload, {});
+      setHeadless(prev => ({ ...prev, ...result }));
+      if (result.available) {
+        message.success('无头浏览器可用');
+      } else {
+        message.warning(result.error || '未检测到可用的 Chromium/Chrome');
+      }
+    } catch (error: any) {
+      message.error('检测失败：' + (error?.message || '未知错误'));
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  const saveCookie = async (cookie: string) => {
+    setSaving(true);
+    try {
+      const payload = await api.saveDouyinCookie(cookie);
+      setCookieInfo(unwrapResponseData<DouyinCookieState>(payload, {}));
+      setCookieDraft('');
+      message.success(cookie.trim() ? 'Douyin Cookie 已保存' : 'Douyin Cookie 已清除');
+    } catch (error: any) {
+      message.error('保存失败：' + (error?.message || '未知错误'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <Spin />;
+
+  return (
+    <div className="config-content">
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Card
+          size="small"
+          title={<><ExperimentOutlined /> 无头浏览器</>}
+          extra={<Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>}
+        >
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Alert
+              type={headless.available ? 'success' : 'info'}
+              showIcon
+              message={headless.available ? '已检测到可用浏览器' : '未指定时会按环境变量和系统常见路径自动探测'}
+              description={
+                <Space direction="vertical" size={2}>
+                  <span>检测路径：{headless.detected_path || '-'}</span>
+                  <span>版本：{headless.version || '-'}</span>
+                  {headless.error && <span>错误：{headless.error}</span>}
+                </Space>
+              }
+            />
+            <Form layout="vertical">
+              <Form.Item label="浏览器可执行文件路径">
+                <Input
+                  value={headless.path || ''}
+                  placeholder="留空则使用 BILILIVE_HEADLESS_BROWSER_PATH / PATH / 常见 Chrome 路径"
+                  onChange={e => setHeadless(prev => ({ ...prev, path: e.target.value }))}
+                />
+              </Form.Item>
+              <Space wrap>
+                <span>允许自动安装</span>
+                <Switch
+                  checked={!!headless.auto_install}
+                  onChange={checked => setHeadless(prev => ({ ...prev, auto_install: checked }))}
+                />
+                <span>超时秒数</span>
+                <InputNumber
+                  min={3}
+                  max={120}
+                  value={headless.timeout_seconds || 15}
+                  onChange={value => setHeadless(prev => ({ ...prev, timeout_seconds: Number(value || 15) }))}
+                />
+              </Space>
+            </Form>
+            <Space wrap>
+              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={saveHeadless}>
+                保存
+              </Button>
+              <Button icon={<ExperimentOutlined />} loading={probing} onClick={probeBrowser}>
+                检测
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+
+        <Card size="small" title={<><KeyOutlined /> Douyin Cookie</>}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Alert
+              type={cookieInfo.configured ? 'success' : 'info'}
+              showIcon
+              message={cookieInfo.configured ? '已配置 Douyin Cookie' : '尚未配置 Douyin Cookie'}
+              description={`更新时间：${formatDateTime(cookieInfo.updated_at)}`}
+            />
+            <TextArea
+              rows={4}
+              value={cookieDraft}
+              placeholder="粘贴新的 Douyin Cookie；现有 Cookie 不会在页面回显"
+              onChange={e => setCookieDraft(e.target.value)}
+            />
+            <Space wrap>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                loading={saving}
+                onClick={() => saveCookie(cookieDraft)}
+                disabled={!cookieDraft.trim()}
+              >
+                保存 Cookie
+              </Button>
+              <Button danger icon={<DeleteOutlined />} loading={saving} onClick={() => saveCookie('')}>
+                清除 Cookie
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+      </Space>
+    </div>
+  );
+};
+
 // 主配置页面组件
 const ConfigInfo: React.FC = () => {
   const [mode, setMode] = useState<'gui' | 'yaml'>('gui');
@@ -1931,7 +2115,7 @@ const ConfigInfo: React.FC = () => {
         else if (hash.startsWith('#notify')) tab = 'notify';
       }
 
-      if (tab && ['global', 'platforms', 'rooms', 'notify'].includes(tab)) {
+      if (tab && ['global', 'platforms', 'rooms', 'notify', 'resolver', 'apikey'].includes(tab)) {
         setActiveTab(tab);
       }
 
@@ -2085,6 +2269,11 @@ const ConfigInfo: React.FC = () => {
           loading={saving}
         />
       ) : <Spin />,
+    },
+    {
+      key: 'resolver',
+      label: <span><ExperimentOutlined /> 解析工具</span>,
+      content: <ResolverToolsPanel />,
     },
     {
       key: 'apikey',

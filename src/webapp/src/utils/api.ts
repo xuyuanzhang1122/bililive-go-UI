@@ -77,6 +77,19 @@ class API {
         return utils.requestGet(`${BASE_URL}/video-files/${folderPath.split('/').map(encodeURIComponent).join('/')}`);
     }
 
+    getWatchHistoryItem(videoPath: string) {
+        return utils.requestGet(`${BASE_URL}/history/${videoPath.split('/').map(encodeURIComponent).join('/')}`);
+    }
+
+    saveWatchHistory(videoPath: string, videoName: string, positionSeconds: number, durationSeconds: number) {
+        return utils.requestPost(`${BASE_URL}/history`, {
+            video_path: videoPath,
+            video_name: videoName,
+            position_seconds: positionSeconds,
+            duration_seconds: durationSeconds,
+        });
+    }
+
     /**
      * 开始监听直播间
      * @param id 直播间id
@@ -372,6 +385,26 @@ class API {
      */
     deleteAPIKeyUser(id: string) {
         return utils.requestDelete(`${BASE_URL}/api-keys/${encodeURIComponent(id)}`);
+    }
+
+    getHeadlessBrowserConfig() {
+        return utils.requestGet(`${BASE_URL}/config/headless-browser`);
+    }
+
+    updateHeadlessBrowserConfig(updates: { path?: string; auto_install?: boolean; timeout_seconds?: number }) {
+        return utils.requestPatch(`${BASE_URL}/config/headless-browser`, updates);
+    }
+
+    probeHeadlessBrowser() {
+        return utils.requestPost(`${BASE_URL}/tools/headless-browser/probe`, {});
+    }
+
+    getDouyinCookieConfig() {
+        return utils.requestGet(`${BASE_URL}/config/douyin-cookie`);
+    }
+
+    saveDouyinCookie(cookie: string) {
+        return utils.requestPut(`${BASE_URL}/config/douyin-cookie`, { cookie });
     }
 
     /**

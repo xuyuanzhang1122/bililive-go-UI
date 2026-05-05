@@ -223,6 +223,24 @@ var defaultOpenListConfig = OpenListConfig{
 	DataPath: "", // 默认使用 AppDataPath/openlist
 }
 
+// HeadlessBrowserConfig 配置用于短链解析的无头浏览器。
+type HeadlessBrowserConfig struct {
+	Path           string `yaml:"path" json:"path"`
+	AutoInstall    bool   `yaml:"auto_install" json:"auto_install"`
+	TimeoutSeconds int    `yaml:"timeout_seconds" json:"timeout_seconds"`
+}
+
+var defaultHeadlessBrowserConfig = HeadlessBrowserConfig{
+	Path:           "",
+	AutoInstall:    true,
+	TimeoutSeconds: 15,
+}
+
+// DouyinConfig 保存抖音平台的附加访问配置。
+type DouyinConfig struct {
+	Cookie string `yaml:"cookie" json:"cookie,omitempty"`
+}
+
 // UpdateConfig 自动更新配置
 type UpdateConfig struct {
 	// AutoCheck 是否启用自动检查更新（默认 true）
@@ -328,6 +346,12 @@ type Config struct {
 
 	// OpenList 配置
 	OpenList OpenListConfig `yaml:"openlist" json:"openlist"`
+
+	// 无头浏览器配置
+	HeadlessBrowser HeadlessBrowserConfig `yaml:"headless_browser" json:"headless_browser"`
+
+	// 抖音平台配置
+	Douyin DouyinConfig `yaml:"douyin" json:"douyin"`
 
 	// 自动更新配置
 	Update UpdateConfig `yaml:"update" json:"update"`
@@ -705,6 +729,8 @@ var defaultConfig = Config{
 
 	Proxy:           defaultProxy,
 	OpenList:        defaultOpenListConfig,
+	HeadlessBrowser: defaultHeadlessBrowserConfig,
+	Douyin:          DouyinConfig{},
 	Update:          defaultUpdateConfig,
 	PlatformConfigs: map[string]PlatformConfig{},
 }
@@ -732,6 +758,9 @@ func defaultAppDataPath() string {
 
 func newConfigPostProcess(c *Config) {
 	c.Security.Normalize()
+	if c.HeadlessBrowser.TimeoutSeconds <= 0 {
+		c.HeadlessBrowser.TimeoutSeconds = defaultHeadlessBrowserConfig.TimeoutSeconds
+	}
 	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
 	if isInContainer() && strings.TrimSpace(c.ReadOnlyToolFolder) == "" {
 		c.ReadOnlyToolFolder = "/opt/bililive/tools"
@@ -773,6 +802,9 @@ func (c *Config) Verify() error {
 	}
 	if c.Security.SignedURLTTLSeconds <= 0 {
 		return fmt.Errorf("签名 URL 有效期必须大于 0")
+	}
+	if c.HeadlessBrowser.TimeoutSeconds <= 0 {
+		c.HeadlessBrowser.TimeoutSeconds = defaultHeadlessBrowserConfig.TimeoutSeconds
 	}
 
 	// 验证平台配置

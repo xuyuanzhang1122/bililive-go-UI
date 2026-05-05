@@ -58,6 +58,16 @@ func RegisterEventListeners(ed events.Dispatcher, manager *Manager, cache gcache
 		manager.OnLiveEnd(liveID)
 	}))
 
+	ed.AddEventListener(listeners.ListenStop, events.NewEventListener(func(event *events.Event) {
+		l, ok := event.Object.(live.Live)
+		if !ok {
+			return
+		}
+
+		liveID := string(l.GetLiveId())
+		manager.OnUserStopMonitoring(liveID)
+	}))
+
 	// 监听录制开始事件
 	ed.AddEventListener(recorders.RecorderStart, events.NewEventListener(func(event *events.Event) {
 		l, ok := event.Object.(live.Live)

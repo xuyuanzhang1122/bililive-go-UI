@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -48,6 +49,35 @@ func TestConfig_Verify(t *testing.T) {
 	cfg.OutPutPath = os.TempDir()
 	cfg.RPC.Enable = false
 	assert.Error(t, cfg.Verify())
+}
+
+func TestHeadlessBrowserAndDouyinConfigYAML(t *testing.T) {
+	raw := []byte(`
+rpc:
+  enable: true
+  bind: ":8080"
+interval: 30
+out_put_path: "` + filepath.ToSlash(t.TempDir()) + `"
+headless_browser:
+  path: "/usr/bin/chromium"
+  auto_install: false
+  timeout_seconds: 23
+douyin:
+  cookie: "sessionid=test"
+security:
+  signed_url_ttl_seconds: 3600
+`)
+	var cfg Config
+	assert.NoError(t, yaml.Unmarshal(raw, &cfg))
+	assert.Equal(t, "/usr/bin/chromium", cfg.HeadlessBrowser.Path)
+	assert.False(t, cfg.HeadlessBrowser.AutoInstall)
+	assert.Equal(t, 23, cfg.HeadlessBrowser.TimeoutSeconds)
+	assert.Equal(t, "sessionid=test", cfg.Douyin.Cookie)
+
+	out, err := yaml.Marshal(&cfg)
+	assert.NoError(t, err)
+	assert.Contains(t, string(out), "headless_browser:")
+	assert.Contains(t, string(out), "douyin:")
 }
 
 func TestSecurityNormalizeGeneratesKeyOnlyWhenEnabled(t *testing.T) {

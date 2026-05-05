@@ -176,6 +176,7 @@ func (m *Manager) OnLiveEnd(liveID string) {
 
 // OnLiveEndWithReason 直播结束时调用（指定结束原因）
 func (m *Manager) OnLiveEndWithReason(liveID string, reason string) {
+	m.OnRecordingStop(liveID)
 	now := time.Now()
 
 	// 更新关播时间

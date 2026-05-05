@@ -125,7 +125,7 @@ func (m *Manager) SetProgressCallback(ch chan DownloadProgress) {
 }
 
 // CheckForUpdate 检查是否有新版本
-// 优先使用 bililive-go.com API，失败时回退到 GitHub API
+// 优先使用 image.xumy.art API，失败时回退到 GitHub API
 func (m *Manager) CheckForUpdate(ctx context.Context, includePrerelease bool) (*ReleaseInfo, error) {
 	m.mu.Lock()
 	m.state = UpdateStateChecking

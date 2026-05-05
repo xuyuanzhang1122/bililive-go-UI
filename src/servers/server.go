@@ -81,7 +81,11 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/config/rooms/id/{id}", updateRoomConfigById).Methods("PUT", "PATCH") // 更具体的路由必须在通配符之前
 	apiRoute.HandleFunc("/config/rooms/{url:.*}", updateRoomConfig).Methods("PUT", "PATCH")
 	apiRoute.HandleFunc("/config/preview-template", previewOutputTmpl).Methods("POST") // 新增：模板预览
-	apiRoute.HandleFunc("/config/sync-status", getConfigSyncStatus).Methods("GET")     // 配置镜像状态
+	apiRoute.HandleFunc("/config/headless-browser", getHeadlessBrowserConfig).Methods("GET")
+	apiRoute.HandleFunc("/config/headless-browser", updateHeadlessBrowserConfig).Methods("PATCH")
+	apiRoute.HandleFunc("/config/douyin-cookie", getDouyinCookieConfig).Methods("GET")
+	apiRoute.HandleFunc("/config/douyin-cookie", putDouyinCookieConfig).Methods("PUT")
+	apiRoute.HandleFunc("/config/sync-status", getConfigSyncStatus).Methods("GET") // 配置镜像状态
 	apiRoute.HandleFunc("/raw-config", getRawConfig).Methods("GET")
 	apiRoute.HandleFunc("/raw-config", putRawConfig).Methods("PUT")
 	apiRoute.HandleFunc("/lives", getAllLives).Methods("GET")
@@ -121,11 +125,18 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/history", upsertWatchHistory).Methods("POST")
 	apiRoute.HandleFunc("/history/{videoPath:.*}", getWatchHistoryItem).Methods("GET")
 	apiRoute.HandleFunc("/history/{videoPath:.*}", deleteWatchHistory).Methods("DELETE")
+	apiRoute.HandleFunc("/backups", createBackup).Methods("POST")
+	apiRoute.HandleFunc("/backups/restore", restoreBackup).Methods("POST")
+	apiRoute.HandleFunc("/backups/restore/status/{job_id}", getRestoreStatus).Methods("GET")
+	apiRoute.HandleFunc("/backups/{id}", getBackup).Methods("GET")
+	apiRoute.HandleFunc("/local/doctor", localDoctor).Methods("POST")
+	apiRoute.HandleFunc("/local/restart", localRestart).Methods("POST")
 	apiRoute.HandleFunc("/signed-url", createSignedURL).Methods("GET")
 	apiRoute.HandleFunc("/thumbnail/{path:.*}", getThumbnail).Methods("GET")
 	apiRoute.HandleFunc("/video-files/{path:.*}", getVideoFiles).Methods("GET")
 	apiRoute.HandleFunc("/stream/hls-segment/{cache_key}/{segment}", getHLSSegment).Methods("GET")
 	apiRoute.HandleFunc("/stream/hls/{path:.*}", getHLSPlaylist).Methods("GET")
+	apiRoute.HandleFunc("/tools/headless-browser/probe", probeHeadlessBrowser).Methods("POST")
 	// 远程 WebUI 路由
 	apiRoute.HandleFunc("/webui/remote/status", getRemoteWebuiStatus).Methods("GET")  // 获取远程 WebUI 状态
 	apiRoute.HandleFunc("/webui/remote/check", checkRemoteWebuiUpdate).Methods("GET") // 检查远程 WebUI 更新

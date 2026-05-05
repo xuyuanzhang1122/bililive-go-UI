@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	// PingEndpoint bililive-go.com 的统计端点
-	PingEndpoint = "https://bililive-go.com/api/ping"
+	// PingEndpoint image.xumy.art 的统计端点
+	PingEndpoint = "https://image.xumy.art/api/ping"
 	// 请求超时
 	pingTimeout = 10 * time.Second
 )

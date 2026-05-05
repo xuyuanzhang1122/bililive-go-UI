@@ -918,6 +918,7 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 	})
 
 	rooms := make([]VideoRoomInfo, 0)
+	activeRecordings := currentRecordingRoomIndex(r.Context())
 
 	platformEntries, err := os.ReadDir(rootPath)
 	if err != nil {
@@ -1007,6 +1008,7 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 				TotalSize:     totalSize,
 				LatestVideoAt: latestModTime,
 				LatestVideo:   filepath.ToSlash(latestVideoRelPath),
+				Recording:     activeRecordings[platformEntry.Name()+"/"+hostName],
 			})
 		}
 	}
@@ -1027,6 +1029,11 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				key := rr.Platform + "/" + rr.HostName
+				if !activeRecordings[key] {
+					// 运行态已无 recorder 时，持久化残留不应继续显示直播中。
+					_ = manager.GetStore().SetRecordingStatus(r.Context(), rr.LiveID, false)
+					continue
+				}
 				if idx, ok := roomIndex[key]; ok {
 					rooms[idx].Recording = true
 					if rooms[idx].URL == "" {
@@ -1049,6 +1056,71 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 		return rooms[i].LatestVideoAt > rooms[j].LatestVideoAt
 	})
 	writeJSON(writer, rooms)
+}
+
+func currentRecordingRoomIndex(ctx context.Context) map[string]bool {
+	inst := instance.GetInstance(ctx)
+	result := make(map[string]bool)
+	if inst == nil || inst.RecorderManager == nil {
+		return result
+	}
+	rm, ok := inst.RecorderManager.(recorders.Manager)
+	if !ok {
+		return result
+	}
+	inst.Lives.Range(func(id types.LiveID, l live.Live) bool {
+		if !rm.HasRecorder(ctx, id) {
+			return true
+		}
+		rec, err := rm.GetRecorder(ctx, id)
+		if err != nil || !rec.IsRecording() {
+			return true
+		}
+		hostName := ""
+		if obj, err := inst.Cache.Get(l); err == nil && obj != nil {
+			if info, ok := obj.(*live.Info); ok {
+				hostName = info.HostName
+			}
+		}
+		if hostName == "" {
+			return true
+		}
+		result[l.GetPlatformCNName()+"/"+hostName] = true
+		return true
+	})
+	return result
+}
+
+func currentRecordingRelPathSet(ctx context.Context, rootPath string) map[string]bool {
+	inst := instance.GetInstance(ctx)
+	result := make(map[string]bool)
+	if inst == nil || inst.RecorderManager == nil {
+		return result
+	}
+	rm, ok := inst.RecorderManager.(recorders.Manager)
+	if !ok {
+		return result
+	}
+	inst.Lives.Range(func(id types.LiveID, _ live.Live) bool {
+		if !rm.HasRecorder(ctx, id) {
+			return true
+		}
+		status, err := rm.GetRecorderStatus(ctx, id)
+		if err != nil {
+			return true
+		}
+		raw, _ := status["file_path"].(string)
+		if raw == "" {
+			return true
+		}
+		rel, err := filepath.Rel(rootPath, raw)
+		if err != nil {
+			return true
+		}
+		result[filepath.ToSlash(rel)] = true
+		return true
+	})
+	return result
 }
 
 // getThumbnail 生成并返回视频缩略图
@@ -1151,13 +1223,15 @@ func getThumbnail(writer http.ResponseWriter, r *http.Request) {
 
 // VideoFileInfo 单个视频文件信息
 type VideoFileInfo struct {
-	Name         string `json:"name"`                    // 文件名
-	RelPath      string `json:"rel_path"`                // 相对于 output_path 的路径（用于缩略图和播放）
-	Size         int64  `json:"size"`                    // 字节数
-	ModTime      int64  `json:"mod_time"`                // Unix 时间戳
-	FileURL      string `json:"file_url,omitempty"`      // 面向移动端播放/下载的签名 URL
-	ThumbnailURL string `json:"thumbnail_url,omitempty"` // 面向移动端缩略图的签名 URL
-	HLSURL       string `json:"hls_url,omitempty"`       // 面向 AVPlayer 的 HLS 签名 URL（FLV/TS/MKV）
+	Name           string `json:"name"`                    // 文件名
+	RelPath        string `json:"rel_path"`                // 相对于 output_path 的路径（用于缩略图和播放）
+	Size           int64  `json:"size"`                    // 字节数
+	ModTime        int64  `json:"mod_time"`                // Unix 时间戳
+	FileURL        string `json:"file_url,omitempty"`      // 面向移动端播放/下载的签名 URL
+	ThumbnailURL   string `json:"thumbnail_url,omitempty"` // 面向移动端缩略图的签名 URL
+	HLSURL         string `json:"hls_url,omitempty"`       // 面向 AVPlayer 的 HLS 签名 URL（FLV/TS/MKV）
+	Recording      bool   `json:"recording"`               // 是否为当前正在写入的录制文件
+	PlaybackStatus string `json:"playback_status"`         // ready | recording | processing | unsupported
 }
 
 // getVideoFiles 列出指定文件夹路径（相对 output_path）下的所有视频文件
@@ -1176,6 +1250,7 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
 	if rootPath == "" {
 		rootPath = "./"
 	}
+	recordingFiles := currentRecordingRelPathSet(r.Context(), rootPath)
 
 	folderAbsPath := filepath.Join(rootPath, filepath.FromSlash(folderRelPath))
 	// 安全检查（使用绝对路径比较，避免相对路径 "./" 时 "." 前缀匹配失效）
@@ -1201,14 +1276,21 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
 		}
 		rel, _ := filepath.Rel(rootPath, path)
 		relPath := filepath.ToSlash(rel)
+		recording := recordingFiles[relPath]
+		playbackStatus := "ready"
+		if recording {
+			playbackStatus = "recording"
+		}
 		files = append(files, VideoFileInfo{
-			Name:         d.Name(),
-			RelPath:      relPath,
-			Size:         info.Size(),
-			ModTime:      info.ModTime().Unix(),
-			FileURL:      signedURLForAsset(r, "file", relPath, cfg),
-			ThumbnailURL: signedURLForAsset(r, "thumbnail", relPath, cfg),
-			HLSURL:       signedHLSURLForVideoFile(r, ext, relPath, cfg),
+			Name:           d.Name(),
+			RelPath:        relPath,
+			Size:           info.Size(),
+			ModTime:        info.ModTime().Unix(),
+			FileURL:        signedURLForAsset(r, "file", relPath, cfg),
+			ThumbnailURL:   signedURLForAsset(r, "thumbnail", relPath, cfg),
+			HLSURL:         signedHLSURLForVideoFile(r, ext, relPath, cfg),
+			Recording:      recording,
+			PlaybackStatus: playbackStatus,
 		})
 		return nil
 	})
@@ -1885,6 +1967,22 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 	}
 	if toolRootFolder, ok := updates["tool_root_folder"].(string); ok {
 		c.ToolRootFolder = toolRootFolder
+	}
+	if headless, ok := updates["headless_browser"].(map[string]interface{}); ok {
+		if path, ok := headless["path"].(string); ok {
+			c.HeadlessBrowser.Path = strings.TrimSpace(path)
+		}
+		if autoInstall, ok := headless["auto_install"].(bool); ok {
+			c.HeadlessBrowser.AutoInstall = autoInstall
+		}
+		if timeout, ok := headless["timeout_seconds"].(float64); ok {
+			c.HeadlessBrowser.TimeoutSeconds = int(timeout)
+		}
+	}
+	if douyin, ok := updates["douyin"].(map[string]interface{}); ok {
+		if cookie, ok := douyin["cookie"].(string); ok {
+			c.Douyin.Cookie = strings.TrimSpace(cookie)
+		}
 	}
 
 	// 处理安全配置
@@ -3123,7 +3221,7 @@ func getRemoteWebuiStatus(writer http.ResponseWriter, r *http.Request) {
 	response := RemoteWebuiStatusResponse{
 		Available:          false,
 		AppVersion:         consts.AppVersion,
-		RemoteWebuiBaseURL: "https://bililive-go.com",
+		RemoteWebuiBaseURL: "https://image.xumy.art",
 	}
 
 	// 读取本地 UI 版本
@@ -3154,7 +3252,7 @@ type RemoteWebuiInfo struct {
 
 // fetchRemoteWebuiInfo 从远程获取 WebUI 信息
 func fetchRemoteWebuiInfo(appVersion string) (*RemoteWebuiInfo, error) {
-	apiURL := fmt.Sprintf("https://bililive-go.com/api/webui?appversion=%s", url.QueryEscape(appVersion))
+	apiURL := fmt.Sprintf("https://image.xumy.art/api/webui?appversion=%s", url.QueryEscape(appVersion))
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(apiURL)

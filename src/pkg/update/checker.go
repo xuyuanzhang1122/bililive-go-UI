@@ -282,10 +282,10 @@ func CompareVersions(v1, v2 string) (int, error) {
 }
 
 // =============================================================================
-// bililive-go.com API 相关
+// image.xumy.art API 相关
 // =============================================================================
 
-// BililiveGoComResponse bililive-go.com 版本 API 响应
+// BililiveGoComResponse image.xumy.art 版本 API 响应
 type BililiveGoComResponse struct {
 	LatestVersion   string `json:"latest_version"`
 	ReleaseDate     string `json:"release_date"`
@@ -330,12 +330,12 @@ func (c *Checker) CheckForUpdateViaBililiveGoCom(includePrerelease bool) (*Relea
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求 bililive-go.com API 失败: %w", err)
+		return nil, fmt.Errorf("请求 image.xumy.art API 失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bililive-go.com API 返回错误状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("image.xumy.art API 返回错误状态码: %d", resp.StatusCode)
 	}
 
 	var response BililiveGoComResponse
@@ -376,8 +376,8 @@ func (c *Checker) CheckForUpdateWithFallback(includePrerelease bool) (*ReleaseIn
 }
 
 // GetProxyDownloadURL 获取中转下载 URL
-// 将 GitHub 下载链接转换为通过 bililive-go.com 中转的链接
+// 将 GitHub 下载链接转换为通过 image.xumy.art 中转的链接
 func GetProxyDownloadURL(githubURL string) string {
-	return fmt.Sprintf("https://bililive-go.com/remotetools/download?downloadurl=%s",
+	return fmt.Sprintf("https://image.xumy.art/remotetools/download?downloadurl=%s",
 		url.QueryEscape(githubURL))
 }

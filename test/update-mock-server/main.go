@@ -1,6 +1,6 @@
 // Package main 提供用于本地测试自动升级功能的 Mock 版本 API 服务器
 //
-// 本服务器模拟 bililive-go.com 的版本检测 API，支持完整的更新测试流程：
+// 本服务器模拟 image.xumy.art 的版本检测 API，支持完整的更新测试流程：
 //   - 版本检测 API
 //   - 更新包下载（自动将指定源文件打包）
 //   - SHA256 校验和验证
@@ -36,7 +36,7 @@ var (
 	updateFilename      string
 )
 
-// VersionResponse 模拟 bililive-go.com/api/versions 的响应格式
+// VersionResponse 模拟 image.xumy.art/api/versions 的响应格式
 type VersionResponse struct {
 	LatestVersion   string `json:"latest_version"`
 	ReleaseDate     string `json:"release_date"`

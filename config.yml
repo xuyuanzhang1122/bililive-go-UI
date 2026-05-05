@@ -61,10 +61,7 @@ live_rooms:
   # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
   # 原画PRO会保存为.ts文件, 原画为.flv
   # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩
-  - url: https://live.douyin.com/576934229407
-    is_listening: false
-    scheme: ""
-  - url: https://live.douyin.com/184946843426
+  - url: https://live.douyin.com/810339218646
     is_listening: false
     scheme: ""
 cookies: {}
@@ -117,6 +114,12 @@ proxy:
 openlist:
   port: 5244
   data_path: ""
+headless_browser:
+  path: ""
+  auto_install: true
+  timeout_seconds: 15
+douyin:
+  cookie: ""
 update:
   auto_check: true
   check_interval_hours: 6

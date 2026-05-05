@@ -96,7 +96,7 @@ Mock 服务器启动后会显示：
 
 ### 功能
 
-- **版本检测 API** - 模拟 `bililive-go.com/api/versions` 接口
+- **版本检测 API** - 模拟 `image.xumy.art/api/versions` 接口
 - **更新包下载** - 自动将本地二进制打包成 zip 并提供下载
 - **SHA256 校验** - 返回正确的校验和供客户端验证
 

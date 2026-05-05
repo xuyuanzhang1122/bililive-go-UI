@@ -162,6 +162,14 @@
     pointer-events: none;
 }
 
+.file-status-tag {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    margin: 0;
+    pointer-events: none;
+}
+
 .video-file-card:hover .play-overlay {
     opacity: 1;
 }
@@ -475,6 +483,25 @@
     font-size: 16px;
     font-weight: 600;
     letter-spacing: 0.5px;
+}
+
+.player-status-toast {
+    position: absolute;
+    left: 50%;
+    bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: 28;
+    max-width: min(420px, calc(100vw - 32px));
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: rgba(9, 18, 32, 0.82);
+    border: 1px solid rgba(145, 189, 255, 0.26);
+    color: #eef7ff;
+    font-size: 13px;
+    line-height: 1.4;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    pointer-events: none;
 }
 
 @keyframes hint-pop {

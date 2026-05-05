@@ -13,6 +13,7 @@ import mpegtsjs from 'mpegts.js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import API from '../../utils/api';
 import Utils from '../../utils/common';
+import { subscribeSSE, unsubscribeSSE } from '../../utils/sse';
 import './video-library.css';
 
 const api = new API();
@@ -63,6 +64,11 @@ interface VideoFileInfo {
     rel_path: string;
     size: number;
     mod_time: number;
+    file_url?: string;
+    hls_url?: string;
+    thumbnail_url?: string;
+    recording?: boolean;
+    playback_status?: 'ready' | 'recording' | 'processing' | 'unsupported';
 }
 
 // ===== 添加直播间弹窗 =====
@@ -255,6 +261,17 @@ const IconFullscreenExit = () => (
     </svg>
 );
 
+const buildFileUrl = (relPath: string) => `/files/${relPath.split('/').map(encodeURIComponent).join('/')}`;
+
+const playableExtensions = new Set(['mp4', 'm4v', 'mov', 'flv', 'ts', 'mkv', 'webm']);
+
+const isPlayableFile = (file: VideoFileInfo) => {
+    if (file.hls_url || file.file_url) return true;
+    if (file.playback_status === 'unsupported' || file.playback_status === 'processing') return false;
+    const ext = (file.rel_path.split('.').pop() || '').toLowerCase();
+    return playableExtensions.has(ext);
+};
+
 // ===== 手势提示类型 =====
 type GestureHint =
     | { type: 'play' }
@@ -286,6 +303,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
     const seekingBySliderRef = useRef(false);
     const [sliderValue, setSliderValue] = useState(0);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [resumeTime, setResumeTime] = useState(() => {
+        const savedRecord = loadPlayRecord();
+        return (savedRecord?.relPath === file.rel_path) ? savedRecord.position : 0;
+    });
+    const [statusText, setStatusText] = useState(file.recording ? '正在录制，尝试播放当前文件...' : '');
     const streamTypeRef = useRef<'flv' | 'ts' | 'other'>('other');
     const mpegtsPlayerRef = useRef<any>(null);
 
@@ -299,12 +321,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         isLongPress: false,
     });
 
-    const playUrl = `/files/${file.rel_path.split('/').map(encodeURIComponent).join('/')}`;
-    // 仅在切换文件时读取一次续播位置，避免父组件重渲染触发播放器重建
-    const resumeTime = useMemo(() => {
-        const savedRecord = loadPlayRecord();
-        return (savedRecord?.relPath === file.rel_path) ? savedRecord.position : 0;
-    }, [file.rel_path]);
+    const playUrl = file.hls_url || file.file_url || buildFileUrl(file.rel_path);
 
     const showHint = (h: GestureHint, duration = 1200) => {
         setHint(h);
@@ -334,15 +351,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
 
     useEffect(() => {
         resetToolbarTimer();
+        let cancelled = false;
+        const savedRecord = loadPlayRecord();
+        setResumeTime((savedRecord?.relPath === file.rel_path) ? savedRecord.position : 0);
+        api.getWatchHistoryItem(file.rel_path)
+            .then((payload: any) => {
+                if (cancelled) return;
+                const data = payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload;
+                const position = Number(data?.position_seconds ?? data?.position ?? 0);
+                if (Number.isFinite(position) && position > 0) {
+                    setResumeTime(position);
+                }
+            })
+            .catch(() => {
+                // localStorage 已在上方作为兜底续播缓存。
+            });
         const touchState = touch.current;
         return () => {
+            cancelled = true;
             if (toolbarTimerRef.current) clearTimeout(toolbarTimerRef.current);
             if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
             if (touchState.singleTapTimer) clearTimeout(touchState.singleTapTimer);
             if (uiTimerRef.current) clearInterval(uiTimerRef.current);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [file.recording, file.rel_path]);
 
     const handleTouchStart = (e: React.TouchEvent) => {
         // 必须在此调用 preventDefault，防止 iOS 系统级长按选择放大镜
@@ -427,6 +460,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             : Math.floor(art.currentTime);
         const record = savePlayRecord(file.rel_path, file.name, position, rawDuration);
         if (record) onRecordSaved?.(record);
+        api.saveWatchHistory(file.rel_path, file.name, position, rawDuration).catch(() => {
+            // 播放历史服务端写入失败时保留本地兜底即可。
+        });
     }, [file.name, file.rel_path, onRecordSaved]);
 
     const safeSeekTo = useCallback((rawTarget: number) => {
@@ -450,6 +486,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             try { art.seek = target; } catch { return; }
         }
         setCurrentTime(target);
+        window.setTimeout(persistProgress, 0);
         if (wasPlaying) {
             window.setTimeout(() => {
                 try {
@@ -457,7 +494,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
                 } catch { }
             }, 50);
         }
-    }, []);
+    }, [persistProgress]);
 
     const syncPlayerState = useCallback(() => {
         const art = artRef.current;
@@ -570,6 +607,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         artRef.current = art;
 
         art.on('ready', () => {
+            setStatusText('');
             art.video.controls = false;
             art.video.setAttribute('playsinline', 'true');
             art.video.setAttribute('webkit-playsinline', 'true');
@@ -589,9 +627,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             syncPlayerState();
         });
         art.on('video:play', syncPlayerState);
-        art.on('video:pause', syncPlayerState);
+        art.on('video:pause', () => {
+            syncPlayerState();
+            persistProgress();
+        });
         art.on('video:timeupdate', syncPlayerState);
         art.on('video:loadedmetadata', syncPlayerState);
+        art.on('video:error', () => {
+            setStatusText(file.recording ? '正在录制请稍后' : '视频暂时无法播放');
+            persistProgress();
+        });
 
         // 每 10 秒保存一次进度
         saveTimerRef.current = setInterval(() => {
@@ -612,7 +657,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             }
             mpegtsPlayerRef.current = null;
         };
-    }, [file.name, file.rel_path, persistProgress, playUrl, resumeTime, syncPlayerState]);
+    }, [file.name, file.recording, file.rel_path, persistProgress, playUrl, resumeTime, syncPlayerState]);
 
     useEffect(() => {
         const handleVisibility = () => {
@@ -742,6 +787,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
                     {renderHintIcon()}
                 </div>
             )}
+            {statusText && (
+                <div className="player-status-toast">
+                    {statusText}
+                </div>
+            )}
 
             <div
                 className={`player-custom-controls ${toolbarVisible ? 'controls-visible' : 'controls-hidden'}`}
@@ -796,12 +846,21 @@ interface VideoGridProps {
 const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
     const [files, setFiles] = useState<VideoFileInfo[]>([]);
     const [loading, setLoading] = useState(true);
+    const [notice, setNotice] = useState('');
 
     useEffect(() => {
         api.getVideoFiles(room.folder_path).then((d: any) => { setFiles(d || []); setLoading(false); }).catch(() => setLoading(false));
     }, [room.folder_path]);
 
     const getThumbnailUrl = (relPath: string) => `/api/thumbnail/${relPath.split('/').map(encodeURIComponent).join('/')}`;
+    const handlePlay = (file: VideoFileInfo) => {
+        if (!isPlayableFile(file)) {
+            setNotice(file.recording ? '正在录制请稍后' : '该文件暂不支持在线播放');
+            return;
+        }
+        setNotice('');
+        onPlay(file);
+    };
 
     return (
         <div>
@@ -811,6 +870,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
                 <Tag color="blue">{room.platform}</Tag>
                 <Text type="secondary" style={{ fontSize: 12 }}>{files.length} 个视频</Text>
             </div>
+            {notice && <Alert type="info" showIcon message={notice} style={{ marginBottom: 12 }} />}
             {loading ? (
                 <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
             ) : files.length === 0 ? (
@@ -821,10 +881,10 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
                         <Col key={f.rel_path} xs={24} sm={12} md={8} lg={6}>
                             <Card
                                 className="video-file-card" hoverable
-                                onClick={() => onPlay(f)}
+                                onClick={() => handlePlay(f)}
                                 cover={
                                     <div className="thumbnail-container">
-                                        <img alt="缩略图" src={getThumbnailUrl(f.rel_path)} className="thumbnail-img"
+                                        <img alt="缩略图" src={f.thumbnail_url || getThumbnailUrl(f.rel_path)} className="thumbnail-img"
                                             onError={e => {
                                                 (e.target as HTMLImageElement).style.display = 'none';
                                                 const p = (e.target as HTMLImageElement).nextElementSibling as HTMLElement;
@@ -835,6 +895,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
                                             <VideoCameraOutlined style={{ fontSize: 36, color: '#bbb' }} />
                                         </div>
                                         <div className="play-overlay">▶</div>
+                                        {f.recording && <Tag color="red" className="file-status-tag">录制中</Tag>}
                                     </div>
                                 }
                             >
@@ -846,6 +907,11 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
                                         <span>{Utils.byteSizeToHumanReadableFileSize(f.size)}</span>
                                         <span style={{ fontSize: 10 }}>{Utils.timestampToHumanReadable(f.mod_time)}</span>
                                     </div>
+                                    {f.playback_status && f.playback_status !== 'ready' && (
+                                        <Tag color={f.playback_status === 'recording' ? 'red' : 'orange'} style={{ marginTop: 6 }}>
+                                            {f.playback_status === 'recording' ? '正在录制' : f.playback_status === 'processing' ? '处理中' : '暂不支持'}
+                                        </Tag>
+                                    )}
                                 </div>
                             </Card>
                         </Col>
@@ -864,6 +930,7 @@ const VideoLibrary: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [showAdd, setShowAdd] = useState(false);
     const [lastRecord, setLastRecord] = useState<PlayRecord | null>(null);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const selectedRoomPath = searchParams.get('room') || '';
     const playingRelPath = searchParams.get('play') || '';
     const playingName = searchParams.get('name') || '';
@@ -876,6 +943,30 @@ const VideoLibrary: React.FC = () => {
     useEffect(() => {
         loadRooms();
         setLastRecord(loadPlayRecord());
+    }, [loadRooms]);
+
+    useEffect(() => {
+        const scheduleRefresh = () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = setTimeout(() => {
+                loadRooms();
+                refreshTimerRef.current = null;
+            }, 500);
+        };
+        const subIds = [
+            subscribeSSE('*', 'list_change', scheduleRefresh),
+            subscribeSSE('*', 'live_update', (message) => {
+                const eventType = String(message.data?.event_type || '');
+                if (['LiveEnd', 'ListenStop', 'RecorderStop', 'RecorderStart'].includes(eventType)) {
+                    scheduleRefresh();
+                }
+            }),
+            subscribeSSE('*', 'recorder_status', scheduleRefresh),
+        ];
+        return () => {
+            subIds.forEach(unsubscribeSSE);
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        };
     }, [loadRooms]);
 
     const getThumbnailUrl = (latestVideo: string) => latestVideo ? `/api/thumbnail/${latestVideo.split('/').map(encodeURIComponent).join('/')}` : '';
@@ -902,8 +993,12 @@ const VideoLibrary: React.FC = () => {
     }, [navigate]);
 
     const openRoom = useCallback((room: VideoRoomInfo) => {
-        if (room.recording && room.url) {
-            window.open(room.url, '_blank', 'noopener,noreferrer');
+        if (!room.folder_path) {
+            Modal.info({
+                title: room.recording ? '正在录制请稍后' : '暂无可查看的视频',
+                content: room.recording ? '当前直播间正在录制，等文件写入后会自动出现在视频库。' : '该直播间还没有生成录制文件。',
+                okText: '知道了',
+            });
             return;
         }
         const next = new URLSearchParams(searchParams);
