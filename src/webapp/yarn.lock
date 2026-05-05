@@ -10833,7 +10833,7 @@ websocket-extensions@>=0.1.1:
 
 webworkify-webpack@xqq/webworkify-webpack:
   version "2.1.5"
-  resolved "git+ssh://git@github.com/xqq/webworkify-webpack.git#24d1e719b4a6cac37a518b2bb10fe124527ef4ef"
+  resolved "git+https://github.com/xqq/webworkify-webpack.git#24d1e719b4a6cac37a518b2bb10fe124527ef4ef"
 
 whatwg-encoding@^1.0.5:
   version "1.0.5"
