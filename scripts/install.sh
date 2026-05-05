@@ -57,6 +57,65 @@ usage() {
     exit 0
 }
 
+# ---- 交互输入 ----
+# 当 stdin 是管道（curl | bash）时，从 /dev/tty 读取，让 read 在交互式 shell 里仍然有效
+read_default() {
+    # $1 prompt, $2 default
+    local prompt="$1" default="$2" answer="" tty_in=""
+    if [[ "$ASSUME_YES" == "true" ]]; then
+        printf "%s [%s]: %s（自动）\n" "$prompt" "$default" "$default"
+        echo "$default"; return
+    fi
+    if [[ -t 0 ]]; then
+        read -rp "$prompt [$default]: " answer || true
+    elif [[ -e /dev/tty ]]; then
+        read -rp "$prompt [$default]: " answer < /dev/tty || true
+    else
+        printf "%s [%s]: %s（无终端，自动）\n" "$prompt" "$default" "$default"
+        echo "$default"; return
+    fi
+    echo "${answer:-$default}"
+}
+
+ask_yes_no() {
+    # $1 prompt, $2 default(y|n)  → echoes "y" or "n"
+    local prompt="$1" default="${2:-n}" answer=""
+    local hint
+    if [[ "$default" == "y" ]]; then hint="Y/n"; else hint="y/N"; fi
+    if [[ "$ASSUME_YES" == "true" ]]; then
+        printf "%s [%s]: %s（自动）\n" "$prompt" "$hint" "$default"
+        echo "$default"; return
+    fi
+    if [[ -t 0 ]]; then
+        read -rp "$prompt [$hint]: " answer || true
+    elif [[ -e /dev/tty ]]; then
+        read -rp "$prompt [$hint]: " answer < /dev/tty || true
+    else
+        echo "$default"; return
+    fi
+    case "${answer,,}" in
+        y|yes) echo "y" ;;
+        n|no)  echo "n" ;;
+        "")    echo "$default" ;;
+        *)     echo "$default" ;;
+    esac
+}
+
+generate_api_key() {
+    if command -v openssl &>/dev/null; then
+        openssl rand -hex 32
+    elif [[ -r /dev/urandom ]] && command -v xxd &>/dev/null; then
+        head -c 32 /dev/urandom | xxd -p -c 64 | tr -d '\n'
+    elif [[ -r /dev/urandom ]] && command -v hexdump &>/dev/null; then
+        head -c 32 /dev/urandom | hexdump -ve '/1 "%02x"'
+    else
+        # 兜底，不强：时间戳 + hostname + random
+        printf "%s%s%s" "$(date +%s%N)" "$(hostname)" "$RANDOM$RANDOM" | sha256sum 2>/dev/null \
+            | awk '{print $1}'
+    fi
+}
+
+
 # ---- 解析参数 ----
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -166,12 +225,14 @@ if [[ "$MODE" == "binary" ]]; then
 
     # ---- 替换配置路径和端口 ----
     if [[ -f "$CONFIG_FILE" ]]; then
-        sed -i.bak \
-            -e "s|^out_put_path:.*|out_put_path: $INSTALL_DIR/Videos|" \
-            -e "s|^app_data_path:.*|app_data_path: $INSTALL_DIR/Data|" \
-            -e "s|^\(  *\)bind:.*|\1bind: :${HOST_PORT}|" \
-            "$CONFIG_FILE"
-        rm -f "${CONFIG_FILE}.bak"
+        tmp_cfg="$(mktemp)"
+        awk -v out="$INSTALL_DIR/Videos" -v data="$INSTALL_DIR/Data" -v port="$HOST_PORT" '
+            /^out_put_path:/ { print "out_put_path: " out; next }
+            /^app_data_path:/ { print "app_data_path: " data; next }
+            /^[[:space:]]*bind:/ { sub(/bind:.*/, "bind: :" port); print; next }
+            { print }
+        ' "$CONFIG_FILE" > "$tmp_cfg"
+        mv "$tmp_cfg" "$CONFIG_FILE"
     fi
 
     # ---- 写入 API Key ----
@@ -192,6 +253,16 @@ if [[ "$MODE" == "binary" ]]; then
         ' "$CONFIG_FILE" > "$tmp_cfg"
         mv "$tmp_cfg" "$CONFIG_FILE"
     fi
+
+
+    # ---- 生成启动脚本 ----
+    START_SCRIPT="$INSTALL_DIR/start.sh"
+    cat > "$START_SCRIPT" <<STARTEOF
+#!/usr/bin/env sh
+cd "$INSTALL_DIR"
+exec "$TARGET_BIN" -c "$CONFIG_FILE"
+STARTEOF
+    chmod +x "$START_SCRIPT"
 
     # ---- systemd 服务（仅 Linux 且有 systemctl） ----
     SYSTEMD_INSTALLED=""
@@ -348,63 +419,6 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 # ---- 交互输入 ----
-# 当 stdin 是管道（curl | bash）时，从 /dev/tty 读取，让 read 在交互式 shell 里仍然有效
-read_default() {
-    # $1 prompt, $2 default
-    local prompt="$1" default="$2" answer="" tty_in=""
-    if [[ "$ASSUME_YES" == "true" ]]; then
-        printf "%s [%s]: %s（自动）\n" "$prompt" "$default" "$default"
-        echo "$default"; return
-    fi
-    if [[ -t 0 ]]; then
-        read -rp "$prompt [$default]: " answer || true
-    elif [[ -e /dev/tty ]]; then
-        read -rp "$prompt [$default]: " answer < /dev/tty || true
-    else
-        printf "%s [%s]: %s（无终端，自动）\n" "$prompt" "$default" "$default"
-        echo "$default"; return
-    fi
-    echo "${answer:-$default}"
-}
-
-ask_yes_no() {
-    # $1 prompt, $2 default(y|n)  → echoes "y" or "n"
-    local prompt="$1" default="${2:-n}" answer=""
-    local hint
-    if [[ "$default" == "y" ]]; then hint="Y/n"; else hint="y/N"; fi
-    if [[ "$ASSUME_YES" == "true" ]]; then
-        printf "%s [%s]: %s（自动）\n" "$prompt" "$hint" "$default"
-        echo "$default"; return
-    fi
-    if [[ -t 0 ]]; then
-        read -rp "$prompt [$hint]: " answer || true
-    elif [[ -e /dev/tty ]]; then
-        read -rp "$prompt [$hint]: " answer < /dev/tty || true
-    else
-        echo "$default"; return
-    fi
-    case "${answer,,}" in
-        y|yes) echo "y" ;;
-        n|no)  echo "n" ;;
-        "")    echo "$default" ;;
-        *)     echo "$default" ;;
-    esac
-}
-
-generate_api_key() {
-    if command -v openssl &>/dev/null; then
-        openssl rand -hex 32
-    elif [[ -r /dev/urandom ]] && command -v xxd &>/dev/null; then
-        head -c 32 /dev/urandom | xxd -p -c 64 | tr -d '\n'
-    elif [[ -r /dev/urandom ]] && command -v hexdump &>/dev/null; then
-        head -c 32 /dev/urandom | hexdump -ve '/1 "%02x"'
-    else
-        # 兜底，不强：时间戳 + hostname + random
-        printf "%s%s%s" "$(date +%s%N)" "$(hostname)" "$RANDOM$RANDOM" | sha256sum 2>/dev/null \
-            | awk '{print $1}'
-    fi
-}
-
 echo
 log "请确认以下安装参数（回车使用默认值）："
 echo

@@ -37,7 +37,7 @@ RUN set -eux; \
     APP_VERSION="${VERSION}" NO_TELEMETRY=1 PLATFORM=linux ARCH=amd64 go run ./build.go release; \
     cp bin/bililive-linux-amd64 /tmp/bililive-go
 
-FROM ubuntu:22.04
+FROM debian:bookworm-slim
 
 ENV IS_DOCKER=true
 ENV WORKDIR="/srv/bililive"
@@ -56,7 +56,8 @@ RUN mkdir -p $OUTPUT_DIR && \
     ca-certificates \
     libatomic1 \
     gosu \
-    ffmpeg && \
+    ffmpeg \
+    chromium && \
     cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
