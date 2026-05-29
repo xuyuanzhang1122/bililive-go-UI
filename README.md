@@ -26,7 +26,7 @@ graph TD
     end
 
     subgraph 配套公网服务
-        UpdateSrv["☁️ 配套更新服务\n(可自行部署，因还在内测，暂不开源)\n\n· 安装 manifest 分发\n· ffmpeg / 浏览器工具源管理\n· iOS 配置云端备份 / 短 ID 找回"]
+        UpdateSrv["☁️ 配套更新服务\n(可自行部署，内测，暂不开源)\n\n· 安装 manifest 分发\n· ffmpeg / 浏览器工具源管理\n· iOS 配置云端备份 / 短 ID 找回"]
     end
 
     iOS -- "API Key 鉴权\n/api/history\n/api/backups" --> Core
