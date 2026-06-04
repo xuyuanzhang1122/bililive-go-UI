@@ -162,7 +162,8 @@ BILILIVE_IMAGE=xuniubi/bililive-go:v1.3.1 docker compose up -d
 ### 核心能力
 
 - **多平台录制**：抖音、B站、斗鱼、虎牙、Acfun、CC、OPENREC、猫耳、微博、YY 等
--     > 需注意：本项目因初始为了自用主打抖音的录制，其他平台保留到fork[上游](https://github.com/bililive-go/bililive-go),如有问题请君见谅
+-     > 需注意：本项目因初始为了自用主打抖音的录制，其他平台保留到fork
+  [上游](https://github.com/bililive-go/bililive-go) ,如有问题请君见谅
 - **视频库首页**：按平台/主播聚合展示，卡片封面使用自动生成的缩略图
 - **内嵌播放器**：支持 FLV、TS、MP4、MKV、MOV，无需跳转外部页面
 - **服务端观看历史**：`GET/POST /api/history`，跨设备同步播放进度，不依赖浏览器 localStorage
