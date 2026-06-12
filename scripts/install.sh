@@ -4,40 +4,47 @@ set -o nounset
 set -o pipefail
 
 # ============================================================
-# install.sh — bililive-go 一键安装脚本
+# install.sh — bililive-go 一键安装脚本（统一安装流程）
 #
-# 默认模式：下载 GitHub Release 预编译二进制，无需 Docker。
-# 如需 Docker 部署，请加 --docker 参数。
+# 流程：检测系统 → 检测原数据 → 选择源（GitHub/自建源）→ 检测工具
+#       → 选择安装方式（二进制/Docker）→ 确认目录端口 → 拉取启动 → doctor 检测
 #
 # 交互模式：
 #   curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash
+#   curl -fsSL https://<你的源站>/install.sh | bash     # 默认指向该源站
 #
 # 非交互模式（CI / 重装 / 全默认）：
 #   curl -fsSL <url> | bash -s -- --yes
 #
 # 全部参数：
 #   --dir PATH            安装目录（默认 ~/bililive-go）
+#   --videos-dir PATH     视频目录（默认 <安装目录>/Videos；可指向原版本数据）
 #   --port N              主机端口（默认 8080）
+#   --source URL|github   安装源：github 或自建源地址（默认见脚本头部注入）
 #   --version TAG         指定 GitHub Release tag
 #   --image TAG           Docker 镜像 tag（默认 latest，仅 --docker）
 #   --enable-api-key      自动启用 API Key 并随机生成
 #   --api-key STR         指定 API Key（仅在 --enable-api-key 时生效）
 #   --yes / -y            非交互，全部走默认值或命令行参数
-#   --docker              使用 Docker 安装并启动容器
+#   --binary / --docker   安装方式（不指定时交互选择）
 #   --help                显示帮助
 # ============================================================
 
 REPO="xuyuanzhang1122/bililive-go-UI"
 DOCKER_IMAGE="xuniubi/bililive-go"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
+# 由源站 /install.sh 动态注入为该源站地址；直接从 GitHub raw 获取时为空
+DEFAULT_MIRROR=""
 
 INSTALL_DIR=""
+VIDEOS_DIR=""
 HOST_PORT=""
 TAG=""
+SOURCE=""
 ENABLE_API_KEY=""
 API_KEY=""
 ASSUME_YES="false"
-MODE="binary"
+MODE=""
 CONTAINER_NAME="bililive-go"
 
 # ---- 颜色 ----
@@ -53,7 +60,7 @@ warn() { printf "%s⚠%s %s\n" "$C_YELLOW" "$C_RESET" "$*"; }
 err()  { printf "%s✗%s %s\n" "$C_RED" "$C_RESET" "$*" >&2; }
 
 usage() {
-    sed -n '6,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '6,31p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -61,9 +68,9 @@ usage() {
 # 当 stdin 是管道（curl | bash）时，从 /dev/tty 读取，让 read 在交互式 shell 里仍然有效
 read_default() {
     # $1 prompt, $2 default
-    local prompt="$1" default="$2" answer="" tty_in=""
+    local prompt="$1" default="$2" answer=""
     if [[ "$ASSUME_YES" == "true" ]]; then
-        printf "%s [%s]: %s（自动）\n" "$prompt" "$default" "$default"
+        printf "%s [%s]: %s（自动）\n" "$prompt" "$default" "$default" >&2
         echo "$default"; return
     fi
     if [[ -t 0 ]]; then
@@ -71,7 +78,7 @@ read_default() {
     elif [[ -e /dev/tty ]]; then
         read -rp "$prompt [$default]: " answer < /dev/tty || true
     else
-        printf "%s [%s]: %s（无终端，自动）\n" "$prompt" "$default" "$default"
+        printf "%s [%s]: %s（无终端，自动）\n" "$prompt" "$default" "$default" >&2
         echo "$default"; return
     fi
     echo "${answer:-$default}"
@@ -83,7 +90,7 @@ ask_yes_no() {
     local hint
     if [[ "$default" == "y" ]]; then hint="Y/n"; else hint="y/N"; fi
     if [[ "$ASSUME_YES" == "true" ]]; then
-        printf "%s [%s]: %s（自动）\n" "$prompt" "$hint" "$default"
+        printf "%s [%s]: %s（自动）\n" "$prompt" "$hint" "$default" >&2
         echo "$default"; return
     fi
     if [[ -t 0 ]]; then
@@ -109,18 +116,35 @@ generate_api_key() {
     elif [[ -r /dev/urandom ]] && command -v hexdump &>/dev/null; then
         head -c 32 /dev/urandom | hexdump -ve '/1 "%02x"'
     else
-        # 兜底，不强：时间戳 + hostname + random
         printf "%s%s%s" "$(date +%s%N)" "$(hostname)" "$RANDOM$RANDOM" | sha256sum 2>/dev/null \
             | awk '{print $1}'
     fi
 }
 
+# ---- JSON 取值（优先 python3，缺省时用 grep 兜底只支持简单字段） ----
+json_query() {
+    # $1 json文件, $2 python表达式（以 data 为根）
+    local file="$1" expr="$2"
+    if command -v python3 &>/dev/null; then
+        python3 - "$file" <<PYEOF 2>/dev/null || true
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    result = ${expr}
+    print(result if result is not None else "")
+except Exception:
+    pass
+PYEOF
+    fi
+}
 
 # ---- 解析参数 ----
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dir)            INSTALL_DIR="$2"; shift 2 ;;
+        --videos-dir)     VIDEOS_DIR="$2"; shift 2 ;;
         --port)           HOST_PORT="$2"; shift 2 ;;
+        --source)         SOURCE="$2"; shift 2 ;;
         --image)          TAG="$2"; shift 2 ;;
         --version)        TAG="$2"; shift 2 ;;
         --enable-api-key) ENABLE_API_KEY="true"; shift ;;
@@ -134,110 +158,452 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ============================================================
-# 二进制模式（默认）
+# 第 1 步：检测系统
 # ============================================================
-if [[ "$MODE" == "binary" ]]; then
-    log "bililive-go 一键安装（二进制模式，无需 Docker）"
-    : "${TAG:=latest}"
-    if [[ "$TAG" == "latest" ]]; then
-        log "查询最新版本…"
-        RESOLVED=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep -o '"tag_name": *"[^"]*"' | head -1 \
-            | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-        [[ -n "$RESOLVED" ]] || { err "无法查询最新版本，请用 --version 指定"; exit 1; }
-        TAG="$RESOLVED"; log "最新版本: $TAG"
-    fi
-    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-    case "$(uname -m)" in
-        x86_64)  GOARCH="amd64" ;;
-        aarch64|arm64) GOARCH="arm64" ;;
-        armv7l|armv6l) GOARCH="arm" ;;
-        *) err "不支持的 CPU: $(uname -m)"; exit 1 ;;
-    esac
-    case "$OS" in linux|darwin) ;; *) err "不支持的 OS: $OS，请用 --docker 模式"; exit 1 ;; esac
+log "【1/7】检测系统环境"
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$(uname -m)" in
+    x86_64)  GOARCH="amd64" ;;
+    aarch64|arm64) GOARCH="arm64" ;;
+    armv7l|armv6l) GOARCH="arm" ;;
+    *) err "不支持的 CPU: $(uname -m)"; exit 1 ;;
+esac
+case "$OS" in
+    linux|darwin) ok "系统: $OS / $GOARCH" ;;
+    mingw*|msys*|cygwin*)
+        err "Windows 请使用 PowerShell 安装脚本："
+        echo "  irm https://<你的源站>/install.ps1 | iex"
+        exit 1 ;;
+    *) err "不支持的 OS: $OS"; exit 1 ;;
+esac
+command -v curl &>/dev/null || { err "缺少 curl"; exit 1; }
+command -v tar  &>/dev/null || { err "缺少 tar"; exit 1; }
 
-    # ---- 交互输入 ----
-    echo
-    log "请确认以下安装参数（回车使用默认值）："
-    echo
-
-    DEFAULT_DIR="${HOME}/bililive-go"
-    if [[ -z "$INSTALL_DIR" ]]; then
-        INSTALL_DIR=$(read_default "安装目录（数据/视频/配置都放这里）" "$DEFAULT_DIR")
-    fi
-    INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
-    INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
-
-    if [[ -z "$HOST_PORT" ]]; then
-        HOST_PORT=$(read_default "Web UI 端口" "8080")
-    fi
-    if ! [[ "$HOST_PORT" =~ ^[0-9]+$ ]] || (( HOST_PORT < 1 || HOST_PORT > 65535 )); then
-        err "端口非法: $HOST_PORT"; exit 1
-    fi
-
-    if [[ -z "$ENABLE_API_KEY" ]]; then
-        ans=$(ask_yes_no "启用 API Key 鉴权？（公网部署建议开启；可稍后在 Web UI 一键启用）" "n")
-        if [[ "$ans" == "y" ]]; then ENABLE_API_KEY="true"; else ENABLE_API_KEY="false"; fi
-    fi
-
-    if [[ "$ENABLE_API_KEY" == "true" && -z "$API_KEY" ]]; then
-        API_KEY=$(generate_api_key)
-        if [[ -z "$API_KEY" ]]; then
-            err "无法生成 API Key（缺少 openssl/xxd/hexdump）"; exit 1
+# ============================================================
+# 第 2 步：选择安装源（GitHub / 自建源）
+# ============================================================
+echo
+log "【2/7】选择安装源"
+MIRROR_URL=""
+if [[ -z "$SOURCE" ]]; then
+    if [[ -n "$DEFAULT_MIRROR" ]]; then
+        src_default="mirror"
+        echo "  [1] 自建源 ${DEFAULT_MIRROR}（推荐，含工具分发）"
+        echo "  [2] GitHub 官方"
+        choice=$(read_default "选择源 (1=自建源 2=GitHub)" "1")
+        if [[ "$choice" == "2" ]]; then SOURCE="github"; else SOURCE="$DEFAULT_MIRROR"; fi
+    else
+        echo "  [1] GitHub 官方"
+        echo "  [2] 自建源（输入地址）"
+        choice=$(read_default "选择源 (1=GitHub 2=自建源)" "1")
+        if [[ "$choice" == "2" ]]; then
+            SOURCE=$(read_default "自建源地址（如 https://update.example.com）" "")
+            [[ -n "$SOURCE" ]] || { err "未输入源地址"; exit 1; }
+        else
+            SOURCE="github"
         fi
     fi
+fi
+if [[ "$SOURCE" != "github" ]]; then
+    MIRROR_URL="${SOURCE%/}"
+    log "校验自建源: $MIRROR_URL"
+    if curl -fsS --max-time 5 "$MIRROR_URL/health" >/dev/null 2>&1; then
+        ok "自建源可用"
+    else
+        warn "自建源无响应，回退到 GitHub"
+        MIRROR_URL=""
+        SOURCE="github"
+    fi
+fi
+[[ "$SOURCE" == "github" ]] && ok "使用 GitHub 官方源"
 
-    # ---- 下载二进制 ----
+# 拉取自建源 catalog（用于二进制与工具下载）
+CATALOG_FILE=""
+if [[ -n "$MIRROR_URL" ]]; then
+    CATALOG_FILE=$(mktemp)
+    if ! curl -fsSL --max-time 10 "$MIRROR_URL/api/v1/catalog" -o "$CATALOG_FILE" 2>/dev/null; then
+        warn "无法获取自建源 catalog，二进制将回退 GitHub 下载"
+        rm -f "$CATALOG_FILE"; CATALOG_FILE=""
+    fi
+fi
+
+# ============================================================
+# 第 3 步：选择安装方式（二进制 / Docker）
+# ============================================================
+echo
+log "【3/7】选择安装方式"
+if [[ -z "$MODE" ]]; then
+    echo "  [1] 二进制 Release（默认，无需 Docker）"
+    echo "  [2] Docker 容器"
+    choice=$(read_default "选择安装方式 (1=二进制 2=Docker)" "1")
+    if [[ "$choice" == "2" ]]; then MODE="docker"; else MODE="binary"; fi
+fi
+ok "安装方式: $MODE"
+
+if [[ "$MODE" == "docker" ]]; then
+    if ! command -v docker &>/dev/null; then
+        err "未检测到 Docker。请先安装: https://docs.docker.com/engine/install/"
+        exit 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        err "Docker 守护进程未运行或当前用户无权限访问 docker.sock。"
+        echo "  - 启动 Docker：sudo systemctl start docker"
+        echo "  - 加入 docker 组：sudo usermod -aG docker \$USER && newgrp docker"
+        exit 1
+    fi
+fi
+
+# ============================================================
+# 第 4 步：确认目录与端口（含原版本数据检测）
+# ============================================================
+echo
+log "【4/7】确认安装目录、视频目录与端口"
+
+DEFAULT_DIR="${HOME}/bililive-go"
+if [[ -z "$INSTALL_DIR" ]]; then
+    INSTALL_DIR=$(read_default "安装目录（程序/配置/数据放这里）" "$DEFAULT_DIR")
+fi
+INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
+INSTALL_DIR="$(realpath -m "$INSTALL_DIR" 2>/dev/null || echo "$INSTALL_DIR")"
+
+# ---- 原版本视频数据检测 ----
+if [[ -z "$VIDEOS_DIR" ]]; then
+    found_old=""
+    for candidate in "$INSTALL_DIR/Videos" "$HOME/bililive-go/Videos" "$HOME/bililive/Videos" "/srv/bililive"; do
+        if [[ -d "$candidate" ]] && [[ -n "$(find "$candidate" -maxdepth 3 \( -name '*.flv' -o -name '*.ts' -o -name '*.mp4' \) -print -quit 2>/dev/null)" ]]; then
+            found_old="$candidate"
+            break
+        fi
+    done
+    if [[ -n "$found_old" ]]; then
+        warn "检测到原版本视频数据: $found_old"
+        reuse=$(ask_yes_no "复用该视频目录？（新录制和旧视频都放这里）" "y")
+        if [[ "$reuse" == "y" ]]; then
+            VIDEOS_DIR="$found_old"
+        fi
+    fi
+    if [[ -z "$VIDEOS_DIR" ]]; then
+        VIDEOS_DIR=$(read_default "视频目录（可指向原版本数据位置）" "$INSTALL_DIR/Videos")
+    fi
+fi
+VIDEOS_DIR="${VIDEOS_DIR/#\~/$HOME}"
+VIDEOS_DIR="$(realpath -m "$VIDEOS_DIR" 2>/dev/null || echo "$VIDEOS_DIR")"
+
+if [[ -z "$HOST_PORT" ]]; then
+    HOST_PORT=$(read_default "Web UI 端口" "8080")
+fi
+if ! [[ "$HOST_PORT" =~ ^[0-9]+$ ]] || (( HOST_PORT < 1 || HOST_PORT > 65535 )); then
+    err "端口非法: $HOST_PORT"; exit 1
+fi
+
+# 端口占用检测
+port_in_use=""
+if command -v ss &>/dev/null; then
+    ss -tln 2>/dev/null | awk '{print $4}' | grep -E "[:.]${HOST_PORT}\$" >/dev/null && port_in_use="1"
+elif command -v lsof &>/dev/null; then
+    lsof -iTCP:"$HOST_PORT" -sTCP:LISTEN >/dev/null 2>&1 && port_in_use="1"
+elif command -v netstat &>/dev/null; then
+    netstat -tln 2>/dev/null | awk '{print $4}' | grep -E "[:.]${HOST_PORT}\$" >/dev/null && port_in_use="1"
+fi
+if [[ -n "$port_in_use" ]]; then
+    warn "端口 ${HOST_PORT} 已被占用"
+    cont=$(ask_yes_no "继续使用此端口？" "n")
+    [[ "$cont" == "y" ]] || { err "已取消"; exit 1; }
+fi
+
+if [[ -z "$ENABLE_API_KEY" ]]; then
+    ans=$(ask_yes_no "启用 API Key 鉴权？（公网部署建议开启）" "n")
+    if [[ "$ans" == "y" ]]; then ENABLE_API_KEY="true"; else ENABLE_API_KEY="false"; fi
+fi
+if [[ "$ENABLE_API_KEY" == "true" && -z "$API_KEY" ]]; then
+    API_KEY=$(generate_api_key)
+    [[ -n "$API_KEY" ]] || { err "无法生成 API Key（缺少 openssl/xxd/hexdump）"; exit 1; }
+fi
+
+mkdir -p "$INSTALL_DIR" "$VIDEOS_DIR" "$INSTALL_DIR/Data"
+ok "安装目录: $INSTALL_DIR"
+ok "视频目录: $VIDEOS_DIR"
+ok "端口: $HOST_PORT"
+
+# ============================================================
+# 第 5 步：检测/拉取依赖工具（ffmpeg、无头浏览器）
+# ============================================================
+echo
+log "【5/7】检测依赖工具"
+TOOLS_DIR="$INSTALL_DIR/tools"
+FFMPEG_PATH=""
+HEADLESS_PATH=""
+
+detect_tool() {
+    # $1 命令名 → echo 路径
+    command -v "$1" 2>/dev/null || true
+}
+
+download_mirror_tool() {
+    # $1 工具名（catalog 中的 name）→ echo 下载好的可执行路径
+    local name="$1" url rel size
+    [[ -n "$CATALOG_FILE" ]] || return 0
+    url=$(json_query "$CATALOG_FILE" "next((t['url'] for t in data.get('tools', []) if t.get('name')=='${name}' and t.get('os')=='${OS}' and t.get('arch')=='${GOARCH}' and t.get('url')), '')")
+    [[ -n "$url" ]] || return 0
+    mkdir -p "$TOOLS_DIR"
+    local fname="${url##*/}"
+    local dest="$TOOLS_DIR/$fname"
+    log "从自建源拉取 ${name}: ${MIRROR_URL}${url}" >&2
+    if ! curl -fsSL "${MIRROR_URL}${url}" -o "$dest"; then
+        warn "拉取 ${name} 失败" >&2
+        return 0
+    fi
+    case "$fname" in
+        *.tar.gz|*.tgz)
+            tar xzf "$dest" -C "$TOOLS_DIR"
+            rm -f "$dest"
+            # 解压后找同名可执行
+            local extracted
+            extracted=$(find "$TOOLS_DIR" -maxdepth 2 -type f -name "${name}*" ! -name "*.tar.gz" | head -1)
+            [[ -n "$extracted" ]] && chmod +x "$extracted" && echo "$extracted"
+            ;;
+        *.zip)
+            if command -v unzip &>/dev/null; then
+                unzip -oq "$dest" -d "$TOOLS_DIR"; rm -f "$dest"
+                local extracted
+                extracted=$(find "$TOOLS_DIR" -maxdepth 2 -type f -name "${name}*" ! -name "*.zip" | head -1)
+                [[ -n "$extracted" ]] && chmod +x "$extracted" && echo "$extracted"
+            else
+                warn "缺少 unzip，无法解压 ${fname}" >&2
+            fi
+            ;;
+        *)
+            chmod +x "$dest"
+            echo "$dest"
+            ;;
+    esac
+}
+
+# ffmpeg（必需）
+FFMPEG_PATH=$(detect_tool ffmpeg)
+if [[ -z "$FFMPEG_PATH" ]]; then
+    for candidate in /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg /usr/bin/ffmpeg; do
+        [[ -x "$candidate" ]] && FFMPEG_PATH="$candidate" && break
+    done
+fi
+if [[ -z "$FFMPEG_PATH" && -n "$MIRROR_URL" ]]; then
+    FFMPEG_PATH=$(download_mirror_tool ffmpeg)
+fi
+if [[ -n "$FFMPEG_PATH" ]]; then
+    ok "ffmpeg: $FFMPEG_PATH"
+else
+    if [[ "$MODE" == "docker" ]]; then
+        ok "ffmpeg: 镜像内置，跳过"
+    else
+        warn "未找到 ffmpeg：录制、缩略图、HLS 转封装将不可用"
+        echo "  安装方法: apt install ffmpeg / brew install ffmpeg"
+    fi
+fi
+
+# 无头浏览器（可选）
+for candidate in chromium chromium-browser google-chrome chrome; do
+    HEADLESS_PATH=$(detect_tool "$candidate")
+    [[ -n "$HEADLESS_PATH" ]] && break
+done
+if [[ -z "$HEADLESS_PATH" && "$OS" == "darwin" ]]; then
+    for candidate in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" "/Applications/Chromium.app/Contents/MacOS/Chromium"; do
+        [[ -x "$candidate" ]] && HEADLESS_PATH="$candidate" && break
+    done
+fi
+if [[ -z "$HEADLESS_PATH" && -n "$MIRROR_URL" ]]; then
+    HEADLESS_PATH=$(download_mirror_tool headless-browser)
+fi
+if [[ -n "$HEADLESS_PATH" ]]; then
+    ok "无头浏览器: $HEADLESS_PATH"
+else
+    warn "未找到无头浏览器（可选）：非标准短链 JS 跳转解析会降级"
+fi
+
+# ============================================================
+# 第 6 步：下载并部署
+# ============================================================
+echo
+log "【6/7】下载并部署"
+
+write_config_common() {
+    # 替换 out_put_path / app_data_path / 端口 / ffmpeg / 无头浏览器 / 更新源 / API Key
+    local cfg_file="$1"
+    [[ -f "$cfg_file" ]] || return 0
+    local tmp_cfg
+    tmp_cfg="$(mktemp)"
+    awk -v out="$VIDEOS_DIR" -v data="$INSTALL_DIR/Data" -v port="$HOST_PORT" -v ffm="$FFMPEG_PATH" -v hb="$HEADLESS_PATH" -v mirror="$MIRROR_URL" '
+        /^out_put_path:/  { print "out_put_path: " out; next }
+        /^app_data_path:/ { print "app_data_path: " data; next }
+        /^ffmpeg_path:/   { if (ffm != "") { print "ffmpeg_path: \"" ffm "\"" } else { print } ; next }
+        /^[[:space:]]*bind:/ { sub(/bind:.*/, "bind: :" port); print; next }
+        /^headless_browser:[[:space:]]*$/ { in_hb=1; in_up=0; print; next }
+        /^update:[[:space:]]*$/ { in_up=1; in_hb=0; print; next }
+        /^[A-Za-z]/ && !/^(headless_browser|update):/ { in_hb=0; in_up=0 }
+        in_hb==1 && /^[[:space:]]*path:/ {
+            if (hb != "") { sub(/path:.*/, "path: \"" hb "\"") }
+            print; next
+        }
+        in_up==1 && /^[[:space:]]*source_url:/ {
+            # 安装用什么源，应用内更新就用什么源（源站不可用时程序会回退本仓库 GitHub）
+            if (mirror != "") { sub(/source_url:.*/, "source_url: \"" mirror "\"") }
+            print; next
+        }
+        { print }
+    ' "$cfg_file" > "$tmp_cfg"
+    mv "$tmp_cfg" "$cfg_file"
+
+    if [[ "$ENABLE_API_KEY" == "true" ]]; then
+        tmp_cfg="$(mktemp)"
+        awk -v key="$API_KEY" '
+            BEGIN { in_security=0 }
+            /^security:[[:space:]]*$/ { in_security=1; print; next }
+            /^[A-Za-z]/ && !/^security:/ { in_security=0 }
+            in_security==1 && /^[[:space:]]*enable_api_key:/ {
+                sub(/enable_api_key:.*/, "enable_api_key: true"); print; next
+            }
+            in_security==1 && /^[[:space:]]*api_key:/ {
+                sub(/api_key:.*/, "api_key: \"" key "\""); print; next
+            }
+            { print }
+        ' "$cfg_file" > "$tmp_cfg"
+        mv "$tmp_cfg" "$cfg_file"
+    fi
+}
+
+fetch_config_template() {
+    # $1 模板名, $2 目标路径
+    local tpl="$1" dest="$2"
+    if [[ -f "$dest" ]]; then
+        warn "配置文件已存在: $dest"
+        overwrite=$(ask_yes_no "用最新模板覆盖？（旧文件会备份为 .bak）" "n")
+        if [[ "$overwrite" == "y" ]]; then
+            cp -f "$dest" "${dest}.bak.$(date +%Y%m%d%H%M%S)"
+        else
+            log "保留现有配置文件"
+            return 0
+        fi
+    fi
+    log "下载配置模板 → $dest"
+    curl -fsSL "${RAW_BASE}/${tpl}" -o "$dest"
+}
+
+SYSTEMD_INSTALLED=""
+if [[ "$MODE" == "binary" ]]; then
+    # ---- 解析版本与下载地址 ----
+    : "${TAG:=latest}"
     ASSET="bililive-${OS}-${GOARCH}.tar.gz"
-    URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
-    log "下载: $URL"
+    DOWNLOAD_URL=""
+    if [[ -n "$CATALOG_FILE" && "$TAG" == "latest" ]]; then
+        rel_url=$(json_query "$CATALOG_FILE" "next((x['url'] for x in data.get('releases', []) if x.get('name')=='${ASSET}'), '')")
+        rel_ver=$(json_query "$CATALOG_FILE" "next((x['version'] for x in data.get('releases', []) if x.get('name')=='${ASSET}'), '')")
+        if [[ -n "$rel_url" ]]; then
+            TAG="${rel_ver:-mirror}"
+            case "$rel_url" in
+                http*) DOWNLOAD_URL="$rel_url" ;;
+                *)     DOWNLOAD_URL="${MIRROR_URL}${rel_url}" ;;
+            esac
+            log "自建源版本: $TAG"
+        fi
+    fi
+    if [[ -z "$DOWNLOAD_URL" ]]; then
+        if [[ "$TAG" == "latest" ]]; then
+            log "查询 GitHub 最新版本…"
+            RESOLVED=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+                | grep -o '"tag_name": *"[^"]*"' | head -1 \
+                | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+            [[ -n "$RESOLVED" ]] || { err "无法查询最新版本，请用 --version 指定"; exit 1; }
+            TAG="$RESOLVED"; log "最新版本: $TAG"
+        fi
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
+    fi
+
+    log "下载: $DOWNLOAD_URL"
     TMPDIR=$(mktemp -d); trap 'rm -rf "$TMPDIR"' EXIT
-    curl -fsSL "$URL" -o "${TMPDIR}/${ASSET}" || { err "下载失败"; exit 1; }
+    curl -fsSL "$DOWNLOAD_URL" -o "${TMPDIR}/${ASSET}" || { err "下载失败"; exit 1; }
     tar xzf "${TMPDIR}/${ASSET}" -C "$TMPDIR"
     BIN=$(find "$TMPDIR" -name 'bililive-*' -type f | head -1)
     [[ -n "$BIN" ]] || { err "压缩包内未找到二进制"; exit 1; }
 
-    # ---- 创建目录 ----
-    log "创建安装目录: $INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR/Videos" "$INSTALL_DIR/Data"
-
-    # ---- 安装二进制 ----
     TARGET_BIN="$INSTALL_DIR/bililive-go"
     install -m755 "$BIN" "$TARGET_BIN"
     ok "已安装到 $TARGET_BIN"
 
-    # ---- 下载 / 生成配置 ----
     CONFIG_FILE="$INSTALL_DIR/config.yml"
-    if [[ -f "$CONFIG_FILE" ]]; then
-        warn "配置文件已存在: $CONFIG_FILE"
-        overwrite=$(ask_yes_no "用最新模板覆盖？（旧文件会备份为 .bak）" "n")
-        if [[ "$overwrite" == "y" ]]; then
-            cp -f "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
-            log "下载配置模板 → $CONFIG_FILE"
-            curl -fsSL "${RAW_BASE}/config.yml" -o "$CONFIG_FILE"
+    fetch_config_template "config.yml" "$CONFIG_FILE"
+    write_config_common "$CONFIG_FILE"
+
+    # ---- 启动脚本 ----
+    START_SCRIPT="$INSTALL_DIR/start.sh"
+    cat > "$START_SCRIPT" <<STARTEOF
+#!/usr/bin/env sh
+cd "$INSTALL_DIR"
+exec "$TARGET_BIN" -c "$CONFIG_FILE"
+STARTEOF
+    chmod +x "$START_SCRIPT"
+
+    # ---- systemd 服务（仅 Linux 且有 systemctl） ----
+    if [[ "$OS" == "linux" ]] && command -v systemctl &>/dev/null; then
+        SERVICE_FILE="/etc/systemd/system/bililive-go.service"
+        log "创建 systemd 服务: $SERVICE_FILE"
+        service_unit() {
+            cat <<SVCEOF
+[Unit]
+Description=bililive-go 直播录制服务
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+${1:+User=$1}
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$TARGET_BIN -c $CONFIG_FILE
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+        }
+        if [[ "$(id -u)" -eq 0 ]]; then
+            service_unit "" > "$SERVICE_FILE"
+            systemctl daemon-reload
+            systemctl enable bililive-go.service >/dev/null 2>&1
+            systemctl restart bililive-go.service
+            SYSTEMD_INSTALLED="true"
+            ok "systemd 服务已创建并启动"
+        elif command -v sudo &>/dev/null; then
+            service_unit "$(whoami)" | sudo tee "$SERVICE_FILE" >/dev/null
+            sudo systemctl daemon-reload
+            sudo systemctl enable bililive-go.service >/dev/null 2>&1
+            sudo systemctl restart bililive-go.service
+            SYSTEMD_INSTALLED="true"
+            ok "systemd 服务已创建并启动"
         else
-            log "保留现有配置文件"
+            warn "需要 root 权限创建 systemd 服务，跳过"
         fi
-    else
-        log "下载配置模板 → $CONFIG_FILE"
-        curl -fsSL "${RAW_BASE}/config.yml" -o "$CONFIG_FILE"
     fi
 
-    # ---- 替换配置路径和端口 ----
-    if [[ -f "$CONFIG_FILE" ]]; then
-        tmp_cfg="$(mktemp)"
-        awk -v out="$INSTALL_DIR/Videos" -v data="$INSTALL_DIR/Data" -v port="$HOST_PORT" '
-            /^out_put_path:/ { print "out_put_path: " out; next }
-            /^app_data_path:/ { print "app_data_path: " data; next }
-            /^[[:space:]]*bind:/ { sub(/bind:.*/, "bind: :" port); print; next }
-            { print }
-        ' "$CONFIG_FILE" > "$tmp_cfg"
-        mv "$tmp_cfg" "$CONFIG_FILE"
+    if [[ -z "$SYSTEMD_INSTALLED" ]]; then
+        log "启动 bililive-go …"
+        nohup "$START_SCRIPT" > "$INSTALL_DIR/bililive-go.log" 2>&1 &
+        ok "已后台启动 (PID: $!)"
+    fi
+else
+    # ---- Docker 模式 ----
+    : "${TAG:=latest}"
+    existing=$(docker ps -a --format '{{.Names}}' | grep -Fx "$CONTAINER_NAME" || true)
+    if [[ -n "$existing" ]]; then
+        warn "已存在容器 '$CONTAINER_NAME'"
+        rm_old=$(ask_yes_no "删除旧容器并重建？（数据保留在 ${INSTALL_DIR}）" "y")
+        [[ "$rm_old" == "y" ]] || { err "已取消，请手动处理后重跑"; exit 1; }
+        log "删除旧容器 $CONTAINER_NAME …"
+        docker rm -f "$CONTAINER_NAME" >/dev/null
     fi
 
-    # ---- 写入 API Key ----
+    CONFIG_FILE="$INSTALL_DIR/config.docker.yml"
+    fetch_config_template "config.docker.yml" "$CONFIG_FILE"
+    # Docker 内路径固定，宿主机只改 API Key
     if [[ "$ENABLE_API_KEY" == "true" && -f "$CONFIG_FILE" ]]; then
-        log "写入 API Key 到配置"
         tmp_cfg="$(mktemp)"
         awk -v key="$API_KEY" '
             BEGIN { in_security=0 }
@@ -254,288 +620,27 @@ if [[ "$MODE" == "binary" ]]; then
         mv "$tmp_cfg" "$CONFIG_FILE"
     fi
 
+    log "拉取镜像 ${DOCKER_IMAGE}:${TAG} …"
+    docker pull "${DOCKER_IMAGE}:${TAG}"
 
-    # ---- 生成启动脚本 ----
-    START_SCRIPT="$INSTALL_DIR/start.sh"
-    cat > "$START_SCRIPT" <<STARTEOF
-#!/usr/bin/env sh
-cd "$INSTALL_DIR"
-exec "$TARGET_BIN" -c "$CONFIG_FILE"
-STARTEOF
-    chmod +x "$START_SCRIPT"
-
-    # ---- systemd 服务（仅 Linux 且有 systemctl） ----
-    SYSTEMD_INSTALLED=""
-    if [[ "$OS" == "linux" ]] && command -v systemctl &>/dev/null; then
-        SERVICE_FILE="/etc/systemd/system/bililive-go.service"
-        log "创建 systemd 服务: $SERVICE_FILE"
-        # 需要 root 权限写 /etc/systemd/system
-        if [[ "$(id -u)" -eq 0 ]]; then
-            cat > "$SERVICE_FILE" <<SVCEOF
-[Unit]
-Description=bililive-go 直播录制服务
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$TARGET_BIN -c $CONFIG_FILE
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-            systemctl daemon-reload
-            systemctl enable bililive-go.service >/dev/null 2>&1
-            systemctl start bililive-go.service
-            SYSTEMD_INSTALLED="true"
-            ok "systemd 服务已创建并启动"
-        elif command -v sudo &>/dev/null; then
-            sudo tee "$SERVICE_FILE" >/dev/null <<SVCEOF
-[Unit]
-Description=bililive-go 直播录制服务
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=$(whoami)
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$TARGET_BIN -c $CONFIG_FILE
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-            sudo systemctl daemon-reload
-            sudo systemctl enable bililive-go.service >/dev/null 2>&1
-            sudo systemctl start bililive-go.service
-            SYSTEMD_INSTALLED="true"
-            ok "systemd 服务已创建并启动"
-        else
-            warn "需要 root 权限创建 systemd 服务，跳过"
-        fi
-    fi
-
-    # 非 systemd 环境：直接后台启动
-    if [[ -z "$SYSTEMD_INSTALLED" ]]; then
-        log "启动 bililive-go …"
-        nohup "$START_SCRIPT" > "$INSTALL_DIR/bililive-go.log" 2>&1 &
-        ok "已后台启动 (PID: $!)"
-    fi
-
-    # ---- 等待服务就绪 ----
-    log "等待服务就绪 …"
-    url="http://127.0.0.1:${HOST_PORT}/api/auth-status"
-    ready=""
-    for _ in $(seq 1 15); do
-        if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
-            ready="true"; break
-        fi
-        sleep 1
-    done
-
-    echo
-    if [[ "$ready" == "true" ]]; then
-        ok "bililive-go 已启动并就绪"
-    else
-        warn "服务未在 15s 内响应，请检查日志"
-        if [[ -n "$SYSTEMD_INSTALLED" ]]; then
-            echo "  查看日志: journalctl -u bililive-go -f"
-        else
-            echo "  查看日志: tail -f $INSTALL_DIR/bililive-go.log"
-        fi
-    fi
-
-    cat <<EOF
-
-${C_GREEN}=== 安装完成 ===${C_RESET}
-
-  Web UI       : http://<服务器 IP>:${HOST_PORT}
-  本机访问     : http://127.0.0.1:${HOST_PORT}
-  程序文件     : ${TARGET_BIN}
-  配置文件     : ${CONFIG_FILE}
-  数据目录     : ${INSTALL_DIR}/Data
-  视频目录     : ${INSTALL_DIR}/Videos
-
-EOF
-
-    if [[ "$ENABLE_API_KEY" == "true" ]]; then
-        cat <<EOF
-  ${C_YELLOW}API Key（请妥善保存）${C_RESET}: ${API_KEY}
-
-  iOS App / 外部客户端请把上面这串粘贴进设置页。
-  如需更换：编辑 ${CONFIG_FILE} 的 api_key 字段后重启即可。
-
-EOF
-    else
-        cat <<EOF
-  API Key      : 未启用（公网访问建议开启）
-  ${C_DIM}稍后可在 Web UI "设置 → API Key" 页一键启用并生成。${C_RESET}
-
-EOF
-    fi
-
-    if [[ -n "$SYSTEMD_INSTALLED" ]]; then
-        cat <<EOF
-  服务管理     :
-    systemctl status bililive-go     # 状态
-    systemctl restart bililive-go    # 重启
-    systemctl stop bililive-go       # 停止
-    journalctl -u bililive-go -f     # 日志
-
-EOF
-    else
-        cat <<EOF
-  常用命令     :
-    ${START_SCRIPT}               # 启动
-    kill \$(pgrep bililive-go)     # 停止
-    nohup ${START_SCRIPT} &       # 后台运行
-
-EOF
-    fi
-    exit 0
+    log "启动容器 …"
+    docker run -d \
+        --name "$CONTAINER_NAME" \
+        --restart unless-stopped \
+        -p "${HOST_PORT}:8080" \
+        -v "${VIDEOS_DIR}:/srv/bililive" \
+        -v "${INSTALL_DIR}/Data:/var/lib/bililive" \
+        -v "${CONFIG_FILE}:/etc/bililive-go/config.yml" \
+        "${DOCKER_IMAGE}:${TAG}" >/dev/null
 fi
 
 # ============================================================
-# Docker 模式
+# 第 7 步：doctor 检测
 # ============================================================
-log "bililive-go 引导式安装（Docker 模式）"
-
-# ---- Docker 可用性检查 ----
-if ! command -v docker &>/dev/null; then
-    err "未检测到 Docker。请先安装："
-    echo "  https://docs.docker.com/engine/install/"
-    exit 1
-fi
-if ! docker info >/dev/null 2>&1; then
-    err "Docker 守护进程未运行或当前用户无权限访问 docker.sock。"
-    echo "  - 启动 Docker：sudo systemctl start docker"
-    echo "  - 加入 docker 组：sudo usermod -aG docker \$USER && newgrp docker"
-    exit 1
-fi
-
-# ---- 交互输入 ----
 echo
-log "请确认以下安装参数（回车使用默认值）："
-echo
+log "【7/7】doctor 检测"
 
-# 默认安装目录：~/bililive-go
-DEFAULT_DIR="${HOME}/bililive-go"
-if [[ -z "$INSTALL_DIR" ]]; then
-    INSTALL_DIR=$(read_default "安装目录（数据/视频/配置都放这里）" "$DEFAULT_DIR")
-fi
-# 展开 ~
-INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
-INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
-
-if [[ -z "$HOST_PORT" ]]; then
-    HOST_PORT=$(read_default "Web UI 端口（主机侧）" "8080")
-fi
-if ! [[ "$HOST_PORT" =~ ^[0-9]+$ ]] || (( HOST_PORT < 1 || HOST_PORT > 65535 )); then
-    err "端口非法: $HOST_PORT"; exit 1
-fi
-
-if [[ -z "$TAG" ]]; then
-    TAG=$(read_default "Docker 镜像 tag" "latest")
-fi
-
-if [[ -z "$ENABLE_API_KEY" ]]; then
-    ans=$(ask_yes_no "启用 API Key 鉴权？（建议公网部署时开启；可稍后在 Web UI 一键启用）" "n")
-    if [[ "$ans" == "y" ]]; then ENABLE_API_KEY="true"; else ENABLE_API_KEY="false"; fi
-fi
-
-if [[ "$ENABLE_API_KEY" == "true" && -z "$API_KEY" ]]; then
-    API_KEY=$(generate_api_key)
-    if [[ -z "$API_KEY" ]]; then
-        err "无法生成 API Key（缺少 openssl/xxd/hexdump）"; exit 1
-    fi
-fi
-
-# ---- 端口冲突检查 ----
-port_in_use=""
-if command -v ss &>/dev/null; then
-    ss -tln 2>/dev/null | awk '{print $4}' | grep -E "[:.]${HOST_PORT}\$" >/dev/null && port_in_use="ss"
-elif command -v netstat &>/dev/null; then
-    netstat -tln 2>/dev/null | awk '{print $4}' | grep -E "[:.]${HOST_PORT}\$" >/dev/null && port_in_use="netstat"
-fi
-if [[ -n "$port_in_use" ]]; then
-    warn "端口 ${HOST_PORT} 已被占用（${port_in_use} 检测）"
-    cont=$(ask_yes_no "继续使用此端口？" "n")
-    if [[ "$cont" != "y" ]]; then err "已取消"; exit 1; fi
-fi
-
-# ---- 容器冲突 ----
-existing=$(docker ps -a --format '{{.Names}}' | grep -Fx "$CONTAINER_NAME" || true)
-if [[ -n "$existing" ]]; then
-    warn "已存在容器 '$CONTAINER_NAME'"
-    rm_old=$(ask_yes_no "删除旧容器并重建？（数据保留在 ${INSTALL_DIR}）" "y")
-    if [[ "$rm_old" != "y" ]]; then err "已取消，请手动处理后重跑"; exit 1; fi
-    log "删除旧容器 $CONTAINER_NAME …"
-    docker rm -f "$CONTAINER_NAME" >/dev/null
-fi
-
-# ---- 创建目录 ----
-log "创建安装目录: $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/Videos" "$INSTALL_DIR/Data"
-
-# ---- 下载 / 准备 config.docker.yml ----
-CONFIG_FILE="$INSTALL_DIR/config.docker.yml"
-if [[ -f "$CONFIG_FILE" ]]; then
-    warn "配置文件已存在: $CONFIG_FILE"
-    overwrite=$(ask_yes_no "用最新模板覆盖？（旧文件会备份为 .bak）" "n")
-    if [[ "$overwrite" == "y" ]]; then
-        cp -f "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
-        log "下载配置模板 → $CONFIG_FILE"
-        curl -fsSL "${RAW_BASE}/config.docker.yml" -o "$CONFIG_FILE"
-    else
-        log "保留现有配置文件"
-    fi
-else
-    log "下载配置模板 → $CONFIG_FILE"
-    curl -fsSL "${RAW_BASE}/config.docker.yml" -o "$CONFIG_FILE"
-fi
-
-# ---- 写入 API Key（如果启用） ----
-if [[ "$ENABLE_API_KEY" == "true" ]]; then
-    log "写入 API Key 到配置"
-    # 用 awk 替换两个键（兼容 macOS / Linux，不依赖 sed -i 的差异行为）
-    tmp_cfg="$(mktemp)"
-    awk -v key="$API_KEY" '
-        BEGIN { in_security=0 }
-        /^security:[[:space:]]*$/ { in_security=1; print; next }
-        /^[A-Za-z]/ && !/^security:/ { in_security=0 }
-        in_security==1 && /^[[:space:]]*enable_api_key:/ {
-            sub(/enable_api_key:.*/, "enable_api_key: true"); print; next
-        }
-        in_security==1 && /^[[:space:]]*api_key:/ {
-            sub(/api_key:.*/, "api_key: \"" key "\""); print; next
-        }
-        { print }
-    ' "$CONFIG_FILE" > "$tmp_cfg"
-    mv "$tmp_cfg" "$CONFIG_FILE"
-fi
-
-# ---- 拉取镜像 ----
-log "拉取镜像 ${DOCKER_IMAGE}:${TAG} …"
-docker pull "${DOCKER_IMAGE}:${TAG}"
-
-# ---- 启动 ----
-log "启动容器 …"
-docker run -d \
-    --name "$CONTAINER_NAME" \
-    --restart unless-stopped \
-    -p "${HOST_PORT}:8080" \
-    -v "${INSTALL_DIR}/Videos:/srv/bililive" \
-    -v "${INSTALL_DIR}/Data:/var/lib/bililive" \
-    -v "${CONFIG_FILE}:/etc/bililive-go/config.yml" \
-    "${DOCKER_IMAGE}:${TAG}" >/dev/null
-
-# ---- 等待健康 ----
-log "等待服务就绪 …"
+# 等待服务就绪
 url="http://127.0.0.1:${HOST_PORT}/api/auth-status"
 ready=""
 for _ in $(seq 1 30); do
@@ -545,11 +650,54 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 
+doctor_check() {
+    # $1 名称, $2 ok(true/false), $3 提示
+    if [[ "$2" == "true" ]]; then
+        ok "$1"
+    else
+        warn "$1 — $3"
+    fi
+}
+
+doctor_check "服务响应 (${url})" "${ready:-false}" "未在 30s 内就绪，请检查日志"
+if [[ "$MODE" == "binary" ]]; then
+    # 程序自带 doctor 做完整检查（配置/ffmpeg/无头浏览器/目录/端口/磁盘）
+    if "$INSTALL_DIR/bililive-go" --doctor -c "$CONFIG_FILE" 2>/dev/null; then
+        :
+    else
+        warn "doctor 检查存在未通过项（见上方输出）"
+    fi
+else
+    doctor_check "容器运行" "$(docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER_NAME" && echo true || echo false)" "容器未运行"
+    doctor_check "视频目录可写" "$([[ -w "$VIDEOS_DIR" ]] && echo true || echo false)" "无写权限"
+    doctor_check "无头浏览器（可选）" "$([[ -n "$HEADLESS_PATH" ]] && echo true || echo false)" "短链 JS 跳转解析降级"
+fi
+
+# 上报 doctor 结果到自建源（尽力而为，不阻塞安装）
+if [[ -n "$MIRROR_URL" ]]; then
+    curl -fsS --max-time 5 -X POST "$MIRROR_URL/api/v1/doctor" \
+        -H "Content-Type: application/json" \
+        -d "{\"os\":\"$OS\",\"arch\":\"$GOARCH\",\"install_mode\":\"$MODE\",\"port\":$HOST_PORT,\"paths\":{\"output_path\":\"$VIDEOS_DIR\"},\"tools\":[{\"id\":\"ffmpeg\",\"path\":\"$FFMPEG_PATH\",\"ok\":$([[ -n "$FFMPEG_PATH" ]] && echo true || echo false)},{\"id\":\"headless-browser\",\"path\":\"$HEADLESS_PATH\",\"ok\":$([[ -n "$HEADLESS_PATH" ]] && echo true || echo false)}]}" \
+        >/dev/null 2>&1 || true
+fi
+
+[[ -n "$CATALOG_FILE" ]] && rm -f "$CATALOG_FILE"
+
+# ============================================================
+# 完成
+# ============================================================
 echo
 if [[ "$ready" == "true" ]]; then
-    ok "bililive-go 已启动"
+    ok "bililive-go 已启动并就绪"
 else
-    warn "服务未在 30s 内响应，请用 'docker logs $CONTAINER_NAME' 排查"
+    warn "服务未就绪，请检查日志"
+    if [[ "$MODE" == "docker" ]]; then
+        echo "  查看日志: docker logs -f $CONTAINER_NAME"
+    elif [[ -n "$SYSTEMD_INSTALLED" ]]; then
+        echo "  查看日志: journalctl -u bililive-go -f"
+    else
+        echo "  查看日志: tail -f $INSTALL_DIR/bililive-go.log"
+    fi
 fi
 
 cat <<EOF
@@ -558,32 +706,52 @@ ${C_GREEN}=== 安装完成 ===${C_RESET}
 
   Web UI       : http://<服务器 IP>:${HOST_PORT}
   本机访问     : http://127.0.0.1:${HOST_PORT}
-  数据目录     : ${INSTALL_DIR}/Data
-  视频目录     : ${INSTALL_DIR}/Videos
   配置文件     : ${CONFIG_FILE}
-
+  数据目录     : ${INSTALL_DIR}/Data
+  视频目录     : ${VIDEOS_DIR}
 EOF
+[[ "$MODE" == "binary" ]] && echo "  程序文件     : ${INSTALL_DIR}/bililive-go"
 
 if [[ "$ENABLE_API_KEY" == "true" ]]; then
     cat <<EOF
+
   ${C_YELLOW}API Key（请妥善保存）${C_RESET}: ${API_KEY}
 
   iOS App / 外部客户端请把上面这串粘贴进设置页。
-  如需更换：编辑 ${CONFIG_FILE} 的 api_key 字段后 docker restart $CONTAINER_NAME 即可。
-
+  如需更换：编辑 ${CONFIG_FILE} 的 api_key 字段后重启即可。
 EOF
 else
     cat <<EOF
+
   API Key      : 未启用（公网访问建议开启）
   ${C_DIM}稍后可在 Web UI "设置 → API Key" 页一键启用并生成。${C_RESET}
-
 EOF
 fi
 
-cat <<EOF
+echo
+if [[ "$MODE" == "docker" ]]; then
+    cat <<EOF
   常用命令     :
     docker logs -f $CONTAINER_NAME       # 看日志
     docker restart $CONTAINER_NAME       # 重启
     docker rm -f $CONTAINER_NAME         # 移除（数据保留在 ${INSTALL_DIR}）
 
 EOF
+elif [[ -n "$SYSTEMD_INSTALLED" ]]; then
+    cat <<EOF
+  服务管理     :
+    systemctl status bililive-go     # 状态
+    systemctl restart bililive-go    # 重启
+    systemctl stop bililive-go       # 停止
+    journalctl -u bililive-go -f     # 日志
+
+EOF
+else
+    cat <<EOF
+  常用命令     :
+    $INSTALL_DIR/start.sh                # 启动
+    kill \$(pgrep bililive-go)            # 停止
+    nohup $INSTALL_DIR/start.sh &        # 后台运行
+
+EOF
+fi

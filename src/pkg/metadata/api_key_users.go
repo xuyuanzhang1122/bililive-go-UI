@@ -195,16 +195,34 @@ func (s *Store) UpdateAPIKeyUser(ctx context.Context, id string, name *string, e
 	return scanAPIKeyUser(row)
 }
 
-func (s *Store) RevokeAPIKeyUser(ctx context.Context, id string) error {
+func (s *Store) DeleteAPIKeyUser(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE api_key_users
-		SET enabled = 0, revoked_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND revoked_at IS NULL
-	`, id)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, `
+		DELETE FROM watch_history WHERE api_key_user_id = ?
+	`, id); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		DELETE FROM api_key_users WHERE id = ?
+	`, id); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) TouchAPIKeyUser(ctx context.Context, id string) error {

@@ -125,3 +125,5 @@ update:
   check_interval_hours: 6
   auto_download: true
   include_prerelease: false
+  # 自建源地址；设置后更新优先走源站镜像，源站不可用时回退本仓库 GitHub
+  source_url: ""

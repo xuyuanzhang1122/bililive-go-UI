@@ -42,6 +42,8 @@ var (
 	SplitStrategies = app.Flag("split-strategies", "video split strategies, support\"on_room_name_changed\", \"max_duration:(duration)\"").Strings()
 	// 同步（仅保留）容器内置的外部工具到目标目录，然后退出（用于 Docker 镜像构建阶段）
 	SyncBuiltInToolsToPath = app.Flag("sync-built-in-tools-to-path", "Sync built-in tools into the target folder (remove others), then exit.").Default("").String()
+	// 运行健康检查（配置/ffmpeg/无头浏览器/目录/端口/磁盘）后退出
+	Doctor = app.Flag("doctor", "Run health checks and exit.").Default("false").Bool()
 )
 
 func init() {
