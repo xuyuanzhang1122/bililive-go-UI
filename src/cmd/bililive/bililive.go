@@ -26,6 +26,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/metrics"
 	"github.com/bililive-go/bililive-go/src/pipeline"
 	"github.com/bililive-go/bililive-go/src/pipeline/stages"
+	"github.com/bililive-go/bililive-go/src/pkg/doctor"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/iostats"
 	"github.com/bililive-go/bililive-go/src/pkg/kliveproxy"
@@ -181,6 +182,11 @@ func main() {
 	defer bilisentryPkg.Recover()
 
 	// 如果提供了 --sync-built-in-tools-to-path，则进行同步（下载容器内置工具并清理其他版本/其他工具）后退出
+	// --doctor：运行健康检查后退出
+	if flag.Doctor != nil && *flag.Doctor {
+		os.Exit(doctor.Run(*flag.Conf))
+	}
+
 	if flag.SyncBuiltInToolsToPath != nil && *flag.SyncBuiltInToolsToPath != "" {
 		if err := tools.SyncBuiltInTools(*flag.SyncBuiltInToolsToPath); err != nil {
 			fmt.Fprint(os.Stderr, err.Error())

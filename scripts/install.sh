@@ -655,13 +655,17 @@ doctor_check() {
 
 doctor_check "服务响应 (${url})" "${ready:-false}" "未在 30s 内就绪，请检查日志"
 if [[ "$MODE" == "binary" ]]; then
-    doctor_check "配置文件 ($CONFIG_FILE)" "$([[ -f "$CONFIG_FILE" ]] && echo true || echo false)" "缺失"
-    doctor_check "ffmpeg" "$([[ -n "$FFMPEG_PATH" ]] && echo true || echo false)" "未找到，录制功能不可用"
+    # 程序自带 doctor 做完整检查（配置/ffmpeg/无头浏览器/目录/端口/磁盘）
+    if "$INSTALL_DIR/bililive-go" --doctor -c "$CONFIG_FILE" 2>/dev/null; then
+        :
+    else
+        warn "doctor 检查存在未通过项（见上方输出）"
+    fi
 else
     doctor_check "容器运行" "$(docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER_NAME" && echo true || echo false)" "容器未运行"
+    doctor_check "视频目录可写" "$([[ -w "$VIDEOS_DIR" ]] && echo true || echo false)" "无写权限"
+    doctor_check "无头浏览器（可选）" "$([[ -n "$HEADLESS_PATH" ]] && echo true || echo false)" "短链 JS 跳转解析降级"
 fi
-doctor_check "视频目录可写" "$([[ -w "$VIDEOS_DIR" ]] && echo true || echo false)" "无写权限"
-doctor_check "无头浏览器（可选）" "$([[ -n "$HEADLESS_PATH" ]] && echo true || echo false)" "短链 JS 跳转解析降级"
 
 # 上报 doctor 结果到自建源（尽力而为，不阻塞安装）
 if [[ -n "$MIRROR_URL" ]]; then
