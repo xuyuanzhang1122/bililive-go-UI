@@ -426,20 +426,26 @@ echo
 log "【6/7】下载并部署"
 
 write_config_common() {
-    # 替换 out_put_path / app_data_path / 端口 / ffmpeg / 无头浏览器 / API Key
+    # 替换 out_put_path / app_data_path / 端口 / ffmpeg / 无头浏览器 / 更新源 / API Key
     local cfg_file="$1"
     [[ -f "$cfg_file" ]] || return 0
     local tmp_cfg
     tmp_cfg="$(mktemp)"
-    awk -v out="$VIDEOS_DIR" -v data="$INSTALL_DIR/Data" -v port="$HOST_PORT" -v ffm="$FFMPEG_PATH" -v hb="$HEADLESS_PATH" '
+    awk -v out="$VIDEOS_DIR" -v data="$INSTALL_DIR/Data" -v port="$HOST_PORT" -v ffm="$FFMPEG_PATH" -v hb="$HEADLESS_PATH" -v mirror="$MIRROR_URL" '
         /^out_put_path:/  { print "out_put_path: " out; next }
         /^app_data_path:/ { print "app_data_path: " data; next }
         /^ffmpeg_path:/   { if (ffm != "") { print "ffmpeg_path: \"" ffm "\"" } else { print } ; next }
         /^[[:space:]]*bind:/ { sub(/bind:.*/, "bind: :" port); print; next }
-        /^headless_browser:[[:space:]]*$/ { in_hb=1; print; next }
-        /^[A-Za-z]/ && !/^headless_browser:/ { in_hb=0 }
+        /^headless_browser:[[:space:]]*$/ { in_hb=1; in_up=0; print; next }
+        /^update:[[:space:]]*$/ { in_up=1; in_hb=0; print; next }
+        /^[A-Za-z]/ && !/^(headless_browser|update):/ { in_hb=0; in_up=0 }
         in_hb==1 && /^[[:space:]]*path:/ {
             if (hb != "") { sub(/path:.*/, "path: \"" hb "\"") }
+            print; next
+        }
+        in_up==1 && /^[[:space:]]*source_url:/ {
+            # 安装用什么源，应用内更新就用什么源（源站不可用时程序会回退本仓库 GitHub）
+            if (mirror != "") { sub(/source_url:.*/, "source_url: \"" mirror "\"") }
             print; next
         }
         { print }

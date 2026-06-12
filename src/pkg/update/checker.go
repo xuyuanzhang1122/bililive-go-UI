@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+
+	"github.com/bililive-go/bililive-go/src/configs"
 )
 
 // API 地址常量
@@ -60,11 +62,12 @@ type Checker struct {
 	currentVersion string
 	releaseURL     string
 	versionAPIURL  string // 版本检测 API URL（可自定义测试）
+	mirrorURL      string // 自建源地址；设置后优先从源站 catalog 检查更新
 }
 
 // NewChecker 创建新的版本检查器
 func NewChecker(currentVersion string) *Checker {
-	return &Checker{
+	c := &Checker{
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -72,11 +75,23 @@ func NewChecker(currentVersion string) *Checker {
 		releaseURL:     GitHubReleasesAPI,
 		versionAPIURL:  DefaultVersionAPIURL,
 	}
+	// 配置了自建源时默认启用（创建点无需逐一接线）
+	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.Update.SourceURL != "" {
+		c.SetMirrorURL(cfg.Update.SourceURL)
+	}
+	return c
 }
 
 // SetReleaseURL 设置自定义 Release API URL（用于测试或自托管）
 func (c *Checker) SetReleaseURL(url string) {
 	c.releaseURL = url
+}
+
+// SetMirrorURL 设置自建源（bililive-server-update）地址。
+// 设置后更新检查与下载优先走源站镜像；源站不可用时回退本仓库 GitHub。
+// 更新上游只允许本项目的源站或本项目的 GitHub 仓库，绝不指向原上游项目。
+func (c *Checker) SetMirrorURL(url string) {
+	c.mirrorURL = strings.TrimRight(strings.TrimSpace(url), "/")
 }
 
 // SetVersionAPIURL 设置自定义版本检测 API URL（用于测试本地自动升级逻辑）
@@ -208,8 +223,89 @@ func (c *Checker) GetLatestRelease(includePrerelease bool) (*ReleaseInfo, error)
 	}, nil
 }
 
-// fetchReleases 从 GitHub API 获取发布列表
+// fetchReleases 获取发布列表：配置了自建源时优先源站，失败回退本仓库 GitHub
 func (c *Checker) fetchReleases() ([]githubRelease, error) {
+	if c.mirrorURL != "" {
+		if releases, err := c.fetchMirrorReleases(); err == nil && len(releases) > 0 {
+			return releases, nil
+		}
+		// 源站不可用：回退到本仓库的 GitHub Releases（仍是本项目，不会指向原上游）
+	}
+	return c.fetchGitHubReleases()
+}
+
+// mirrorCatalog 自建源 /api/v1/catalog 响应（只取需要的字段）
+type mirrorCatalog struct {
+	Releases []mirrorReleaseEntry `json:"releases"`
+}
+
+type mirrorReleaseEntry struct {
+	Name      string    `json:"name"`
+	Version   string    `json:"version"`
+	URL       string    `json:"url"`
+	Size      int64     `json:"size"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// fetchMirrorReleases 从自建源 catalog 取最新版本并转换为统一的 release 结构
+func (c *Checker) fetchMirrorReleases() ([]githubRelease, error) {
+	req, err := http.NewRequest("GET", c.mirrorURL+"/api/v1/catalog", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "bililive-go-updater")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("请求自建源失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("自建源返回状态码: %d", resp.StatusCode)
+	}
+	var catalog mirrorCatalog
+	if err := json.NewDecoder(resp.Body).Decode(&catalog); err != nil {
+		return nil, fmt.Errorf("解析自建源 catalog 失败: %w", err)
+	}
+	if len(catalog.Releases) == 0 {
+		return nil, fmt.Errorf("自建源 catalog 为空")
+	}
+
+	// 源站仅保留最新版本；按 version 分组拼出资产列表
+	byVersion := map[string]*githubRelease{}
+	order := []string{}
+	for _, entry := range catalog.Releases {
+		if entry.Version == "" || entry.URL == "" {
+			continue
+		}
+		rel, ok := byVersion[entry.Version]
+		if !ok {
+			rel = &githubRelease{
+				TagName:     entry.Version,
+				Name:        entry.Version,
+				PublishedAt: entry.UpdatedAt,
+			}
+			byVersion[entry.Version] = rel
+			order = append(order, entry.Version)
+		}
+		downloadURL := entry.URL
+		if strings.HasPrefix(downloadURL, "/") {
+			downloadURL = c.mirrorURL + downloadURL
+		}
+		rel.Assets = append(rel.Assets, githubAsset{
+			Name:               entry.Name,
+			Size:               entry.Size,
+			BrowserDownloadURL: downloadURL,
+		})
+	}
+	releases := make([]githubRelease, 0, len(order))
+	for _, v := range order {
+		releases = append(releases, *byVersion[v])
+	}
+	return releases, nil
+}
+
+// fetchGitHubReleases 从本仓库 GitHub API 获取发布列表
+func (c *Checker) fetchGitHubReleases() ([]githubRelease, error) {
 	req, err := http.NewRequest("GET", c.releaseURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)

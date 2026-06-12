@@ -252,6 +252,10 @@ type UpdateConfig struct {
 	AutoDownload bool `yaml:"auto_download" json:"auto_download"`
 	// IncludePrerelease 是否包含预发布版本（默认 false）
 	IncludePrerelease bool `yaml:"include_prerelease" json:"include_prerelease"`
+	// SourceURL 自建源（bililive-server-update）地址；设置后更新检查与下载
+	// 优先走源站镜像，源站不可用时回退本仓库 GitHub。留空 = 仅 GitHub。
+	// 注意：更新上游只允许本项目的源站或本项目的 GitHub 仓库，绝不指向原上游项目。
+	SourceURL string `yaml:"source_url" json:"source_url"`
 }
 
 var defaultUpdateConfig = UpdateConfig{
