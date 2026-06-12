@@ -1164,8 +1164,8 @@ func getThumbnail(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 用视频路径生成唯一的缩略图文件名
-	thumbFileName := strings.ReplaceAll(filepath.ToSlash(videoRelPath), "/", "_") + ".jpg"
+	// 用视频路径生成唯一的缩略图文件名（_v2 后缀使 SAR 修复前的旧缓存失效）
+	thumbFileName := strings.ReplaceAll(filepath.ToSlash(videoRelPath), "/", "_") + "_v2.jpg"
 	thumbPath := filepath.Join(thumbDir, thumbFileName)
 
 	// 检查缓存
@@ -1200,7 +1200,8 @@ func getThumbnail(writer http.ResponseWriter, r *http.Request) {
 				"-ss", seekSec,
 				"-i", videoAbsPath,
 				"-vframes", "1",
-				"-vf", "scale=320:-1",
+				// FLV 直播流常带非方形像素（SAR≠1:1），先按 SAR 归一化再缩放，否则缩略图被拉伸
+				"-vf", "scale=iw*sar:ih,scale=320:-2",
 				"-q:v", "5",
 				thumbPath, "-y",
 			)

@@ -935,9 +935,9 @@ const VideoLibrary: React.FC = () => {
     const playingRelPath = searchParams.get('play') || '';
     const playingName = searchParams.get('name') || '';
 
-    const loadRooms = useCallback(() => {
-        setLoading(true);
-        api.getVideoLibrary().then((d: any) => { setRooms(d || []); setLoading(false); }).catch(() => setLoading(false));
+    const loadRooms = useCallback((silent = false) => {
+        if (!silent) setLoading(true);
+        api.getVideoLibrary().then((d: any) => { setRooms(d || []); setLoading(false); }).catch(() => { if (!silent) setLoading(false); });
     }, []);
 
     useEffect(() => {
@@ -945,11 +945,26 @@ const VideoLibrary: React.FC = () => {
         setLastRecord(loadPlayRecord());
     }, [loadRooms]);
 
+    // SSE 断连（重连超限/后台标签页被挂起）时直播中标识会卡住，这里做静默轮询 + 回到前台立即刷新兜底
+    useEffect(() => {
+        const pollTimer = setInterval(() => {
+            if (document.visibilityState === 'visible') loadRooms(true);
+        }, 30000);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') loadRooms(true);
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            clearInterval(pollTimer);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, [loadRooms]);
+
     useEffect(() => {
         const scheduleRefresh = () => {
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = setTimeout(() => {
-                loadRooms();
+                loadRooms(true);
                 refreshTimerRef.current = null;
             }, 500);
         };
