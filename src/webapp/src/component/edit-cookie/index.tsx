@@ -42,7 +42,6 @@ class EditCookieDialog extends React.Component<IProps> {
 
         this.api.saveCookie({ Host: this.state.Host, Cookie: this.state.textView })
             .then(() => {
-                this.api.saveSettingsInBackground();
                 this.setState({ visible: false, confirmLoading: false });
                 this.props.refresh();
                 notification.success({ message: '保存成功' });

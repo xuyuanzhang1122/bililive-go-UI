@@ -17,6 +17,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
 	applog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/pipeline"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/recorders"
@@ -320,6 +321,11 @@ func setupRecorderStatusBroadcast() {
 	// 设置回调函数，让 recorders 包能够调用 SSE 广播
 	recorders.SetBroadcastRecorderStatusFunc(func(liveId types.LiveID, status map[string]interface{}) {
 		GetSSEHub().BroadcastRecorderStatus(liveId, status)
+	})
+
+	// 设置直播间列表变更广播函数，供 listeners 包在房间状态变化时推送刷新
+	listeners.SetBroadcastListChangeFunc(func(liveId types.LiveID, changeType string, data map[string]interface{}) {
+		GetSSEHub().BroadcastListChange(liveId, changeType, data)
 	})
 
 	// 设置录制结束回调，用于触发优雅更新检查

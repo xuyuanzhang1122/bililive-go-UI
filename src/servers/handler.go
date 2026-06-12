@@ -3675,10 +3675,10 @@ func deleteAPIKeyUser(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := mux.Vars(r)["id"]
-	if err := store.RevokeAPIKeyUser(r.Context(), id); err != nil {
+	if err := store.DeleteAPIKeyUser(r.Context(), id); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
-			ErrMsg: "吊销 API Key 用户失败: " + err.Error(),
+			ErrMsg: "删除 API Key 用户失败: " + err.Error(),
 		})
 		return
 	}

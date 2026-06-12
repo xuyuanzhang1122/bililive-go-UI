@@ -15,6 +15,16 @@ import (
 // for test
 var newListener = NewListener
 
+// BroadcastListChangeFunc 是用于广播直播间列表变更的回调函数类型
+type BroadcastListChangeFunc func(liveId types.LiveID, changeType string, data map[string]interface{})
+
+var broadcastListChangeFunc BroadcastListChangeFunc
+
+// SetBroadcastListChangeFunc 设置直播间列表变更广播函数
+func SetBroadcastListChangeFunc(fn BroadcastListChangeFunc) {
+	broadcastListChangeFunc = fn
+}
+
 func NewManager(ctx context.Context) Manager {
 	lm := &manager{
 		savers: make(map[types.LiveID]Listener),
