@@ -70,6 +70,24 @@ class API {
     }
 
     /**
+     * 获取待清理的小文件候选（默认 <50MB 且不在录制中）
+     */
+    getCleanupCandidates(thresholdMb = 50) {
+        return utils.requestGet(`${BASE_URL}/cleanup-candidates?threshold_mb=${thresholdMb}`);
+    }
+
+    /**
+     * 对候选文件执行用户确认后的清理操作
+     * @param action delete=删除文件 keep=保留并不再提示
+     */
+    postCleanupAction(action: 'delete' | 'keep', relPaths: string[]) {
+        return utils.requestPost(`${BASE_URL}/cleanup-candidates/action`, {
+            action,
+            rel_paths: relPaths,
+        });
+    }
+
+    /**
      * 获取指定主播文件夹内的所有视频文件
      * @param folderPath 相对于 output_path 的文件夹路径（如 "抖音/北城"）
      */

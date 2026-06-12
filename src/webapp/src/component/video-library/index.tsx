@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Card, Row, Col, Spin, Empty, Tag, Typography, Tooltip, Button, Modal, Input, Alert, Space, message } from 'antd';
+import { Card, Row, Col, Spin, Empty, Tag, Typography, Tooltip, Button, Modal, Input, Alert, Space, message, Checkbox, Popconfirm, Badge } from 'antd';
 import {
     VideoCameraOutlined,
     FolderOpenOutlined,
@@ -922,6 +922,104 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
     );
 };
 
+// ===== 小文件清理弹窗 =====
+interface CleanupCandidate {
+    name: string;
+    rel_path: string;
+    size: number;
+    mod_time: number;
+}
+
+const CleanupModal: React.FC<{ open: boolean; onClose: () => void; onChanged: () => void }> = ({ open, onClose, onChanged }) => {
+    const [list, setList] = useState<CleanupCandidate[]>([]);
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [loading, setLoading] = useState(false);
+    const [working, setWorking] = useState(false);
+
+    const load = useCallback(() => {
+        setLoading(true);
+        api.getCleanupCandidates().then((d: any) => {
+            setList(d || []);
+            setSelected(new Set());
+            setLoading(false);
+        }).catch(() => setLoading(false));
+    }, []);
+
+    useEffect(() => { if (open) load(); }, [open, load]);
+
+    const toggle = (relPath: string) => {
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(relPath)) next.delete(relPath); else next.add(relPath);
+            return next;
+        });
+    };
+
+    const act = (action: 'delete' | 'keep') => {
+        const paths = Array.from(selected);
+        if (paths.length === 0) return;
+        setWorking(true);
+        api.postCleanupAction(action, paths).then((results: any) => {
+            const failed = (Array.isArray(results) ? results : []).filter((r: any) => !r.ok);
+            if (failed.length > 0) {
+                message.warning(`${failed.length} 个文件处理失败：${failed[0]?.error || '未知错误'}`);
+            } else {
+                message.success(action === 'delete' ? '已删除所选文件' : '已保留所选文件，不再提示');
+            }
+            setWorking(false);
+            load();
+            onChanged();
+        }).catch(() => { message.error('操作失败'); setWorking(false); });
+    };
+
+    return (
+        <Modal title="清理录制小文件" open={open} onCancel={onClose} footer={null} width={640}>
+            <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="断流重连会留下小体积视频碎片（部分无法播放）。以下为小于 50MB 且不在录制中的文件，删除前请确认；选择保留后将不再提示。"
+            />
+            <div style={{ marginBottom: 8 }}>
+                <Checkbox
+                    checked={list.length > 0 && selected.size === list.length}
+                    indeterminate={selected.size > 0 && selected.size < list.length}
+                    onChange={e => setSelected(e.target.checked ? new Set(list.map(f => f.rel_path)) : new Set())}
+                >
+                    全选（已选 {selected.size}/{list.length}）
+                </Checkbox>
+            </div>
+            <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                {loading ? <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+                    : list.length === 0 ? <Empty description="没有待清理的小文件" />
+                        : list.map(f => (
+                            <div key={f.rel_path} style={{ display: 'flex', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                                <Checkbox checked={selected.has(f.rel_path)} onChange={() => toggle(f.rel_path)} style={{ marginRight: 8 }} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.rel_path}>{f.rel_path}</div>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                        {Utils.byteSizeToHumanReadableFileSize(f.size)} · {new Date(f.mod_time * 1000).toLocaleString()}
+                                    </Text>
+                                </div>
+                            </div>
+                        ))}
+            </div>
+            <Space style={{ marginTop: 16, width: '100%', justifyContent: 'flex-end', display: 'flex' }}>
+                <Button disabled={selected.size === 0 || working} onClick={() => act('keep')}>保留所选</Button>
+                <Popconfirm
+                    title={`确认删除所选 ${selected.size} 个文件？删除后不可恢复`}
+                    okText="删除"
+                    okButtonProps={{ danger: true }}
+                    cancelText="取消"
+                    onConfirm={() => act('delete')}
+                >
+                    <Button danger type="primary" disabled={selected.size === 0} loading={working}>删除所选</Button>
+                </Popconfirm>
+            </Space>
+        </Modal>
+    );
+};
+
 // ===== 主页：视频库 =====
 const VideoLibrary: React.FC = () => {
     const navigate = useNavigate();
@@ -929,6 +1027,8 @@ const VideoLibrary: React.FC = () => {
     const [rooms, setRooms] = useState<VideoRoomInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [showAdd, setShowAdd] = useState(false);
+    const [showCleanup, setShowCleanup] = useState(false);
+    const [cleanupCount, setCleanupCount] = useState(0);
     const [lastRecord, setLastRecord] = useState<PlayRecord | null>(null);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const selectedRoomPath = searchParams.get('room') || '';
@@ -940,10 +1040,17 @@ const VideoLibrary: React.FC = () => {
         api.getVideoLibrary().then((d: any) => { setRooms(d || []); setLoading(false); }).catch(() => { if (!silent) setLoading(false); });
     }, []);
 
+    const refreshCleanupCount = useCallback(() => {
+        api.getCleanupCandidates()
+            .then((d: any) => setCleanupCount(Array.isArray(d) ? d.length : 0))
+            .catch(() => { });
+    }, []);
+
     useEffect(() => {
         loadRooms();
         setLastRecord(loadPlayRecord());
-    }, [loadRooms]);
+        refreshCleanupCount();
+    }, [loadRooms, refreshCleanupCount]);
 
     // SSE 断连（重连超限/后台标签页被挂起）时直播中标识会卡住，这里做静默轮询 + 回到前台立即刷新兜底
     useEffect(() => {
@@ -1071,10 +1178,21 @@ const VideoLibrary: React.FC = () => {
                     </Title>
                     {!loading && <Text type="secondary" style={{ fontSize: 13 }}>共 {rooms.length} 位主播</Text>}
                 </div>
-                <Button type="primary" icon={<PlusOutlined />} size="large" onClick={() => setShowAdd(true)}>
-                    添加直播间
-                </Button>
+                <Space>
+                    <Badge count={cleanupCount} size="small" overflowCount={99}>
+                        <Button size="large" onClick={() => setShowCleanup(true)}>清理小文件</Button>
+                    </Badge>
+                    <Button type="primary" icon={<PlusOutlined />} size="large" onClick={() => setShowAdd(true)}>
+                        添加直播间
+                    </Button>
+                </Space>
             </div>
+
+            <CleanupModal
+                open={showCleanup}
+                onClose={() => setShowCleanup(false)}
+                onChanged={() => { refreshCleanupCount(); loadRooms(true); }}
+            />
 
             {/* 继续观看横幅 */}
             {lastRecord && lastRecord.duration > 10 && lastRecord.position > 5 && (

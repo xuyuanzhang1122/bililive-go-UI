@@ -116,6 +116,9 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/resolve-url", resolveUrl).Methods("GET") // 解析抓鼿分享短链
 	// 视频库 API
 	apiRoute.HandleFunc("/video-library", getVideoLibrary).Methods("GET")
+	// 小文件清理 API（列举候选 + 用户确认删除/保留）
+	apiRoute.HandleFunc("/cleanup-candidates", getCleanupCandidates).Methods("GET")
+	apiRoute.HandleFunc("/cleanup-candidates/action", postCleanupAction).Methods("POST")
 	apiRoute.HandleFunc("/auth-status", getAuthStatus).Methods("GET")
 	apiRoute.HandleFunc("/auth/me", getAuthMe).Methods("GET")
 	apiRoute.HandleFunc("/api-keys", getAPIKeyUsers).Methods("GET")
