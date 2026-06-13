@@ -309,7 +309,8 @@ npm install && npm run install:browser
 
 ## 🙏 致谢
 
-本项目 Fork 自 [bililive-go/bililive-go](https://github.com/bililive-go/bililive-go)，并参考了 [you-get](https://github.com/soimort/you-get)、[ykdl](https://github.com/zhangn1985/ykdl)、[youtube-dl](https://github.com/ytdl-org/youtube-dl) 的流媒体抓取思路；iOS 播放器基于 [pillarbox-apple](https://github.com/SRGSSR/pillarbox-apple)。感谢所有上游作者。
+本项目 Fork 自 [bililive-go/bililive-go](https://github.com/bililive-go/bililive-go)，并参考了 [you-get](https://github.com/soimort/you-get)、[ykdl](https://github.com/zhangn1985/ykdl)、[youtube-dl](https://github.com/ytdl-org/youtube-dl) 的流媒体抓取思路，以及[TikTokDownloader
+](https://github.com/JoeanAmier/TikTokDownloader)的URL解析思路；iOS 播放器基于 [pillarbox-apple](https://github.com/SRGSSR/pillarbox-apple)。感谢所有上游作者。
 
 <div align="center">
 
