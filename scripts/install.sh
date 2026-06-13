@@ -355,19 +355,19 @@ download_mirror_tool() {
     fi
     case "$fname" in
         *.tar.gz|*.tgz)
-            tar xzf "$dest" -C "$TOOLS_DIR"
+            tar xzf "$dest" -C "$TOOLS_DIR" 2>/dev/null
             rm -f "$dest"
-            # 解压后找同名可执行
-            local extracted
-            extracted=$(find "$TOOLS_DIR" -maxdepth 2 -type f -name "${name}*" ! -name "*.tar.gz" | head -1)
-            [[ -n "$extracted" ]] && chmod +x "$extracted" && echo "$extracted"
+            locate_extracted_tool "$name"
+            ;;
+        *.tar.xz)
+            tar xf "$dest" -C "$TOOLS_DIR" 2>/dev/null
+            rm -f "$dest"
+            locate_extracted_tool "$name"
             ;;
         *.zip)
             if command -v unzip &>/dev/null; then
                 unzip -oq "$dest" -d "$TOOLS_DIR"; rm -f "$dest"
-                local extracted
-                extracted=$(find "$TOOLS_DIR" -maxdepth 2 -type f -name "${name}*" ! -name "*.zip" | head -1)
-                [[ -n "$extracted" ]] && chmod +x "$extracted" && echo "$extracted"
+                locate_extracted_tool "$name"
             else
                 warn "缺少 unzip，无法解压 ${fname}" >&2
             fi
@@ -377,6 +377,26 @@ download_mirror_tool() {
             echo "$dest"
             ;;
     esac
+}
+
+# locate_extracted_tool 在解压目录里定位工具可执行文件
+# 工具压缩包内部命名不固定（如 chrome-headless-shell-linux64/chrome-headless-shell），
+# 因此按已知可执行名匹配，而非按工具名匹配。
+locate_extracted_tool() {
+    local name="$1" candidates extracted
+    case "$name" in
+        ffmpeg)           candidates="ffmpeg" ;;
+        headless-browser) candidates="chrome-headless-shell chrome chromium headless_shell" ;;
+        *)                candidates="$name" ;;
+    esac
+    for exe in $candidates; do
+        extracted=$(find "$TOOLS_DIR" -maxdepth 3 -type f -name "$exe" ! -name "*.zip" ! -name "*.tar.*" 2>/dev/null | head -1)
+        if [[ -n "$extracted" ]]; then
+            chmod +x "$extracted"
+            echo "$extracted"
+            return 0
+        fi
+    done
 }
 
 # ffmpeg（必需）

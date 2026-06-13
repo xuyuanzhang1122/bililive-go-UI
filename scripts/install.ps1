@@ -228,8 +228,16 @@ function Get-MirrorTool([string]$Name) {
     if ($fname -match "\.zip$") {
         Expand-Archive -Path $dest -DestinationPath $ToolsDir -Force
         Remove-Item $dest -Force
-        $exe = Get-ChildItem -Path $ToolsDir -Recurse -Include "$Name*.exe" | Select-Object -First 1
-        if ($exe) { return $exe.FullName }
+        # 压缩包内部命名不固定，按已知可执行名匹配（chrome-headless-shell-win64\chrome-headless-shell.exe 等）
+        $names = switch ($Name) {
+            "ffmpeg"           { @("ffmpeg.exe") }
+            "headless-browser" { @("chrome-headless-shell.exe", "chrome.exe", "headless_shell.exe") }
+            default            { @("$Name.exe") }
+        }
+        foreach ($n in $names) {
+            $exe = Get-ChildItem -Path $ToolsDir -Recurse -Filter $n -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($exe) { return $exe.FullName }
+        }
         return ""
     }
     return $dest
