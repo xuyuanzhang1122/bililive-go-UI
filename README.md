@@ -314,5 +314,6 @@ npm install && npm run install:browser
 <div align="center">
 
 **觉得有用的话，点个 ⭐ Star 支持一下～**
+**如果您有更好的意见或需求，亦或是发现了BUG欢迎提交issues**
 
 </div>
