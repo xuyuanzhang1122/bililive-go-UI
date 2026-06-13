@@ -27,6 +27,9 @@ var (
 		regexp.MustCompile(`"web_rid"\s*:\s*"(\d{6,})"`),
 		regexp.MustCompile(`"roomId"\s*:\s*"(\d{6,})"`),
 		regexp.MustCompile(`"room_id"\s*:\s*"(\d{6,})"`),
+		// reflow 分享页把房间号埋在转义 JSON 里（参考 DouK-Downloader）：\"webRid\":\"123\"
+		regexp.MustCompile(`\\"webRid\\"\s*:\s*\\"(\d{6,})\\"`),
+		regexp.MustCompile(`"webRid"\s*:\s*"(\d{6,})"`),
 	}
 )
 
@@ -144,16 +147,20 @@ func normalizeDouyinURL(raw string) (string, bool) {
 		return "", false
 	}
 	host := strings.ToLower(u.Hostname())
-	if host != "live.douyin.com" {
+	// www.douyin.com/follow?webRid=123 是自己关注页里的直播入口（参考 DouK-Downloader），
+	// 房间号在 query 上，可直接规范化，无需再发请求。
+	if host != "live.douyin.com" && host != "www.douyin.com" {
 		return "", false
 	}
 
-	for _, seg := range strings.Split(u.Path, "/") {
-		if roomIDPattern.MatchString(seg) {
-			return "https://live.douyin.com/" + seg, true
+	if host == "live.douyin.com" {
+		for _, seg := range strings.Split(u.Path, "/") {
+			if roomIDPattern.MatchString(seg) {
+				return "https://live.douyin.com/" + seg, true
+			}
 		}
 	}
-	for _, key := range []string{"room_id", "web_rid", "roomId"} {
+	for _, key := range []string{"room_id", "web_rid", "webRid", "roomId"} {
 		if value := u.Query().Get(key); roomIDPattern.MatchString(value) {
 			return "https://live.douyin.com/" + value, true
 		}

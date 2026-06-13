@@ -66,6 +66,12 @@ func TestNormalizeDouyinURL(t *testing.T) {
 			raw:  "https://webcast.amemv.com/douyin/webcast/reflow/12345678",
 			ok:   false,
 		},
+		{
+			name: "关注页 webRid 参数",
+			raw:  "https://www.douyin.com/follow?webRid=87654321",
+			want: "https://live.douyin.com/87654321",
+			ok:   true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -88,6 +94,17 @@ func TestCanonicalFromHTML(t *testing.T) {
 	}
 	if got != "https://live.douyin.com/12345678" {
 		t.Fatalf("canonicalFromHTML() = %q", got)
+	}
+}
+
+func TestCanonicalFromHTMLReflowWebRid(t *testing.T) {
+	// reflow 分享页把房间号埋在转义 JSON 里
+	got, ok := canonicalFromHTML(`<script>self.__pace_f={\"webRid\":\"87654321\",\"foo\":1}</script>`)
+	if !ok {
+		t.Fatal("canonicalFromHTML() reflow ok = false, want true")
+	}
+	if got != "https://live.douyin.com/87654321" {
+		t.Fatalf("canonicalFromHTML() reflow = %q", got)
 	}
 }
 
