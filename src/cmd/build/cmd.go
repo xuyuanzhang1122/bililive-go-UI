@@ -12,8 +12,13 @@ import (
 )
 
 // AI 指示文件路径
-var agentFiles = []string{
+// trackedAgentFiles 纳入版本控制，check-agents 在 CI 中校验；
+// localAgentFiles 在 .gitignore 中（开发者本地镜像），仅 sync-agents 写入、存在时才校验。
+var trackedAgentFiles = []string{
 	".github/copilot-instructions.md",
+}
+
+var localAgentFiles = []string{
 	".agent/rules/gemini-guide.md",
 	".gemini/GEMINI.md",
 }
@@ -143,7 +148,10 @@ func syncAgents(c *kingpin.ParseContext) error {
 		return fmt.Errorf("读取 %s 失败: %w", sourceAgentFile, err)
 	}
 
-	for _, target := range agentFiles {
+	for _, target := range append(append([]string{}, trackedAgentFiles...), localAgentFiles...) {
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return fmt.Errorf("创建目录失败 %s: %w", target, err)
+		}
 		if err := os.WriteFile(target, content, 0644); err != nil {
 			return fmt.Errorf("写入 %s 失败: %w", target, err)
 		}
@@ -162,7 +170,7 @@ func checkAgents(c *kingpin.ParseContext) error {
 	}
 
 	allMatch := true
-	for _, target := range agentFiles {
+	for _, target := range trackedAgentFiles {
 		targetContent, err := os.ReadFile(target)
 		if err != nil {
 			fmt.Printf("错误：无法读取 %s: %v\n", target, err)
@@ -170,6 +178,17 @@ func checkAgents(c *kingpin.ParseContext) error {
 			continue
 		}
 
+		if !bytes.Equal(source, targetContent) {
+			fmt.Printf("错误：%s 与 %s 不一致，请运行 make sync-agents\n", target, sourceAgentFile)
+			allMatch = false
+		}
+	}
+	// 本地镜像文件在 .gitignore 中，CI 环境不存在；仅存在时才校验
+	for _, target := range localAgentFiles {
+		targetContent, err := os.ReadFile(target)
+		if err != nil {
+			continue
+		}
 		if !bytes.Equal(source, targetContent) {
 			fmt.Printf("错误：%s 与 %s 不一致，请运行 make sync-agents\n", target, sourceAgentFile)
 			allMatch = false
