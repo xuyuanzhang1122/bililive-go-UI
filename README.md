@@ -253,7 +253,7 @@ graph LR
 |------|------|--------|
 | **bililive-go-UI**（本仓库） | ✅ 开源 | 录播主服务、Web UI、全部核心 API |
 | **[bililive-ios](https://github.com/xuyuanzhang1122/bililive-ios)** | ✅ 开源 | iOS 原生 App |
-| **配套源站** | ✅ 现已开源 | 装机脚本托管、ffmpeg/浏览器工具分发、iOS 配置云备份 |
+| **配套源站[bililive-server-update](https://github.com/xuyuanzhang1122/bililive-server-update)** | ✅ 现已开源 | 装机脚本托管、ffmpeg/浏览器工具分发、iOS 配置云备份 |
 
 > 📌 主服务的**录制、播放、历史、鉴权**全部不依赖配套源站，单独跑就能用。源站只是让"装依赖"和"配置云备份找回"更省心。
 > 作者运营的公网实例：🌐 **[image.xumy.art](https://image.xumy.art)**（可选使用，也可自行部署）。
