@@ -18,6 +18,7 @@ var newListener = NewListener
 // BroadcastListChangeFunc 是用于广播直播间列表变更的回调函数类型
 type BroadcastListChangeFunc func(liveId types.LiveID, changeType string, data map[string]interface{})
 
+//nolint:unused // 预留的列表变更广播钩子：由 servers 包注入，事件消费侧尚未接入
 var broadcastListChangeFunc BroadcastListChangeFunc
 
 // SetBroadcastListChangeFunc 设置直播间列表变更广播函数

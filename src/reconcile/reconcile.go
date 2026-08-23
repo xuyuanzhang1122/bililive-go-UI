@@ -180,9 +180,9 @@ func classifyFile(relPath, outputTmpl string) string {
 		return fmt.Sprintf("unknown:%x", hash[:6])
 	}
 
-	// 按 / 切段，去掉扩展名
+	// 按 / 切段，去掉扩展名；先统一把 Windows 反斜杠归一为 /，保证跨平台行为一致
 	cleanPath := strings.TrimSuffix(relPath, filepath.Ext(relPath))
-	segments := strings.Split(cleanPath, string(filepath.Separator))
+	segments := strings.Split(strings.ReplaceAll(cleanPath, "\\", "/"), "/")
 
 	var platform, host, roomID string
 	for i, field := range fieldOrder {

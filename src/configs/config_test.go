@@ -3,6 +3,7 @@ package configs
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -245,6 +246,9 @@ func TestDefaultAppDataPath_Container(t *testing.T) {
 }
 
 func TestDefaultAppDataPath_Desktop(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 下用户目录不取自 HOME 环境变量，跳过 unix 路径断言")
+	}
 	t.Setenv("IS_DOCKER", "")
 	t.Setenv("HOME", "/home/testuser")
 	path := defaultAppDataPath()
