@@ -55,6 +55,20 @@ func TestSignedHLSURLForVideoFile(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/video-files/%E6%8A%96%E9%9F%B3/%E4%B8%BB%E6%92%AD?_key=secret", nil)
-	assert.NotEmpty(t, signedHLSURLForVideoFile(req, ".flv", "抖音/主播/video.flv", cfg))
+	hlsURL := signedHLSURLForVideoFile(req, ".flv", "抖音/主播/video.flv", cfg)
+	require.NotEmpty(t, hlsURL)
+	// 鸿蒙 AVPlayer 依赖 .m3u8 后缀识别 HLS 播放列表。
+	assert.True(t, strings.HasSuffix(strings.SplitN(hlsURL, "?", 2)[0], "/playlist.m3u8"))
+	signedReq := httptest.NewRequest(http.MethodGet, hlsURL, nil)
+	assert.NoError(t, securitypkg.ValidateSignedRequest(signedReq, "secret", time.Now()))
 	assert.Empty(t, signedHLSURLForVideoFile(req, ".mp4", "抖音/主播/video.mp4", cfg))
+}
+
+func TestTrimHLSPlaylistSuffix(t *testing.T) {
+	assert.Equal(t, "抖音/主播/video.flv", trimHLSPlaylistSuffix("抖音/主播/video.flv/playlist.m3u8"))
+	assert.Equal(t, "抖音/主播/video.flv", trimHLSPlaylistSuffix("抖音/主播/video.flv/index.m3u8"))
+	assert.Equal(t, "抖音/主播/video.flv", trimHLSPlaylistSuffix("抖音/主播/video.flv"))
+	assert.Equal(t, "抖音/主播/video.flv", trimHLSPlaylistSuffix("抖音/主播/video.flv/"))
+	assert.Equal(t, "", trimHLSPlaylistSuffix(""))
+	assert.Equal(t, "playlist.m3u8", trimHLSPlaylistSuffix("playlist.m3u8"))
 }

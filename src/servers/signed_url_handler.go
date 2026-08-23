@@ -118,7 +118,8 @@ func signedURLRawPath(kind, relPath string) (string, error) {
 	case "thumbnail":
 		return joinEscapedURLPath("/api/thumbnail", relPath), nil
 	case "hls":
-		return joinEscapedURLPath("/api/stream/hls", relPath), nil
+		// 鸿蒙 AVPlayer 依赖 URI 后缀识别 HLS，签名地址需以 .m3u8 结尾。
+		return joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8", nil
 	default:
 		return "", errInvalidSignedURLKind(kind)
 	}

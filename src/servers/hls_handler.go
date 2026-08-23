@@ -34,7 +34,7 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 		http.Error(writer, "配置未加载", http.StatusInternalServerError)
 		return
 	}
-	relPath := mux.Vars(r)["path"]
+	relPath := trimHLSPlaylistSuffix(mux.Vars(r)["path"])
 	if relPath == "" {
 		http.Error(writer, "缺少视频路径", http.StatusBadRequest)
 		return
@@ -69,6 +69,18 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 	writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	writer.Header().Set("Cache-Control", "no-store")
 	_, _ = writer.Write(content)
+}
+
+// trimHLSPlaylistSuffix 兼容以 /playlist.m3u8 或 /index.m3u8 结尾的播放列表地址：
+// 鸿蒙 AVPlayer 按 URI 后缀选择解封装器，HLS 地址必须以 .m3u8 结尾才能被识别。
+func trimHLSPlaylistSuffix(relPath string) string {
+	relPath = strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(relPath)), "/")
+	for _, suffix := range []string{"/playlist.m3u8", "/index.m3u8"} {
+		if strings.HasSuffix(relPath, suffix) {
+			return strings.TrimSuffix(relPath, suffix)
+		}
+	}
+	return relPath
 }
 
 func getHLSSegment(writer http.ResponseWriter, r *http.Request) {
