@@ -4,7 +4,7 @@ volumes:
     prometheus_data: {}
 services:
   bililive-go:
-    image: ${BILILIVE_IMAGE:-xuniubi/bililive-go:v2.1.0}
+    image: ${BILILIVE_IMAGE:-xuniubi/bililive-go:v2.1.1}
     restart: unless-stopped
     container_name: bililive-go
     volumes:
