@@ -2,10 +2,12 @@ package servers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +89,58 @@ func TestIsPlaylistComplete(t *testing.T) {
 	assert.True(t, isPlaylistComplete(complete))
 	assert.False(t, isPlaylistComplete(incomplete))
 	assert.False(t, isPlaylistComplete(filepath.Join(dir, "missing.m3u8")))
+}
+
+func writeHLSFFmpegHelper(t *testing.T, complete bool) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell helper is not portable on Windows")
+	}
+	helper := filepath.Join(t.TempDir(), "fake-ffmpeg.sh")
+	playlist := "#EXTM3U\\n#EXT-X-VERSION:3\\n#EXTINF:6.0,\\nseg_00000.ts\\n"
+	if complete {
+		playlist += "#EXT-X-ENDLIST\\n"
+	}
+	script := fmt.Sprintf(`#!/bin/sh
+set -eu
+segment_pattern=''
+prev=''
+for arg in "$@"; do
+  if [ "$prev" = "-hls_segment_filename" ]; then segment_pattern="$arg"; fi
+  playlist="$arg"
+  prev="$arg"
+done
+segment=$(printf '%%s' "$segment_pattern" | sed 's/%%05d/00000/')
+printf '%%s' 'valid segment' > "$segment"
+printf '%%b' '%s' > "$playlist"
+exit 183
+`, playlist)
+	require.NoError(t, os.WriteFile(helper, []byte(script), 0o755))
+	return helper
+}
+
+func TestBuildHLSCacheAcceptsCompletePlaylistAfterFFmpegError(t *testing.T) {
+	cacheDir := t.TempDir()
+	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+	helper := writeHLSFFmpegHelper(t, true)
+
+	err := buildHLSCache(&configs.Config{FfmpegPath: helper}, filepath.Join(cacheDir, "source.flv"), cacheDir, playlistPath)
+
+	require.NoError(t, err)
+	assert.True(t, isPlaylistComplete(playlistPath))
+	assert.FileExists(t, filepath.Join(cacheDir, "seg_00000.ts"))
+}
+
+func TestBuildHLSCacheRejectsIncompletePlaylistAfterFFmpegError(t *testing.T) {
+	cacheDir := t.TempDir()
+	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+	helper := writeHLSFFmpegHelper(t, false)
+
+	err := buildHLSCache(&configs.Config{FfmpegPath: helper}, filepath.Join(cacheDir, "source.flv"), cacheDir, playlistPath)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HLS 转封装失败")
+	assert.False(t, isPlaylistComplete(playlistPath))
 }
 
 func TestGetHLSPlaylistRejectsCurrentRecording(t *testing.T) {

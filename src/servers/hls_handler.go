@@ -193,6 +193,9 @@ func buildHLSCache(cfg *configs.Config, sourcePath, cacheDir, playlistPath strin
 	if err == nil {
 		return nil
 	}
+	if isPlaylistComplete(playlistPath) {
+		return nil
+	}
 	return fmt.Errorf("HLS 转封装失败: %w: %s", err, strings.TrimSpace(string(output)))
 }
 
