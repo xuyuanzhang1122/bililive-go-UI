@@ -24,7 +24,7 @@
 基于原版 [bililive-go](https://github.com/bililive-go/bililive-go) 深度魔改的直播录制工具。原版只管录，这个版本把"录完之后"的事也做了：
 
 - 📺 **自带视频库和播放器** —— 录好的视频按主播归类，点开就在浏览器里放，不用下载、不用找文件
-- 📱 **配套 iOS App** —— 躺床上用手机刷录播，进度还能和网页端同步
+- 📱 **配套 iOS / 鸿蒙 App** —— 躺床上用手机刷录播，进度在网页端与多台设备间同步
 - 🔑 **一键鉴权** —— 公网部署也不怕被白嫖，开个 API Key 就行
 - 🚀 **一行命令装好** —— 自动搞定 ffmpeg、无头浏览器这些依赖，装完就能用
 
@@ -167,6 +167,28 @@ docker compose up -d
 
 ---
 
+## 🧭 鸿蒙 App
+
+> 代码在独立仓库 **[Live-os-Harmony](https://github.com/xuyuanzhang1122/Live-os-Harmony)**，与 iOS 版功能 1:1 对齐。
+> Releases 页有构建好的 `.hap`（调试签名，绑定作者设备）；其他设备用 DevEco Studio 6.0.1+ 打开工程自动签名自建。
+
+<div align="center">
+
+| 看录播 | 管直播间 | 备份找回 |
+|:---:|:---:|:---:|
+| 视频库 + 全屏播放器 | 增删直播间、批量删文件 | 配置打包上云，换机凭 ID 找回 |
+
+</div>
+
+- 🧬 **与 iOS 同源对齐**：轮询间隔、续播边界、播放器手势、备份包结构逐项对齐 iOS 行为（见 [功能对齐核对表](https://github.com/xuyuanzhang1122/Live-os-Harmony/blob/master/TASKS/docs/parity-checklist.md)）
+- 🎮 **播放器手势**：横滑 seek、竖滑亮度/音量、双击暂停、长按侧边下拉锁定 2 倍速、倍速菜单、画中画
+- 🖥️ **大屏适配**：手机 / 平板 / 2in1 自适应，MatePad 横屏网格与限宽布局
+- 🔔 **系统级体验**：品牌启动动画、触觉反馈、深色模式、返回手势走关播漏斗
+- ☁️ **备份互通**：备份包 JSON 与 iOS 完全互通，一端导出、双端可恢复
+- ⚠️ **服务端要求**：需 **v2.0.2 及以上**（v2.0.1 及之前为 iOS 优先的 HLS 形态，鸿蒙端部分格式不可播；v2.0.2 起双端兼容）
+
+---
+
 ## ⚙️ 配置说明
 
 <details>
@@ -239,13 +261,16 @@ update:
 ```mermaid
 graph LR
     iOS["📱 iOS App<br/>bililive-ios"]
+    HM["🧭 鸿蒙 App<br/>Live-os-Harmony"]
     Web["🌐 浏览器<br/>Web UI"]
     Core["⚙️ 录播主服务<br/>bililive-go-UI（本仓库）"]
     Src["☁️ 配套源站<br/>装机 / 工具源 / 云备份"]
 
     iOS -->|API Key| Core
+    HM -->|API Key| Core
     Web -->|Web UI| Core
     iOS -.->|配置云备份 / 短 ID 找回| Src
+    HM -.->|配置云备份 / 短 ID 找回| Src
     Core -.->|更新 / 工具拉取| Src
 ```
 
@@ -253,6 +278,7 @@ graph LR
 |------|------|--------|
 | **bililive-go-UI**（本仓库） | ✅ 开源 | 录播主服务、Web UI、全部核心 API |
 | **[bililive-ios](https://github.com/xuyuanzhang1122/bililive-ios)** | ✅ 开源 | iOS 原生 App |
+| **[Live-os-Harmony](https://github.com/xuyuanzhang1122/Live-os-Harmony)** | ✅ 开源 | 鸿蒙原生 App（ArkUI），与 iOS 版功能对齐 |
 | **配套源站[bililive-server-update](https://github.com/xuyuanzhang1122/bililive-server-update)** | ✅ 现已开源 | 装机脚本托管、ffmpeg/浏览器工具分发、iOS 配置云备份 |
 
 > 📌 主服务的**录制、播放、历史、鉴权**全部不依赖配套源站，单独跑就能用。源站只是让"装依赖"和"配置云备份找回"更省心。
