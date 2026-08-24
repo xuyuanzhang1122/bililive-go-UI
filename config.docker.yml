@@ -11,6 +11,12 @@ debug: false
 interval: 20
 out_put_path: /srv/bililive
 app_data_path: /var/lib/bililive
+# HLS 播放缓存生命周期配置
+hls_cache:
+  # HLS 播放缓存单个目录最大保留时长（小时），0 表示不按时间清理
+  max_age_hours: 24
+  # HLS 播放缓存总大小上限（GB），超出后按最久未使用淘汰，0 表示不限制
+  max_total_size_gb: 10
 read_only_tool_folder: /opt/bililive/tools
 tool_root_folder: /srv/bililive/.appdata/tools
 feature:

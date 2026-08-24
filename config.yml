@@ -127,3 +127,9 @@ update:
   include_prerelease: false
   # 自建源地址；设置后更新优先走源站镜像，源站不可用时回退本仓库 GitHub
   source_url: ""
+# HLS 播放缓存生命周期配置
+hls_cache:
+  # HLS 播放缓存单个目录最大保留时长（小时），0 表示不按时间清理
+  max_age_hours: 24
+  # HLS 播放缓存总大小上限（GB），超出后按最久未使用淘汰，0 表示不限制
+  max_total_size_gb: 10

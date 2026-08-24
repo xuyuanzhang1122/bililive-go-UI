@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.1.0 (2026-08-24)
+
+### 修复
+- **HLS 播放缓存无限堆积（生产现场已达 704 GB）**：根因是本地 FLV/TS/MKV 播放会按“路径 + mtime + size”同步转封装到 `hls-cache`，增长中文件不断产生新 Key，而缓存没有任何生命周期管理；客户端断连还会因 FFmpeg 绑定请求上下文而留下可被误命中的半成品。v2.1.0 同时完成四项修复：①启动时清空可重建缓存，并每 30 分钟按 TTL/总量 LRU 回收及释放失效锁条目；②仅把含 `#EXT-X-ENDLIST` 的 playlist 视为完整命中；③FFmpeg 改用独立 30 分钟超时上下文，客户端断连后继续完成转封装；④行为变更：正在录制的文件不再生成 HLS，接口返回 409 并提示录制结束后重试
+
+### 新增
+- 新增顶层 `hls_cache` 配置段：`max_age_hours` 默认 24，`max_total_size_gb` 默认 10；两项均可显式设为 0 关闭对应限制
+- `scripts/install.sh` 新增 `--update` 就地更新：保留现有配置，支持二进制备份/重启/doctor，以及从现有 Docker 容器反查端口和挂载后原样重建
+- 新增 `scripts/fix-hls-cache.sh` 存量修复脚本，支持自动探测数据目录、`--dry-run`、`--yes`、运行中进程提醒与删除空间报告；`install.sh --update` 会自动执行同等清理
+
+### 说明
+- 不默认开启 `convert_to_mp4`；如需浏览器友好的 MP4，可在确认存储和删源策略后自行开启 `on_record_finished.convert_to_mp4`
+
 ## v2.0.2 (2026-08-24)
 
 ### 修复

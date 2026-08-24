@@ -1,12 +1,16 @@
 package servers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -71,4 +75,57 @@ func TestTrimHLSPlaylistSuffix(t *testing.T) {
 	assert.Equal(t, "抖音/主播/video.flv", trimHLSPlaylistSuffix("抖音/主播/video.flv/"))
 	assert.Equal(t, "", trimHLSPlaylistSuffix(""))
 	assert.Equal(t, "playlist.m3u8", trimHLSPlaylistSuffix("playlist.m3u8"))
+}
+
+func TestIsPlaylistComplete(t *testing.T) {
+	dir := t.TempDir()
+	complete := filepath.Join(dir, "complete.m3u8")
+	incomplete := filepath.Join(dir, "incomplete.m3u8")
+	require.NoError(t, os.WriteFile(complete, []byte("#EXTM3U\n#EXT-X-ENDLIST\n"), 0o644))
+	require.NoError(t, os.WriteFile(incomplete, []byte("#EXTM3U\n#EXTINF:6,\nseg.ts\n"), 0o644))
+
+	assert.True(t, isPlaylistComplete(complete))
+	assert.False(t, isPlaylistComplete(incomplete))
+	assert.False(t, isPlaylistComplete(filepath.Join(dir, "missing.m3u8")))
+}
+
+func TestGetHLSPlaylistRejectsCurrentRecording(t *testing.T) {
+	root := t.TempDir()
+	videoPath := filepath.Join(root, "recording.flv")
+	require.NoError(t, os.WriteFile(videoPath, []byte("recording"), 0o644))
+
+	previousConfig := configs.GetCurrentConfig()
+	configs.SetCurrentConfig(&configs.Config{OutPutPath: root, AppDataPath: t.TempDir()})
+	defer configs.SetCurrentConfig(previousConfig)
+
+	previousRecordingSet := currentRecordingRelPathSetForHLS
+	currentRecordingRelPathSetForHLS = func(context.Context, string) map[string]bool {
+		return map[string]bool{"recording.flv": true}
+	}
+	defer func() { currentRecordingRelPathSetForHLS = previousRecordingSet }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stream/hls/recording.flv/playlist.m3u8", nil)
+	req = mux.SetURLVars(req, map[string]string{"path": "recording.flv/playlist.m3u8"})
+	res := httptest.NewRecorder()
+
+	getHLSPlaylist(res, req)
+
+	assert.Equal(t, http.StatusConflict, res.Code)
+	assert.Contains(t, res.Body.String(), "文件正在录制中")
+}
+
+func TestIsCurrentRecordingFileHandlesRelativeOutputRoot(t *testing.T) {
+	previousRecordingSet := currentRecordingRelPathSetForHLS
+	currentRecordingRelPathSetForHLS = func(context.Context, string) map[string]bool {
+		return map[string]bool{"recordings/video.flv": true}
+	}
+	defer func() { currentRecordingRelPathSetForHLS = previousRecordingSet }()
+
+	workingDir, err := os.Getwd()
+	require.NoError(t, err)
+	assert.True(t, isCurrentRecordingFile(
+		context.Background(),
+		".",
+		filepath.Join(workingDir, "recordings", "video.flv"),
+	))
 }

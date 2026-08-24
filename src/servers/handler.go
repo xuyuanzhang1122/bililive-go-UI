@@ -1101,6 +1101,10 @@ func currentRecordingRelPathSet(ctx context.Context, rootPath string) map[string
 	if !ok {
 		return result
 	}
+	absRootPath, err := filepath.Abs(rootPath)
+	if err != nil {
+		return result
+	}
 	inst.Lives.Range(func(id types.LiveID, _ live.Live) bool {
 		if !rm.HasRecorder(ctx, id) {
 			return true
@@ -1113,7 +1117,11 @@ func currentRecordingRelPathSet(ctx context.Context, rootPath string) map[string
 		if raw == "" {
 			return true
 		}
-		rel, err := filepath.Rel(rootPath, raw)
+		absRawPath, err := filepath.Abs(raw)
+		if err != nil {
+			return true
+		}
+		rel, err := filepath.Rel(absRootPath, absRawPath)
 		if err != nil {
 			return true
 		}

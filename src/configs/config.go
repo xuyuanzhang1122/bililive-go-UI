@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bililive-go/bililive-go/src/pkg/migration"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
 	"github.com/bililive-go/bililive-go/src/types"
@@ -265,6 +266,18 @@ var defaultUpdateConfig = UpdateConfig{
 	IncludePrerelease:  false,
 }
 
+// HLSCacheConfig 控制本地视频转封装产生的 HLS 播放缓存。
+// 两个限制均允许显式配置为 0，以关闭对应维度的回收。
+type HLSCacheConfig struct {
+	MaxAgeHours    int     `yaml:"max_age_hours" json:"max_age_hours"`
+	MaxTotalSizeGB float64 `yaml:"max_total_size_gb" json:"max_total_size_gb"`
+}
+
+var defaultHLSCacheConfig = HLSCacheConfig{
+	MaxAgeHours:    24,
+	MaxTotalSizeGB: 10,
+}
+
 // StreamPreference 流偏好配置
 // 采用指针模式以区分"未设置"和"设置为零值"
 type StreamPreference struct {
@@ -359,6 +372,9 @@ type Config struct {
 
 	// 自动更新配置
 	Update UpdateConfig `yaml:"update" json:"update"`
+
+	// HLS 播放缓存配置
+	HLSCache HLSCacheConfig `yaml:"hls_cache" json:"hls_cache"`
 
 	// 平台特定配置（层级覆盖，使用 OverridableConfig 中的指针模式）
 	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty" json:"platform_configs,omitempty"`
@@ -736,6 +752,7 @@ var defaultConfig = Config{
 	HeadlessBrowser: defaultHeadlessBrowserConfig,
 	Douyin:          DouyinConfig{},
 	Update:          defaultUpdateConfig,
+	HLSCache:        defaultHLSCacheConfig,
 	PlatformConfigs: map[string]PlatformConfig{},
 }
 
@@ -810,6 +827,12 @@ func (c *Config) Verify() error {
 	if c.HeadlessBrowser.TimeoutSeconds <= 0 {
 		c.HeadlessBrowser.TimeoutSeconds = defaultHeadlessBrowserConfig.TimeoutSeconds
 	}
+	if c.HLSCache.MaxAgeHours < 0 {
+		return fmt.Errorf("HLS 缓存最大保留时长不能小于 0")
+	}
+	if c.HLSCache.MaxTotalSizeGB < 0 {
+		return fmt.Errorf("HLS 缓存总大小上限不能小于 0")
+	}
 
 	// 验证平台配置
 	if err := c.ValidatePlatformConfigs(); err != nil {
@@ -861,6 +884,15 @@ func (c Config) getLiveRoomByUrlImpl(url string) (*LiveRoom, error) {
 func NewConfigWithBytes(b []byte) (*Config, error) {
 	config := defaultConfig
 	if err := yaml.Unmarshal(b, &config); err != nil {
+		return nil, err
+	}
+	if err := migration.ApplyHLSCacheConfigV210(
+		b,
+		&config.HLSCache.MaxAgeHours,
+		&config.HLSCache.MaxTotalSizeGB,
+		defaultHLSCacheConfig.MaxAgeHours,
+		defaultHLSCacheConfig.MaxTotalSizeGB,
+	); err != nil {
 		return nil, err
 	}
 

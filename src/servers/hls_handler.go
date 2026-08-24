@@ -1,6 +1,7 @@
 package servers
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -27,6 +29,13 @@ var (
 	hlsCacheKeyPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	hlsSegmentPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+\.ts$`)
 )
+
+type hlsCacheLock struct {
+	mutex sync.Mutex
+	users atomic.Int64
+}
+
+var currentRecordingRelPathSetForHLS = currentRecordingRelPathSet
 
 func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 	cfg := configs.GetCurrentConfig()
@@ -45,16 +54,23 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if isCurrentRecordingFile(r.Context(), cfg.OutPutPath, sourcePath) {
+		http.Error(writer, "文件正在录制中，暂不能生成 HLS 播放缓存，请等录制结束后再试", http.StatusConflict)
+		return
+	}
 	cacheKey := hlsCacheKey(relPath, sourceInfo)
 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
 
-	lock := getHLSCacheLock(cacheKey)
-	lock.Lock()
-	defer lock.Unlock()
+	lock := acquireHLSCacheLock(cacheKey)
+	lock.mutex.Lock()
+	defer func() {
+		lock.mutex.Unlock()
+		lock.users.Add(-1)
+	}()
 
-	if _, err := os.Stat(playlistPath); err != nil {
-		if err := buildHLSCache(r, cfg, sourcePath, cacheDir, playlistPath); err != nil {
+	if !isPlaylistComplete(playlistPath) {
+		if err := buildHLSCache(cfg, sourcePath, cacheDir, playlistPath); err != nil {
 			http.Error(writer, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -65,6 +81,7 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 		http.Error(writer, "读取 HLS 播放列表失败", http.StatusInternalServerError)
 		return
 	}
+	touchHLSCacheDir(cacheDir)
 	content = rewriteHLSPlaylist(r, content, cacheKey, cfg)
 	writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	writer.Header().Set("Cache-Control", "no-store")
@@ -96,10 +113,32 @@ func getHLSSegment(writer http.ResponseWriter, r *http.Request) {
 		http.Error(writer, "非法 HLS 分段路径", http.StatusBadRequest)
 		return
 	}
-	segmentPath := filepath.Join(hlsCacheRoot(cfg), cacheKey, segment)
+	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
+	segmentPath := filepath.Join(cacheDir, segment)
+	touchHLSCacheDir(cacheDir)
 	writer.Header().Set("Content-Type", "video/MP2T")
 	writer.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(writer, r, segmentPath)
+}
+
+func isPlaylistComplete(path string) bool {
+	content, err := os.ReadFile(path)
+	return err == nil && bytes.Contains(content, []byte("#EXT-X-ENDLIST"))
+}
+
+func isCurrentRecordingFile(ctx context.Context, rootPath, sourcePath string) bool {
+	if strings.TrimSpace(rootPath) == "" {
+		rootPath = "./"
+	}
+	absRootPath, err := filepath.Abs(rootPath)
+	if err != nil {
+		return false
+	}
+	relPath, err := filepath.Rel(absRootPath, sourcePath)
+	if err != nil {
+		return false
+	}
+	return currentRecordingRelPathSetForHLS(ctx, rootPath)[filepath.ToSlash(relPath)]
 }
 
 func getSafeVideoFile(cfg *configs.Config, relPath string) (string, os.FileInfo, error) {
@@ -121,8 +160,11 @@ func getSafeVideoFile(cfg *configs.Config, relPath string) (string, os.FileInfo,
 	return absPath, info, nil
 }
 
-func buildHLSCache(r *http.Request, cfg *configs.Config, sourcePath, cacheDir, playlistPath string) error {
-	ffmpegPath, err := findFFmpegPath(r.Context(), cfg)
+func buildHLSCache(cfg *configs.Config, sourcePath, cacheDir, playlistPath string) error {
+	conversionCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	ffmpegPath, err := findFFmpegPath(conversionCtx, cfg)
 	if err != nil {
 		return err
 	}
@@ -146,7 +188,7 @@ func buildHLSCache(r *http.Request, cfg *configs.Config, sourcePath, cacheDir, p
 		"-hls_segment_filename", segmentPattern,
 		playlistPath,
 	}
-	cmd := exec.CommandContext(r.Context(), ffmpegPath, args...)
+	cmd := exec.CommandContext(conversionCtx, ffmpegPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil
@@ -191,9 +233,36 @@ func hlsCacheKey(relPath string, info os.FileInfo) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func getHLSCacheLock(cacheKey string) *sync.Mutex {
-	lock, _ := hlsCacheLocks.LoadOrStore(cacheKey, &sync.Mutex{})
-	return lock.(*sync.Mutex)
+func acquireHLSCacheLock(cacheKey string) *hlsCacheLock {
+	for {
+		value, _ := hlsCacheLocks.LoadOrStore(cacheKey, &hlsCacheLock{})
+		lock := value.(*hlsCacheLock)
+		for {
+			users := lock.users.Load()
+			if users < 0 {
+				break
+			}
+			if lock.users.CompareAndSwap(users, users+1) {
+				return lock
+			}
+		}
+	}
+}
+
+func deleteHLSCacheLockIfUnused(cacheKey string) {
+	value, ok := hlsCacheLocks.Load(cacheKey)
+	if !ok {
+		return
+	}
+	lock := value.(*hlsCacheLock)
+	if lock.users.CompareAndSwap(0, -1) {
+		hlsCacheLocks.CompareAndDelete(cacheKey, lock)
+	}
+}
+
+func touchHLSCacheDir(cacheDir string) {
+	now := time.Now()
+	_ = os.Chtimes(cacheDir, now, now)
 }
 
 func rewriteHLSPlaylist(r *http.Request, content []byte, cacheKey string, cfg *configs.Config) []byte {

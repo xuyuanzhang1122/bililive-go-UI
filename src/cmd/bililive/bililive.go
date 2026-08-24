@@ -35,11 +35,11 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	"github.com/bililive-go/bililive-go/src/pkg/openlist"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
-	"github.com/bililive-go/bililive-go/src/reconcile"
 	bilisentryPkg "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/pkg/telemetry"
 	"github.com/bililive-go/bililive-go/src/pkg/update"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
+	"github.com/bililive-go/bililive-go/src/reconcile"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
 	"github.com/bililive-go/bililive-go/src/tools"
@@ -481,6 +481,8 @@ func main() {
 				logger.Info("自动更新入口已关闭，跳过自动检查")
 			}
 		}
+
+		servers.StartHLSCacheJanitor(ctx)
 	}
 
 	// 启动 manager

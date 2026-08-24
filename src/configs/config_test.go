@@ -168,6 +168,19 @@ live_rooms:
 	resolved := cfg.ResolveConfigForRoom(&cfg.LiveRooms[0], "bilibili")
 	assert.Equal(t, 30, resolved.Interval)
 	assert.Equal(t, "./", resolved.OutPutPath)
+	assert.Equal(t, 24, cfg.HLSCache.MaxAgeHours)
+	assert.Equal(t, float64(10), cfg.HLSCache.MaxTotalSizeGB)
+}
+
+func TestHLSCacheConfigAllowsExplicitZero(t *testing.T) {
+	cfg, err := NewConfigWithBytes([]byte(`
+hls_cache:
+  max_age_hours: 0
+  max_total_size_gb: 0
+`))
+	assert.NoError(t, err)
+	assert.Equal(t, 0, cfg.HLSCache.MaxAgeHours)
+	assert.Equal(t, float64(0), cfg.HLSCache.MaxTotalSizeGB)
 }
 
 func TestGetPlatformKeyFromUrl(t *testing.T) {

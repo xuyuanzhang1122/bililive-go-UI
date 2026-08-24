@@ -48,6 +48,14 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
 
 脚本会带你走一遍：**检测系统 → 选安装方式 → 确认目录和端口 → 自动装依赖 → 体检自检**，全程回车默认即可。装完浏览器打开 `http://你的IP:8080` 就是控制台。
 
+**已有安装就地更新：**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash -s -- --update
+```
+
+Web UI 内的应用更新与 `install.sh --update` 是两条等价通道。后者会保留现有配置，并自动识别二进制或 Docker 安装，适合服务器运维、应用内更新失败以及 Docker 场景。
+
 <details>
 <summary>📦 想自定义？看这里（非交互 / Docker / 全部参数）</summary>
 
@@ -78,6 +86,7 @@ curl -fsSL https://image.xumy.art/install.sh | bash -s -- --docker --port 8080
 | `--enable-api-key` | 开启鉴权并自动生成随机 Key |
 | `--api-key STR` | 手动指定 Key |
 | `--version TAG` | 装指定版本 |
+| `--update` | 就地更新现有安装，保留配置与数据 |
 | `--yes` / `-y` | 全程不询问，走默认值 |
 
 > 🪟 **Windows 用户**：用 PowerShell 跑 `irm https://image.xumy.art/install.ps1 | iex`
@@ -209,6 +218,10 @@ security:
 out_put_path: ./recordings      # 视频输出目录（Docker 内是 /srv/bililive）
 app_data_path: .appdata         # 数据库 + 缩略图（Docker 内是 /var/lib/bililive）
 
+hls_cache:
+  max_age_hours: 24             # 单个缓存目录保留小时数；0 表示关闭 TTL
+  max_total_size_gb: 10         # 缓存总量上限；0 表示不限制
+
 ffmpeg_path: ""                 # 留空自动找 PATH
 
 headless_browser:               # 抖音短链解析用
@@ -223,6 +236,8 @@ update:
   auto_check: true
   source_url: ""                # 填你的源站后，更新走源站镜像；留空走 GitHub
 ```
+
+录制完成后如需更适合浏览器直接播放和拖动的文件，可按需开启 `on_record_finished.convert_to_mp4: true`。该选项默认关闭，因为开启后可能带来双份存储，配合删源设置时也会改变原始文件保留行为。
 
 </details>
 

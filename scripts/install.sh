@@ -23,6 +23,7 @@ set -o pipefail
 #   --source URL|github   安装源：github 或自建源地址（默认见脚本头部注入）
 #   --version TAG         指定 GitHub Release tag
 #   --image TAG           Docker 镜像 tag（默认 latest，仅 --docker）
+#   --update              就地更新现有安装，不重新运行安装向导
 #   --enable-api-key      自动启用 API Key 并随机生成
 #   --api-key STR         指定 API Key（仅在 --enable-api-key 时生效）
 #   --yes / -y            非交互，全部走默认值或命令行参数
@@ -45,6 +46,7 @@ ENABLE_API_KEY=""
 API_KEY=""
 ASSUME_YES="false"
 MODE=""
+UPDATE_MODE="false"
 CONTAINER_NAME="bililive-go"
 
 # ---- 颜色 ----
@@ -60,7 +62,7 @@ warn() { printf "%s⚠%s %s\n" "$C_YELLOW" "$C_RESET" "$*"; }
 err()  { printf "%s✗%s %s\n" "$C_RED" "$C_RESET" "$*" >&2; }
 
 usage() {
-    sed -n '6,31p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '6,32p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -138,6 +140,321 @@ PYEOF
     fi
 }
 
+normalize_path() {
+    local path="$1" base_dir="${2:-$PWD}"
+    path="${path/#\~/$HOME}"
+    if [[ "$path" != /* ]]; then
+        path="${base_dir}/${path}"
+    fi
+    if command -v realpath >/dev/null 2>&1; then
+        realpath -m "$path" 2>/dev/null || printf '%s\n' "$path"
+    else
+        printf '%s\n' "$path"
+    fi
+}
+
+read_top_level_yaml_value() {
+    local config_file="$1" key="$2"
+    awk -v key="$key" '
+        $0 ~ ("^" key ":[[:space:]]*") {
+            sub("^" key ":[[:space:]]*", "")
+            sub(/[[:space:]]+#.*/, "")
+            gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "")
+            print
+            exit
+        }
+    ' "$config_file"
+}
+
+read_rpc_bind() {
+    local config_file="$1"
+    awk '
+        /^rpc:[[:space:]]*$/ { in_rpc=1; next }
+        /^[^[:space:]]/ { in_rpc=0 }
+        in_rpc && /^[[:space:]]+bind:[[:space:]]*/ {
+            sub(/^[[:space:]]+bind:[[:space:]]*/, "")
+            sub(/[[:space:]]+#.*/, "")
+            gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "")
+            print
+            exit
+        }
+    ' "$config_file"
+}
+
+resolve_binary_download() {
+    : "${TAG:=latest}"
+    ASSET="bililive-${OS}-${GOARCH}.tar.gz"
+    DOWNLOAD_URL=""
+    if [[ -n "$CATALOG_FILE" && "$TAG" == "latest" ]]; then
+        local rel_url rel_ver
+        rel_url=$(json_query "$CATALOG_FILE" "next((x['url'] for x in data.get('releases', []) if x.get('name')=='${ASSET}'), '')")
+        rel_ver=$(json_query "$CATALOG_FILE" "next((x['version'] for x in data.get('releases', []) if x.get('name')=='${ASSET}'), '')")
+        if [[ -n "$rel_url" ]]; then
+            TAG="${rel_ver:-mirror}"
+            case "$rel_url" in
+                http*) DOWNLOAD_URL="$rel_url" ;;
+                *)     DOWNLOAD_URL="${MIRROR_URL}${rel_url}" ;;
+            esac
+            log "自建源版本: $TAG"
+        fi
+    fi
+    if [[ -z "$DOWNLOAD_URL" ]]; then
+        if [[ "$TAG" == "latest" ]]; then
+            log "查询 GitHub 最新版本…"
+            local resolved
+            resolved=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+                | grep -o '"tag_name": *"[^"]*"' | head -1 \
+                | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+            [[ -n "$resolved" ]] || { err "无法查询最新版本，请用 --version 指定"; exit 1; }
+            TAG="$resolved"
+            log "最新版本: $TAG"
+        fi
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
+    fi
+}
+
+download_release_binary() {
+    resolve_binary_download
+    log "下载: $DOWNLOAD_URL"
+    DOWNLOAD_WORK_DIR=$(mktemp -d)
+    if ! curl -fsSL "$DOWNLOAD_URL" -o "${DOWNLOAD_WORK_DIR}/${ASSET}"; then
+        err "下载失败"
+        exit 1
+    fi
+    tar xzf "${DOWNLOAD_WORK_DIR}/${ASSET}" -C "$DOWNLOAD_WORK_DIR"
+    DOWNLOADED_BIN=$(find "$DOWNLOAD_WORK_DIR" -type f -name "bililive-${OS}-${GOARCH}" -print -quit)
+    if [[ -z "$DOWNLOADED_BIN" ]]; then
+        DOWNLOADED_BIN=$(find "$DOWNLOAD_WORK_DIR" -type f -name 'bililive-*' ! -name '*.tar.gz' -print -quit)
+    fi
+    [[ -n "$DOWNLOADED_BIN" ]] || { err "压缩包内未找到二进制"; exit 1; }
+}
+
+cleanup_hls_cache_for_update() {
+    local data_dir="$1" cache_dir cache_size cache_dirs process_running="false"
+    [[ -n "$data_dir" ]] || { warn "未定位到数据目录，跳过 HLS 存量缓存修复"; return 0; }
+    cache_dir="${data_dir%/}/hls-cache"
+    if [[ ! -e "$cache_dir" ]]; then
+        ok "无需修复：HLS 缓存目录不存在（${cache_dir}）"
+        return 0
+    fi
+    if [[ "$(basename -- "$cache_dir")" != "hls-cache" ]]; then
+        err "安全校验失败：待删除路径末级目录不是 hls-cache：$cache_dir"
+        return 1
+    fi
+    if [[ ! -d "$cache_dir" && ! -L "$cache_dir" ]]; then
+        err "安全校验失败：目标不是目录：$cache_dir"
+        return 1
+    fi
+
+    cache_size=$(du -sh "$cache_dir" 2>/dev/null | awk '{print $1}' || true)
+    cache_size=${cache_size:-未知}
+    cache_dirs=$(find "$cache_dir" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | awk 'END {print NR+0}' || true)
+    log "HLS 缓存目录: $cache_dir"
+    log "占用空间: ${cache_size}；缓存子目录: $cache_dirs"
+
+    if command -v pgrep >/dev/null 2>&1 && pgrep -x bililive-go >/dev/null 2>&1; then
+        process_running="true"
+    fi
+    if command -v docker >/dev/null 2>&1 \
+        && docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "$CONTAINER_NAME"; then
+        process_running="true"
+    fi
+    if [[ "$process_running" == "true" ]]; then
+        warn "检测到 bililive-go 正在运行；删除缓存本身安全，但正在进行的 HLS 转封装可能中断"
+    fi
+
+    rm -rf -- "$cache_dir"
+    ok "HLS 缓存已删除，释放空间约 $cache_size"
+}
+
+wait_for_service() {
+    local port="$1" url
+    url="http://127.0.0.1:${port}/api/auth-status"
+    SERVICE_READY=""
+    for _ in $(seq 1 30); do
+        if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
+            SERVICE_READY="true"
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$SERVICE_READY" == "true" ]]; then
+        ok "服务响应: $url"
+    else
+        warn "服务未在 30s 内就绪: $url"
+    fi
+}
+
+run_binary_update() {
+    TARGET_BIN="$INSTALL_DIR/bililive-go"
+    CONFIG_FILE="$INSTALL_DIR/config.yml"
+    if [[ ! -f "$TARGET_BIN" || ! -f "$CONFIG_FILE" ]]; then
+        err "未在 $INSTALL_DIR 找到 bililive-go 二进制和 config.yml，请先完成安装或用 --dir 指定现有目录"
+        exit 1
+    fi
+
+    local configured_data rpc_bind timestamp backup_bin service_found="false"
+    configured_data=$(read_top_level_yaml_value "$CONFIG_FILE" "app_data_path")
+    if [[ -n "$configured_data" ]]; then
+        APP_DATA_DIR=$(normalize_path "$configured_data" "$INSTALL_DIR")
+    else
+        APP_DATA_DIR="$INSTALL_DIR/Data"
+        warn "config.yml 未配置 app_data_path，按安装器默认值使用 $APP_DATA_DIR"
+    fi
+    rpc_bind=$(read_rpc_bind "$CONFIG_FILE")
+    HOST_PORT="${rpc_bind##*:}"
+    if ! [[ "$HOST_PORT" =~ ^[0-9]+$ ]] || (( HOST_PORT < 1 || HOST_PORT > 65535 )); then
+        err "无法从 config.yml 的 rpc.bind 解析有效端口：${rpc_bind:-未配置}"
+        exit 1
+    fi
+    ok "现有配置: ${CONFIG_FILE}（保持原样）"
+    ok "数据目录: ${APP_DATA_DIR}；Web UI 端口: $HOST_PORT"
+
+    download_release_binary
+    timestamp=$(date +%Y%m%d%H%M%S)
+    backup_bin="${TARGET_BIN}.bak.${timestamp}"
+    cp -p "$TARGET_BIN" "$backup_bin"
+    if ! install -m755 "$DOWNLOADED_BIN" "$TARGET_BIN"; then
+        cp -p "$backup_bin" "$TARGET_BIN"
+        err "安装新二进制失败，已恢复旧版本"
+        exit 1
+    fi
+    rm -rf -- "$DOWNLOAD_WORK_DIR"
+    ok "旧二进制已备份: $backup_bin"
+    ok "新版本已安装: ${TARGET_BIN}（${TAG}）"
+
+    cleanup_hls_cache_for_update "$APP_DATA_DIR"
+
+    if command -v systemctl >/dev/null 2>&1 && systemctl cat bililive-go.service >/dev/null 2>&1; then
+        service_found="true"
+        log "重启 systemd 服务 bililive-go …"
+        if [[ "$(id -u)" -eq 0 ]]; then
+            systemctl restart bililive-go.service
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo systemctl restart bililive-go.service
+        else
+            warn "缺少重启 systemd 服务所需权限，请手动执行 systemctl restart bililive-go"
+            service_found="false"
+        fi
+    fi
+    if [[ "$service_found" != "true" ]]; then
+        warn "未自动重启服务；请手动重启 bililive-go 使新版本生效"
+    fi
+
+    wait_for_service "$HOST_PORT"
+    if ! "$TARGET_BIN" --doctor -c "$CONFIG_FILE"; then
+        warn "doctor 检查存在未通过项（见上方输出）"
+    fi
+
+    echo
+    ok "bililive-go 二进制更新完成: $TAG"
+    echo "  配置文件: ${CONFIG_FILE}（沿用现有配置）"
+    echo "  旧版备份: $backup_bin"
+    echo "  Web UI  : http://127.0.0.1:${HOST_PORT}"
+}
+
+run_docker_update() {
+    command -v docker >/dev/null 2>&1 || { err "未检测到 Docker"; exit 1; }
+    docker info >/dev/null 2>&1 || { err "Docker 守护进程未运行或当前用户无权限访问"; exit 1; }
+    if ! docker ps -a --format '{{.Names}}' | grep -Fxq "$CONTAINER_NAME"; then
+        err "未找到容器 ${CONTAINER_NAME}，请先安装或用 --binary 更新二进制版本"
+        exit 1
+    fi
+
+    local old_image new_image data_host_dir="" config_host_file="" host_port=""
+    local mount_type mount_name mount_source mount_destination mount_rw mount_value
+    local container_port host_ip mapped_port publish_spec
+    local -a publish_args=() volume_args=()
+    old_image=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER_NAME")
+
+    while IFS='|' read -r container_port host_ip mapped_port; do
+        [[ -n "$container_port" && -n "$mapped_port" ]] || continue
+        if [[ -z "$host_ip" || "$host_ip" == "0.0.0.0" ]]; then
+            publish_spec="${mapped_port}:${container_port}"
+        elif [[ "$host_ip" == *:* ]]; then
+            publish_spec="[${host_ip}]:${mapped_port}:${container_port}"
+        else
+            publish_spec="${host_ip}:${mapped_port}:${container_port}"
+        fi
+        publish_args+=(--publish "$publish_spec")
+        if [[ "$container_port" == "8080/tcp" ]]; then
+            host_port="$mapped_port"
+        fi
+    done < <(docker inspect --format '{{range $port, $bindings := .HostConfig.PortBindings}}{{range $bindings}}{{printf "%s|%s|%s\n" $port .HostIp .HostPort}}{{end}}{{end}}' "$CONTAINER_NAME")
+
+    while IFS='|' read -r mount_type mount_name mount_source mount_destination mount_rw; do
+        [[ -n "$mount_type" && -n "$mount_destination" ]] || continue
+        case "$mount_type" in
+            bind) mount_value="${mount_source}:${mount_destination}" ;;
+            volume) mount_value="${mount_name}:${mount_destination}" ;;
+            tmpfs)
+                volume_args+=(--tmpfs "$mount_destination")
+                continue ;;
+            *)
+                warn "暂不支持自动还原的挂载类型: $mount_type ($mount_destination)"
+                continue ;;
+        esac
+        if [[ "$mount_rw" != "true" ]]; then
+            mount_value="${mount_value}:ro"
+        fi
+        volume_args+=(--volume "$mount_value")
+        if [[ "$mount_destination" == "/var/lib/bililive" ]]; then
+            data_host_dir="$mount_source"
+        elif [[ "$mount_destination" == "/etc/bililive-go/config.yml" ]]; then
+            config_host_file="$mount_source"
+        fi
+    done < <(docker inspect --format '{{range .Mounts}}{{printf "%s|%s|%s|%s|%t\n" .Type .Name .Source .Destination .RW}}{{end}}' "$CONTAINER_NAME")
+
+    : "${TAG:=latest}"
+    new_image="${DOCKER_IMAGE}:${TAG}"
+    log "拉取镜像 $new_image …"
+    docker pull "$new_image"
+    log "按原端口与挂载参数重建容器 …"
+    docker rm -f "$CONTAINER_NAME" >/dev/null
+    cleanup_hls_cache_for_update "$data_host_dir"
+    if ! docker run -d \
+        --name "$CONTAINER_NAME" \
+        --restart unless-stopped \
+        "${publish_args[@]}" \
+        "${volume_args[@]}" \
+        "$new_image" >/dev/null; then
+        err "新容器启动失败，尝试用原镜像回滚"
+        docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+        docker run -d \
+            --name "$CONTAINER_NAME" \
+            --restart unless-stopped \
+            "${publish_args[@]}" \
+            "${volume_args[@]}" \
+            "$old_image" >/dev/null
+        exit 1
+    fi
+
+    HOST_PORT="${host_port:-8080}"
+    wait_for_service "$HOST_PORT"
+    if docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER_NAME"; then
+        ok "容器运行正常"
+    else
+        err "容器未保持运行，请检查 docker logs $CONTAINER_NAME"
+        exit 1
+    fi
+
+    echo
+    ok "bililive-go Docker 更新完成: $new_image"
+    [[ -n "$config_host_file" ]] && echo "  配置文件: ${config_host_file}（沿用现有配置）"
+    [[ -n "$data_host_dir" ]] && echo "  数据目录: $data_host_dir"
+    echo "  Web UI  : http://127.0.0.1:${HOST_PORT}"
+}
+
+run_update() {
+    echo
+    log "开始就地更新（$MODE 模式）"
+    case "$MODE" in
+        binary) run_binary_update ;;
+        docker) run_docker_update ;;
+        *) err "无法识别更新模式: $MODE"; exit 1 ;;
+    esac
+}
+
 # ---- 解析参数 ----
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -147,6 +464,7 @@ while [[ $# -gt 0 ]]; do
         --source)         SOURCE="$2"; shift 2 ;;
         --image)          TAG="$2"; shift 2 ;;
         --version)        TAG="$2"; shift 2 ;;
+        --update)         UPDATE_MODE="true"; shift ;;
         --enable-api-key) ENABLE_API_KEY="true"; shift ;;
         --api-key)        API_KEY="$2"; shift 2 ;;
         --yes|-y)         ASSUME_YES="true"; shift ;;
@@ -179,6 +497,41 @@ esac
 command -v curl &>/dev/null || { err "缺少 curl"; exit 1; }
 command -v tar  &>/dev/null || { err "缺少 tar"; exit 1; }
 
+if [[ "$UPDATE_MODE" == "true" ]]; then
+    if [[ -z "$INSTALL_DIR" ]]; then
+        INSTALL_DIR="$HOME/bililive-go"
+    fi
+    INSTALL_DIR=$(normalize_path "$INSTALL_DIR" "$PWD")
+
+    if [[ -z "$MODE" ]]; then
+        binary_found="false"
+        docker_found="false"
+        if [[ -f "$INSTALL_DIR/bililive-go" && -f "$INSTALL_DIR/config.yml" ]]; then
+            binary_found="true"
+        fi
+        if command -v docker >/dev/null 2>&1 \
+            && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$CONTAINER_NAME"; then
+            docker_found="true"
+        fi
+        if [[ "$binary_found" == "true" && "$docker_found" == "true" ]]; then
+            err "同时检测到二进制安装与 Docker 容器，请用 --binary 或 --docker 指定更新对象"
+            exit 1
+        elif [[ "$binary_found" == "true" ]]; then
+            MODE="binary"
+        elif [[ "$docker_found" == "true" ]]; then
+            MODE="docker"
+        else
+            err "未检测到可更新的现有安装；请确认 ${INSTALL_DIR}，或用 --dir/--binary/--docker 明确指定"
+            exit 1
+        fi
+    fi
+
+    if [[ -z "$SOURCE" ]]; then
+        if [[ -n "$DEFAULT_MIRROR" ]]; then SOURCE="$DEFAULT_MIRROR"; else SOURCE="github"; fi
+    fi
+    ok "更新目标: $MODE"
+fi
+
 # ============================================================
 # 第 2 步：选择安装源（GitHub / 自建源）
 # ============================================================
@@ -187,7 +540,6 @@ log "【2/7】选择安装源"
 MIRROR_URL=""
 if [[ -z "$SOURCE" ]]; then
     if [[ -n "$DEFAULT_MIRROR" ]]; then
-        src_default="mirror"
         echo "  [1] 自建源 ${DEFAULT_MIRROR}（推荐，含工具分发）"
         echo "  [2] GitHub 官方"
         choice=$(read_default "选择源 (1=自建源 2=GitHub)" "1")
@@ -225,6 +577,12 @@ if [[ -n "$MIRROR_URL" ]]; then
         warn "无法获取自建源 catalog，二进制将回退 GitHub 下载"
         rm -f "$CATALOG_FILE"; CATALOG_FILE=""
     fi
+fi
+
+if [[ "$UPDATE_MODE" == "true" ]]; then
+    run_update
+    [[ -n "$CATALOG_FILE" ]] && rm -f "$CATALOG_FILE"
+    exit 0
 fi
 
 # ============================================================
@@ -341,7 +699,7 @@ detect_tool() {
 
 download_mirror_tool() {
     # $1 工具名（catalog 中的 name）→ echo 下载好的可执行路径
-    local name="$1" url rel size
+    local name="$1" url
     [[ -n "$CATALOG_FILE" ]] || return 0
     url=$(json_query "$CATALOG_FILE" "next((t['url'] for t in data.get('tools', []) if t.get('name')=='${name}' and t.get('os')=='${OS}' and t.get('arch')=='${GOARCH}' and t.get('url')), '')")
     [[ -n "$url" ]] || return 0
@@ -509,43 +867,11 @@ fetch_config_template() {
 
 SYSTEMD_INSTALLED=""
 if [[ "$MODE" == "binary" ]]; then
-    # ---- 解析版本与下载地址 ----
-    : "${TAG:=latest}"
-    ASSET="bililive-${OS}-${GOARCH}.tar.gz"
-    DOWNLOAD_URL=""
-    if [[ -n "$CATALOG_FILE" && "$TAG" == "latest" ]]; then
-        rel_url=$(json_query "$CATALOG_FILE" "next((x['url'] for x in data.get('releases', []) if x.get('name')=='${ASSET}'), '')")
-        rel_ver=$(json_query "$CATALOG_FILE" "next((x['version'] for x in data.get('releases', []) if x.get('name')=='${ASSET}'), '')")
-        if [[ -n "$rel_url" ]]; then
-            TAG="${rel_ver:-mirror}"
-            case "$rel_url" in
-                http*) DOWNLOAD_URL="$rel_url" ;;
-                *)     DOWNLOAD_URL="${MIRROR_URL}${rel_url}" ;;
-            esac
-            log "自建源版本: $TAG"
-        fi
-    fi
-    if [[ -z "$DOWNLOAD_URL" ]]; then
-        if [[ "$TAG" == "latest" ]]; then
-            log "查询 GitHub 最新版本…"
-            RESOLVED=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-                | grep -o '"tag_name": *"[^"]*"' | head -1 \
-                | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-            [[ -n "$RESOLVED" ]] || { err "无法查询最新版本，请用 --version 指定"; exit 1; }
-            TAG="$RESOLVED"; log "最新版本: $TAG"
-        fi
-        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
-    fi
-
-    log "下载: $DOWNLOAD_URL"
-    TMPDIR=$(mktemp -d); trap 'rm -rf "$TMPDIR"' EXIT
-    curl -fsSL "$DOWNLOAD_URL" -o "${TMPDIR}/${ASSET}" || { err "下载失败"; exit 1; }
-    tar xzf "${TMPDIR}/${ASSET}" -C "$TMPDIR"
-    BIN=$(find "$TMPDIR" -name 'bililive-*' -type f | head -1)
-    [[ -n "$BIN" ]] || { err "压缩包内未找到二进制"; exit 1; }
+    download_release_binary
 
     TARGET_BIN="$INSTALL_DIR/bililive-go"
-    install -m755 "$BIN" "$TARGET_BIN"
+    install -m755 "$DOWNLOADED_BIN" "$TARGET_BIN"
+    rm -rf -- "$DOWNLOAD_WORK_DIR"
     ok "已安装到 $TARGET_BIN"
 
     CONFIG_FILE="$INSTALL_DIR/config.yml"

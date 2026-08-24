@@ -16,6 +16,20 @@ func DecorateConfigNode(node *yaml.Node) {
 # 需要修改注释时，请在 src/configs/config_comments.go 文件内修改。`
 
 	setFieldLineComment(root, "ffmpeg_path", "# 如果此项为空，就自动在环境变量里寻找")
+	updateNode := findNode(root, "update")
+	if updateNode != nil {
+		setFieldComment(updateNode, "source_url",
+			"# 自建源地址；设置后更新优先走源站镜像，源站不可用时回退本仓库 GitHub", "")
+	}
+
+	setFieldHeadComment(root, "hls_cache", "# HLS 播放缓存生命周期配置")
+	hlsCacheNode := findNode(root, "hls_cache")
+	if hlsCacheNode != nil {
+		setFieldComment(hlsCacheNode, "max_age_hours",
+			"# HLS 播放缓存单个目录最大保留时长（小时），0 表示不按时间清理", "")
+		setFieldComment(hlsCacheNode, "max_total_size_gb",
+			"# HLS 播放缓存总大小上限（GB），超出后按最久未使用淘汰，0 表示不限制", "")
+	}
 
 	setFieldHeadComment(root, "security", "# 移动端与外部 API 访问安全配置")
 	securityNode := findNode(root, "security")

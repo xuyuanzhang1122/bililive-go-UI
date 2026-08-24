@@ -49,6 +49,24 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
   | bash -s -- --yes --version v1.3.5 --dir ~/bililive-go --port 8080
 ```
 
+### 就地更新现有安装
+```bash
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh \
+  | bash -s -- --update
+```
+
+更新脚本会保留现有配置：二进制模式会备份旧程序并重启已有 systemd 服务；Docker 模式会从现有容器反查端口和挂载后重建。也可显式加 `--binary`、`--docker`、`--dir PATH`、`--version TAG` 或 `--image TAG`。
+
+### 修复 v2.0.2 及之前版本遗留的 HLS 缓存
+```bash
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/fix-hls-cache.sh \
+  | bash -s -- --dry-run
+
+# 确认统计无误后执行清理
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/fix-hls-cache.sh \
+  | bash -s -- --yes
+```
+
 ### 手动下载 Docker 配置模板
 ```bash
 # Docker Compose 配置
