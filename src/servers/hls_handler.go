@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
@@ -187,6 +188,21 @@ func buildHLSCache(cfg *configs.Config, sourcePath, cacheDir, playlistPath strin
 		"-hls_playlist_type", "vod",
 		"-hls_segment_filename", segmentPattern,
 		playlistPath,
+	}
+	if ffprobePath, probeErr := findFFprobePath(conversionCtx, cfg); probeErr == nil {
+		if probe, probeErr := probeMedia(conversionCtx, ffprobePath, sourcePath); probeErr == nil {
+			if hlsEncodeModeForProbe(probe) == hlsEncodeTranscode {
+				applog.GetLogger().WithFields(map[string]interface{}{
+					"source": filepath.Base(sourcePath),
+					"format": probe.Format.FormatName,
+				}).Info("媒体不满足跨平台 HLS 直封装条件，改用 H.264/AAC 转码")
+				args = hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath)
+			}
+		} else {
+			applog.GetLogger().WithError(probeErr).WithField("source", filepath.Base(sourcePath)).Warn("媒体探测失败，回退到 HLS 直封装")
+		}
+	} else {
+		applog.GetLogger().WithError(probeErr).WithField("source", filepath.Base(sourcePath)).Warn("ffprobe 不可用，回退到 HLS 直封装")
 	}
 	cmd := exec.CommandContext(conversionCtx, ffmpegPath, args...)
 	output, err := cmd.CombinedOutput()

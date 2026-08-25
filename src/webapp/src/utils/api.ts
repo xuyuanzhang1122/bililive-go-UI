@@ -95,6 +95,11 @@ class API {
         return utils.requestGet(`${BASE_URL}/video-files/${folderPath.split('/').map(encodeURIComponent).join('/')}`);
     }
 
+    resolvePlayback(relPath: string) {
+        return utils.requestGet(`${BASE_URL}/playback/resolve/${relPath.split('/').map(encodeURIComponent).join('/')}`)
+            .then((response: any) => response?.data ?? response);
+    }
+
     getWatchHistoryItem(videoPath: string) {
         return utils.requestGet(`${BASE_URL}/history/${videoPath.split('/').map(encodeURIComponent).join('/')}`);
     }

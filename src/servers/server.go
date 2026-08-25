@@ -16,8 +16,8 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
-	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/listeners"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pipeline"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/recorders"
@@ -137,6 +137,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/local/restart", localRestart).Methods("POST")
 	apiRoute.HandleFunc("/signed-url", createSignedURL).Methods("GET")
 	apiRoute.HandleFunc("/thumbnail/{path:.*}", getThumbnail).Methods("GET")
+	apiRoute.HandleFunc("/playback/resolve/{path:.*}", resolvePlayback).Methods("GET")
 	apiRoute.HandleFunc("/video-files/{path:.*}", getVideoFiles).Methods("GET")
 	apiRoute.HandleFunc("/stream/hls-segment/{cache_key}/{segment}", getHLSSegment).Methods("GET")
 	apiRoute.HandleFunc("/stream/hls/{path:.*}", getHLSPlaylist).Methods("GET")

@@ -321,7 +321,49 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         isLongPress: false,
     });
 
-    const playUrl = file.hls_url || file.file_url || buildFileUrl(file.rel_path);
+    const fallbackPlayUrl = file.hls_url || file.file_url || buildFileUrl(file.rel_path);
+    const [resolvedPlay, setResolvedPlay] = useState<{ url: string; protocol?: string; status?: string } | null>(null);
+    const [resolvingPlay, setResolvingPlay] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const resolve = async () => {
+            setResolvingPlay(true);
+            try {
+                const result = await api.resolvePlayback(file.rel_path) as { status?: string; url?: string; protocol?: string; retry_after_seconds?: number; error?: string };
+                if (cancelled) return;
+                if (result.status === 'ready' && result.url) {
+                    setResolvedPlay({ url: result.url, protocol: result.protocol, status: result.status });
+                    setStatusText('');
+                    setResolvingPlay(false);
+                    return;
+                }
+                if (result.status === 'failed' || result.status === 'recording') {
+                    setStatusText(result.error || (result.status === 'recording' ? '正在录制，请稍后再试' : '视频暂时无法播放'));
+                    setResolvingPlay(false);
+                    return;
+                }
+                setStatusText('正在准备播放缓存...');
+                timer = setTimeout(resolve, Math.max(1000, (result.retry_after_seconds || 2) * 1000));
+            } catch {
+                if (!cancelled) {
+                    // 兼容旧服务端：解析接口不存在时继续使用列表接口返回的地址。
+                    if (fallbackPlayUrl) setResolvedPlay({ url: fallbackPlayUrl });
+                    setStatusText(fallbackPlayUrl ? '' : '无法获取播放地址');
+                    setResolvingPlay(false);
+                }
+            }
+        };
+        setResolvedPlay(null);
+        resolve();
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+        };
+    }, [fallbackPlayUrl, file.rel_path]);
+
+    const effectivePlayUrl = resolvedPlay?.url || '';
 
     const showHint = (h: GestureHint, duration = 1200) => {
         setHint(h);
@@ -556,7 +598,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
     };
 
     useEffect(() => {
-        if (!containerRef.current) return;
+        if (!containerRef.current || !effectivePlayUrl) {
+            if (resolvingPlay) setStatusText('正在准备播放缓存...');
+            return;
+        }
         const ext = (file.rel_path.split('.').pop() || '').toLowerCase();
         streamTypeRef.current = ext === 'flv' ? 'flv' : ext === 'ts' ? 'ts' : 'other';
         mpegtsPlayerRef.current = null;
@@ -577,7 +622,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
 
         const art = new Artplayer({
             container: containerRef.current,
-            url: playUrl,
+            url: effectivePlayUrl,
+            type: resolvedPlay?.protocol === 'hls' ? 'm3u8' : undefined,
             title: file.name,
             volume: 0.9,
             autoplay: true,
@@ -657,7 +703,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             }
             mpegtsPlayerRef.current = null;
         };
-    }, [file.name, file.recording, file.rel_path, persistProgress, playUrl, resumeTime, syncPlayerState]);
+    }, [effectivePlayUrl, file.name, file.recording, file.rel_path, persistProgress, resolvedPlay?.protocol, resolvingPlay, resumeTime, syncPlayerState]);
 
     useEffect(() => {
         const handleVisibility = () => {
