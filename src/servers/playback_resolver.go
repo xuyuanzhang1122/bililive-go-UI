@@ -71,7 +71,21 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 	cacheKey := hlsCacheKey(relPath, sourceInfo)
 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+
+	// 优先检查是否完整（有 ENDLIST），完整的可以直接使用
 	if isPlaylistComplete(playlistPath) {
+		urlValue := signedHLSURLForVideoFile(r, ext, relPath, cfg)
+		if urlValue == "" {
+			urlValue = joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8"
+		}
+		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
+			Status: "ready", Protocol: "hls", MimeType: "application/vnd.apple.mpegurl", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
+		}})
+		return
+	}
+
+	// JIT HLS：只要有至少一个分片就可以开始播放
+	if isPlaylistReady(playlistPath) {
 		urlValue := signedHLSURLForVideoFile(r, ext, relPath, cfg)
 		if urlValue == "" {
 			urlValue = joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8"
@@ -107,7 +121,7 @@ func beginHLSBuild(cfg *configs.Config, relPath, sourcePath, cacheDir, playlistP
 		lock := acquireHLSCacheLock(cacheKey)
 		lock.mutex.Lock()
 		err := error(nil)
-		if !isPlaylistComplete(playlistPath) {
+		if !isPlaylistReady(playlistPath) {
 			err = buildHLSCache(cfg, sourcePath, cacheDir, playlistPath)
 		}
 		lock.mutex.Unlock()

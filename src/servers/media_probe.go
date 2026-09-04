@@ -71,7 +71,7 @@ func probeMedia(ctx context.Context, ffprobePath, sourcePath string) (mediaProbe
 
 	cmd := exec.CommandContext(probeCtx, ffprobePath,
 		"-v", "error",
-		"-show_entries", "stream=codec_type,codec_name:format=format_name,duration",
+		"-show_entries", "stream=codec_type,codec_name:format=format_name",
 		"-of", "json",
 		sourcePath,
 	)
@@ -107,6 +107,8 @@ func hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath string) []string 
 		"-hide_banner",
 		"-loglevel", "error",
 		"-y",
+		"-probesize", "1000000",      // 限制探测只读取 1MB
+		"-analyzeduration", "1000000", // 限制分析时长为 1 秒
 		"-fflags", "+genpts",
 		"-i", sourcePath,
 		"-map", "0:v:0",
@@ -121,7 +123,8 @@ func hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath string) []string 
 		"-ar", "48000",
 		"-f", "hls",
 		"-hls_time", "6",
-		"-hls_playlist_type", "vod",
+		"-hls_playlist_type", "event",
+		"-hls_flags", "independent_segments+temp_file",
 		"-hls_segment_filename", segmentPattern,
 		playlistPath,
 	}

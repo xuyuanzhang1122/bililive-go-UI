@@ -38,7 +38,7 @@ video_split_strategies:
   # 负数为非法值，程序会输出 log 提醒，并无视所设定的数值
   max_file_size: 0
 on_record_finished:
-  convert_to_mp4: false
+  convert_to_mp4: true
   delete_flv_after_convert: false
   #  当 custom_commandline 的值 不为空时，convert_to_mp4 的值会被无视，
   #  而是在录制结束后直接执行 custom_commandline 中的命令。
