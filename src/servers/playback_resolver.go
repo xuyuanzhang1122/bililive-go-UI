@@ -24,16 +24,6 @@ type playbackResolveResponse struct {
 	RetryAfter int    `json:"retry_after_seconds,omitempty"`
 }
 
-type hlsBuildState struct {
-	status string
-	err    string
-}
-
-var hlsBuildStates = struct {
-	sync.Mutex
-	items map[string]hlsBuildState
-}{items: make(map[string]hlsBuildState)}
-
 func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 	cfg := configs.GetCurrentConfig()
 	if cfg == nil {
@@ -72,77 +62,48 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
 
-	// 优先检查是否完整（有 ENDLIST），完整的可以直接使用
-	if isPlaylistComplete(playlistPath) {
-		urlValue := signedHLSURLForVideoFile(r, ext, relPath, cfg)
-		if urlValue == "" {
-			urlValue = joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8"
-		}
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
-			Status: "ready", Protocol: "hls", MimeType: "application/vnd.apple.mpegurl", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
-		}})
-		return
-	}
+	// 使用新的任务管理器
+	job, created := globalHLSJobManager.GetOrCreateJob(cfg, cacheKey, sourcePath, cacheDir, playlistPath)
 
-	// JIT HLS：只要有至少一个分片就可以开始播放
-	if isPlaylistReady(playlistPath) {
-		urlValue := signedHLSURLForVideoFile(r, ext, relPath, cfg)
-		if urlValue == "" {
-			urlValue = joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8"
+	if created {
+		// 新创建的任务，启动它
+		if err := globalHLSJobManager.StartJob(cfg, job); err != nil {
+			applog.GetLogger().WithError(err).WithField("path", relPath).Warn("启动 HLS 任务失败")
 		}
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
-			Status: "ready", Protocol: "hls", MimeType: "application/vnd.apple.mpegurl", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
-		}})
-		return
-	}
-
-	if beginHLSBuild(cfg, relPath, sourcePath, cacheDir, playlistPath, cacheKey) {
 		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
 		return
 	}
-	state := getHLSBuildState(cacheKey)
-	if state.status == "failed" {
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "failed", Error: state.err, RetryAfter: 5}})
+
+	// 已存在的任务，检查状态
+	status, errMsg := job.GetStatus()
+
+	switch status {
+	case hlsJobCompleted, hlsJobPlayable, hlsJobPartial:
+		// 可以播放
+		urlValue := signedHLSURLForVideoFile(r, ext, relPath, cfg)
+		if urlValue == "" {
+			urlValue = joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8"
+		}
+		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
+			Status: "ready", Protocol: "hls", MimeType: "application/vnd.apple.mpegurl", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
+		}})
+		return
+
+	case hlsJobFailed:
+		// 失败
+		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "failed", Error: errMsg, RetryAfter: 5}})
+		return
+
+	case hlsJobQueued, hlsJobStarting:
+		// 处理中
+		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
+		return
+
+	default:
+		// 未知状态
+		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
 		return
 	}
-	writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
-}
-
-func beginHLSBuild(cfg *configs.Config, relPath, sourcePath, cacheDir, playlistPath, cacheKey string) bool {
-	hlsBuildStates.Lock()
-	if state, ok := hlsBuildStates.items[cacheKey]; ok && state.status == "processing" {
-		hlsBuildStates.Unlock()
-		return false
-	}
-	hlsBuildStates.items[cacheKey] = hlsBuildState{status: "processing"}
-	hlsBuildStates.Unlock()
-
-	go func() {
-		lock := acquireHLSCacheLock(cacheKey)
-		lock.mutex.Lock()
-		err := error(nil)
-		if !isPlaylistReady(playlistPath) {
-			err = buildHLSCache(cfg, sourcePath, cacheDir, playlistPath)
-		}
-		lock.mutex.Unlock()
-		lock.users.Add(-1)
-
-		hlsBuildStates.Lock()
-		if err != nil {
-			hlsBuildStates.items[cacheKey] = hlsBuildState{status: "failed", err: err.Error()}
-			applog.GetLogger().WithError(err).WithField("path", relPath).Warn("后台 HLS 播放缓存构建失败")
-		} else {
-			hlsBuildStates.items[cacheKey] = hlsBuildState{status: "ready"}
-		}
-		hlsBuildStates.Unlock()
-	}()
-	return true
-}
-
-func getHLSBuildState(cacheKey string) hlsBuildState {
-	hlsBuildStates.Lock()
-	defer hlsBuildStates.Unlock()
-	return hlsBuildStates.items[cacheKey]
 }
 
 func playbackURLExpiresAt(urlValue string) int64 {
