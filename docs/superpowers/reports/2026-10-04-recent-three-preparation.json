@@ -1,0 +1,128 @@
+[
+  {
+    "recording": {
+      "recording_id": "39ed1615-9a11-4e63-80dc-4afdd44fa9c7",
+      "source_version": "10108949797e4501052a684887cdb1fcbba5681c59ab9a67c6fb28c41ca8b4fd",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-04 00-53-28][镁战队®健身❤️肖然「备赛版」][体能训练].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 3357389972,
+      "size_text": "3.4 GB"
+    },
+    "preview": {
+      "id": "9b385e3a-2f24-44a2-b8bc-29751463e29a",
+      "digest": "331e99613d3f62d8ab54e2c8f9aee6c89e4149463bcb2bfda6d260c1a347012f",
+      "state": "confirmed",
+      "profile_version": "sdr-h264-main-1080p30-aac-stereo-v1",
+      "source_root": "/home/xumy/bililive-go/Videos",
+      "items": [
+        {
+          "recording_id": "39ed1615-9a11-4e63-80dc-4afdd44fa9c7",
+          "source_version": "10108949797e4501052a684887cdb1fcbba5681c59ab9a67c6fb28c41ca8b4fd",
+          "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-04 00-53-28][镁战队®健身❤️肖然「备赛版」][体能训练].flv",
+          "source_path": "/home/xumy/bililive-go/Videos/抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-04 00-53-28][镁战队®健身❤️肖然「备赛版」][体能训练].flv",
+          "size_bytes": 3357389972
+        }
+      ],
+      "skipped": [],
+      "estimated_additional_bytes": 11072169916,
+      "estimated_additional_text": "11072169916 字节（保守预估）",
+      "strategy": "复用录后 SDR H264/AAC 准备规则；探测后决定复制或转码，保留来源；不上传、不删源",
+      "next_cursor": "39ed1615-9a11-4e63-80dc-4afdd44fa9c7",
+      "expires_at": 1791117633,
+      "min_start_interval_seconds": 60,
+      "max_concurrent": 1,
+      "paused": false,
+      "preserve_source": true,
+      "task_ids": [
+        826
+      ]
+    },
+    "source_sha256_before": "e877800f31539b454af130b119cf6ce0b78a607f156df6a024c44e6faf12d2b3",
+    "source_bytes": 3357389972,
+    "source_modified_at": "2026-10-04T04:08:37.981264"
+  },
+  {
+    "recording": {
+      "recording_id": "337ecfc0-4a7c-404c-8780-2d8b78d93f9d",
+      "source_version": "97542aba3bb54cca95579ff5e22adf0e33503108199dca3f6b533bd1b01566b3",
+      "path": "抖音/屈屈真腹肌（力量塑形）/[2026-10-03 10-58-15][屈屈真腹肌（力量塑形）][0基础 新手小白 大基数 小基数燃脂塑形].flv",
+      "room": "抖音/屈屈真腹肌（力量塑形）",
+      "size_bytes": 8915894328,
+      "size_text": "8.9 GB"
+    },
+    "preview": {
+      "id": "d49dfc61-bf47-464b-8c22-d78e16467000",
+      "digest": "1ae0da18345a9e91ead49e3950c8d5902e98a3d70626cadaa84564c3bb8f2a4c",
+      "state": "confirmed",
+      "profile_version": "sdr-h264-main-1080p30-aac-stereo-v1",
+      "source_root": "/home/xumy/bililive-go/Videos",
+      "items": [
+        {
+          "recording_id": "337ecfc0-4a7c-404c-8780-2d8b78d93f9d",
+          "source_version": "97542aba3bb54cca95579ff5e22adf0e33503108199dca3f6b533bd1b01566b3",
+          "path": "抖音/屈屈真腹肌（力量塑形）/[2026-10-03 10-58-15][屈屈真腹肌（力量塑形）][0基础 新手小白 大基数 小基数燃脂塑形].flv",
+          "source_path": "/home/xumy/bililive-go/Videos/抖音/屈屈真腹肌（力量塑形）/[2026-10-03 10-58-15][屈屈真腹肌（力量塑形）][0基础 新手小白 大基数 小基数燃脂塑形].flv",
+          "size_bytes": 8915894328
+        }
+      ],
+      "skipped": [],
+      "estimated_additional_bytes": 27747682984,
+      "estimated_additional_text": "27747682984 字节（保守预估）",
+      "strategy": "复用录后 SDR H264/AAC 准备规则；探测后决定复制或转码，保留来源；不上传、不删源",
+      "next_cursor": "337ecfc0-4a7c-404c-8780-2d8b78d93f9d",
+      "expires_at": 1791117636,
+      "min_start_interval_seconds": 60,
+      "max_concurrent": 1,
+      "paused": false,
+      "preserve_source": true,
+      "task_ids": [
+        827
+      ]
+    },
+    "source_sha256_before": "ca686b771f644965bd823d439a39973b87cec1d063b617e4e8532407b2d790cb",
+    "source_bytes": 8915894328,
+    "source_modified_at": "2026-10-03T13:11:23.461253"
+  },
+  {
+    "recording": {
+      "recording_id": "189af291-47f1-48a3-a2a9-e0a097371265",
+      "source_version": "abb0c1e5b39b2534afa241f553d29e664f1f5163226df6aded86c70807efce61",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-03 12-04-53][镁战队®健身❤️肖然「备赛版」][放假快乐].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 361245932,
+      "size_text": "361.2 MB"
+    },
+    "preview": {
+      "id": "bd0ea15e-c86f-4e82-84ff-53cb9040a22c",
+      "digest": "3d45f7d8359c99f70df655715cf113b9a0422fd8842bc0c8095f8e1b416af5a6",
+      "state": "confirmed",
+      "profile_version": "sdr-h264-main-1080p30-aac-stereo-v1",
+      "source_root": "/home/xumy/bililive-go/Videos",
+      "items": [
+        {
+          "recording_id": "189af291-47f1-48a3-a2a9-e0a097371265",
+          "source_version": "abb0c1e5b39b2534afa241f553d29e664f1f5163226df6aded86c70807efce61",
+          "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-03 12-04-53][镁战队®健身❤️肖然「备赛版」][放假快乐].flv",
+          "source_path": "/home/xumy/bililive-go/Videos/抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-03 12-04-53][镁战队®健身❤️肖然「备赛版」][放假快乐].flv",
+          "size_bytes": 361245932
+        }
+      ],
+      "skipped": [],
+      "estimated_additional_bytes": 2083737796,
+      "estimated_additional_text": "2083737796 字节（保守预估）",
+      "strategy": "复用录后 SDR H264/AAC 准备规则；探测后决定复制或转码，保留来源；不上传、不删源",
+      "next_cursor": "189af291-47f1-48a3-a2a9-e0a097371265",
+      "expires_at": 1791117650,
+      "min_start_interval_seconds": 60,
+      "max_concurrent": 1,
+      "paused": false,
+      "preserve_source": true,
+      "task_ids": [
+        828
+      ]
+    },
+    "source_sha256_before": "e57d46abf99a4c37aae02c4111e4ba895572dcdaa5e1644d285e252e60fae0e1",
+    "source_bytes": 361245932,
+    "source_modified_at": "2026-10-03T12:50:17.952301"
+  }
+]
