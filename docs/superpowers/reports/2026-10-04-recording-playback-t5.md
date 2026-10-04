@@ -39,3 +39,5 @@
 契约 [openapi-v2.yaml](../../contracts/openapi-v2.yaml) 与 [接口说明](../../contracts/v2-playback.md) 供 T6/T7 消费。当前共享 schema 校验覆盖实际 DTO/样例约束，没有声称验证全部 OpenAPI 标准。手机首帧/拖动/长时间播放、生产容量、Windows/Linux 实际运行仍待验收；T3 HDR 正向验证的既有环境限制继续保留。
 
 按用户要求主动本地 commit，保留当前分支；未 push、部署或转换真实历史库。主计划下一阶段为 T6 鸿蒙消费共享会话契约。
+
+代码与证据提交：`c2d09342ee83092ec6e3fd7b36c31b20ba977bd3`（feat: 实现 T5 v2 播放会话与能力决策）。后续文档提交仅补充本检查点引用；保留当前分支。

@@ -39,5 +39,6 @@ Final: minor (deferred): 无；两项原 Minor 按实际播放影响升级并在
 Task 1: complete — 能力决策及全部共享样例，最终 make test PASS。
 Task 2: complete — ID查询/分页、改名/来源/句柄身份与只读准备状态，最终 make test PASS。
 Task 3: complete — 会话/媒体/旧适配/授权/容器/并发/配额，最终 make test 与相关 race PASS。
-Task 4: complete — 逐项批删、安全捕获及真实 T3/T4媒体集；唯一独立审查一次修复，所有最终检查退出0，等待本地提交记录。
+Task 4: complete — 逐项批删、安全捕获及真实 T3/T4媒体集；唯一独立审查一次修复，所有最终检查退出0，已本地提交 c2d09342ee83092ec6e3fd7b36c31b20ba977bd3。
 Evidence: 两份失败的中间整套尝试改名为 attempt-rename-adapter-probe.log（测试对象复用）及 attempt-review-all-before-webm.log（目录漏登记WebM），保留原输出，不混作最终GREEN。最终七个命令日志均以 final- 命名且退出0。
+Delivery: 代码/证据 commit c2d09342ee83092ec6e3fd7b36c31b20ba977bd3；保留 feature/jit-hls-optimization，不 push。用户要求追溯，账本、计划和证据保留在Git，不删除这些交付资料。
