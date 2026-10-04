@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,10 @@ import (
 // 缓存键绑定来源和探测工具的版本；只缓存成功结果，缓存故障不阻断播放。
 func probeCacheKey(tool, source string) (string, error) {
 	source, err := filepath.Abs(source)
+	if err != nil {
+		return "", err
+	}
+	tool, err = filepath.EvalSymlinks(tool)
 	if err != nil {
 		return "", err
 	}
@@ -33,7 +38,15 @@ func probeCacheKey(tool, source string) (string, error) {
 	if !si.Mode().IsRegular() || !ti.Mode().IsRegular() {
 		return "", fmt.Errorf("媒体或探测工具不是普通文件")
 	}
-	key := sha256.Sum256([]byte(fmt.Sprintf("probe-v1\x00%s\x00%d\x00%d\x00%s\x00%d\x00%d", source, si.Size(), si.ModTime().UnixNano(), tool, ti.Size(), ti.ModTime().UnixNano())))
+	sourceVersion, err := recordingcatalog.SnapshotVersion(source)
+	if err != nil {
+		return "", err
+	}
+	toolVersion, err := recordingcatalog.SnapshotVersion(tool)
+	if err != nil {
+		return "", err
+	}
+	key := sha256.Sum256([]byte(fmt.Sprintf("probe-v4\x00%s\x00%s\x00%s\x00%s", source, sourceVersion, tool, toolVersion)))
 	return hex.EncodeToString(key[:]), nil
 }
 func validProbe(p mediaProbe) bool {

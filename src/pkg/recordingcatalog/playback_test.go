@@ -1,0 +1,63 @@
+package recordingcatalog
+
+import (
+	"context"
+	"github.com/stretchr/testify/require"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestPlaybackIDPaginationAndRenameNeverSelectsReplacement(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	path := filepath.Join(root, "平台", "主播", "source.flv")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, []byte("source"), 0600))
+	s, err := Open(filepath.Join(t.TempDir(), "catalog.db"), root)
+	require.NoError(t, err)
+	m := NewManager(s, 0)
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	require.NoError(t, m.Reconcile(ctx))
+	e, err := s.Lookup(ctx, "平台/主播/source.flv")
+	require.NoError(t, err)
+	list, err := m.ListRecordings(ctx, "", 1)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.Equal(t, e.RecordingID, list[0].RecordingID)
+	require.EqualValues(t, 6, list[0].Size)
+	files, err := m.PlaybackFiles(ctx, e.RecordingID, e.SourceVersion)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.NoError(t, m.VerifyPlaybackFile(ctx, files[0]))
+	renamed := filepath.Join(filepath.Dir(path), "renamed.flv")
+	require.NoError(t, os.Rename(path, renamed))
+	require.NoError(t, os.WriteFile(path, []byte("other recording"), 0600))
+	require.Error(t, m.VerifyPlaybackFile(ctx, files[0]))
+	require.NoError(t, m.Reconcile(ctx))
+	record, err := m.PlaybackRecording(ctx, e.RecordingID)
+	require.NoError(t, err)
+	require.Equal(t, e.SourceVersion, record.SourceVersion)
+	files, err = m.PlaybackFiles(ctx, e.RecordingID, e.SourceVersion)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, renamed, files[0].Path)
+	require.NoError(t, m.VerifyPlaybackFile(ctx, files[0]))
+	finish := BeginRecording(renamed)
+	require.ErrorIs(t, m.VerifyPlaybackFile(ctx, files[0]), ErrRecordingActive)
+	finish()
+	require.NoError(t, os.WriteFile(renamed, []byte("changed source version"), 0600))
+	require.Error(t, m.VerifyPlaybackFile(ctx, files[0]))
+	require.NoError(t, m.Reconcile(ctx))
+	_, err = m.PlaybackFiles(ctx, e.RecordingID, e.SourceVersion)
+	require.Error(t, err)
+	list, err = m.ListRecordings(ctx, "", 1)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	next, err := m.ListRecordings(ctx, list[0].RecordingID, 1)
+	require.NoError(t, err)
+	require.Len(t, next, 1)
+	require.NotEqual(t, list[0].RecordingID, next[0].RecordingID)
+	_, err = m.ListRecordings(ctx, "", 101)
+	require.Error(t, err)
+}

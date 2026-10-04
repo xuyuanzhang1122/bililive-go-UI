@@ -1,0 +1,19 @@
+--- FAIL: TestPinnedDeleteRejectsReplacementAndKeepsIt (0.00s)
+    delete_race_test.go:24: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/pkg/recordingcatalog/delete_race_test.go:24
+        	Error:      	Expected error with "录播来源或所选资产已变化" in chain but got nil.
+        	Test:       	TestPinnedDeleteRejectsReplacementAndKeepsIt
+--- FAIL: TestPinnedDeleteStaysInOpenedParentAfterSymlinkReplacement (0.00s)
+    delete_race_test.go:49: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/pkg/recordingcatalog/delete_race_test.go:49
+        	Error:      	Received unexpected error:
+        	            	open /var/folders/yz/52z5640s02gbk2ylqwpz6v3c0000gn/T/TestPinnedDeleteStaysInOpenedParentAfterSymlinkReplacement55632310/002/clip.flv: no such file or directory
+        	Test:       	TestPinnedDeleteStaysInOpenedParentAfterSymlinkReplacement
+--- FAIL: TestDeletionLeaseRejectsActiveAndBlocksNewRecording (0.00s)
+    delete_race_test.go:60: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/pkg/recordingcatalog/delete_race_test.go:60
+        	Error:      	Expected error with "来源仍在录制" in chain but got nil.
+        	Test:       	TestDeletionLeaseRejectsActiveAndBlocksNewRecording
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/pkg/recordingcatalog	0.908s
+FAIL

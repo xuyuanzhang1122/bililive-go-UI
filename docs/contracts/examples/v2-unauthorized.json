@@ -1,0 +1,12 @@
+{
+  "schema": "ErrorEnvelope",
+  "value": {
+    "data": null,
+    "error": {
+      "code": "unauthorized",
+      "message": "缺少有效 Bearer Key",
+      "retryable": false
+    },
+    "request_id": "example-auth"
+  }
+}

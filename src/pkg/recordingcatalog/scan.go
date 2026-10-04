@@ -12,7 +12,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/playbackasset"
 )
 
-var videoExtensions = map[string]bool{".flv": true, ".mp4": true, ".ts": true, ".mkv": true, ".mov": true}
+var videoExtensions = map[string]bool{".flv": true, ".mp4": true, ".ts": true, ".mkv": true, ".mov": true, ".webm": true}
 
 type observedFile struct {
 	path     string

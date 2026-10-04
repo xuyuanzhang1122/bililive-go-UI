@@ -55,3 +55,22 @@ func TestProbeCacheDoesNotCacheFailure(t *testing.T) {
 	_, err = probeMediaCached(context.Background(), tool, source, filepath.Join(root, "cache"))
 	require.NoError(t, err)
 }
+
+func TestProbeCacheKeyRejectsSameSizeTimeReplacementIdentity(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.mp4")
+	tool := filepath.Join(dir, "ffprobe")
+	require.NoError(t, os.WriteFile(source, []byte("old"), 0600))
+	require.NoError(t, os.WriteFile(tool, []byte("tool"), 0700))
+	before, err := os.Stat(source)
+	require.NoError(t, err)
+	key, err := probeCacheKey(tool, source)
+	require.NoError(t, err)
+	replacement := filepath.Join(dir, "replacement.mp4")
+	require.NoError(t, os.WriteFile(replacement, []byte("new"), 0600))
+	require.NoError(t, os.Chtimes(replacement, before.ModTime(), before.ModTime()))
+	require.NoError(t, os.Rename(replacement, source))
+	next, err := probeCacheKey(tool, source)
+	require.NoError(t, err)
+	require.NotEqual(t, key, next, "相同大小/时间的不同文件不能复用旧探测")
+}

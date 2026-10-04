@@ -115,16 +115,16 @@
 
 ## T5：v2 第一期与播放决策
 
-**状态：** 未有自有 `/api/v2`、播放会话和 play_token。外部平台 URL 中 `/api/v2` 不计为实现。
+**状态：** 2026-10-04 核心 v2 列表/会话/短期 play_token/能力决策/逐项批删完成；真实 FFmpeg、HTTP契约、版本替换、并发与删除竞态、授权/容量回归及全仓构建/lint/test/race通过，一次独立审查修复闭环。设备消费和真机验收转入 T6/T7，生产未部署。
 
 **文件：** `docs/contracts/openapi-v2.yaml`、`src/servers/server.go`、新增录播与会话 handler/DTO/测试；能力决策模块。
 
 **接口：** `GET /api/v2/recordings`、`POST /api/v2/playback-sessions`、`GET/DELETE /api/v2/playback-sessions/{id}`、`POST /api/v2/recordings/batch-delete`；响应 `{data, error, request_id}`，错误 code/message/retryable；媒体使用短期 play_token，管理 API 保持 Bearer Key。
 
-- [ ] 先定义共享 OpenAPI/样例及服务端契约测试，再实现 handler；旧 `/api` 显式适配，不整体强拆 data。
-- [ ] 服务端根据容器、codec/profile/level、分辨率/帧率、位深/HDR、音频与协议能力决策 direct/remux/audio-transcode/video-transcode；输出所选资产、状态、过期及刷新信息。
-- [ ] 会话绑定 recording_id/source_version/asset_version；测试授权篡改、过期、源替换、无匹配能力、取消与失败可重试语义。
-- [ ] 第一期不迁移配置/直播控制/账号/备份等管理接口；第二期另立里程碑，不能阻塞播放交付。
+- [x] 先定义共享 OpenAPI/样例及服务端契约测试，再实现 handler；旧 `/api` 显式适配，不整体强拆 data。
+- [x] 服务端根据容器、codec/profile/level、分辨率/帧率、位深/HDR、音频与协议能力决策 direct/remux/audio-transcode/video-transcode；输出所选资产、状态、过期及刷新信息。
+- [x] 会话绑定 recording_id/source_version/asset_version；测试授权篡改、过期、源替换、无匹配能力、取消与失败可重试语义。
+- [x] 第一期不迁移配置/直播控制/账号/备份等管理接口；第二期另立里程碑，不能阻塞播放交付。
 
 ## T6：鸿蒙统一消费与验收
 
@@ -181,3 +181,5 @@
 - 2026-10-04：T4 核心实现与自动验证、独立审查修复完成；[T4 实施记录](../reports/2026-10-04-recording-playback-t4.md)记录配置、发布集合协议、源改名恢复、异常退出半成品清理及剩余验收。下一阶段 T5；本轮主动本地提交，不 push 或部署。
 
 - T4 本地检查点：`fd83210e7e026e73b357f1162f6958781cca78a4`，包含核心实现、两项 Important 修复及最终验证证据；当前分支保留，T5 未开始。
+
+- 2026-10-04：T5 核心实现、共享契约及自动验证/独立审查修复完成；[T5 实施记录](../reports/2026-10-04-recording-playback-t5.md)记录并发、句柄与安全删除修复和平台边界。下一阶段 T6，按要求主动本地提交，未 push 或部署。

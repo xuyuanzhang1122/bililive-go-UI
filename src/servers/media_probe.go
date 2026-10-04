@@ -18,13 +18,25 @@ type mediaProbe struct {
 }
 
 type mediaProbeStream struct {
-	CodecType string `json:"codec_type"`
-	CodecName string `json:"codec_name"`
+	CodecType  string `json:"codec_type"`
+	CodecName  string `json:"codec_name"`
+	Profile    string `json:"profile"`
+	Level      int    `json:"level"`
+	Pixel      string `json:"pix_fmt"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	FrameRate  string `json:"avg_frame_rate"`
+	Transfer   string `json:"color_transfer"`
+	Bits       string `json:"bits_per_raw_sample"`
+	Channels   int    `json:"channels"`
+	SampleRate string `json:"sample_rate"`
 }
 
 type mediaProbeFormat struct {
-	FormatName string `json:"format_name"`
-	Duration   string `json:"duration"`
+	FormatName string            `json:"format_name"`
+	Duration   string            `json:"duration"`
+	Tags       map[string]string `json:"tags"`
+	Container  string            `json:"container,omitempty"`
 }
 
 type hlsEncodeMode string
@@ -71,7 +83,7 @@ func probeMedia(ctx context.Context, ffprobePath, sourcePath string) (mediaProbe
 
 	cmd := exec.CommandContext(probeCtx, ffprobePath,
 		"-v", "error",
-		"-show_entries", "stream=codec_type,codec_name:format=format_name",
+		"-show_entries", "stream=codec_type,codec_name,profile,level,pix_fmt,width,height,avg_frame_rate,color_transfer,bits_per_raw_sample,channels,sample_rate:format=format_name,duration:format_tags=major_brand",
 		"-of", "json",
 		sourcePath,
 	)
@@ -83,6 +95,7 @@ func probeMedia(ctx context.Context, ffprobePath, sourcePath string) (mediaProbe
 	if err := json.Unmarshal(output, &result); err != nil {
 		return mediaProbe{}, fmt.Errorf("parse ffprobe output: %w", err)
 	}
+	result.Format.Container = actualProbeContainer(result.Format, sourcePath)
 	return result, nil
 }
 

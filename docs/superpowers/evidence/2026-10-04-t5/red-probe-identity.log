@@ -1,0 +1,9 @@
+--- FAIL: TestProbeCacheKeyRejectsSameSizeTimeReplacementIdentity (0.00s)
+    media_probe_cache_test.go:75: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/media_probe_cache_test.go:75
+        	Error:      	Should not be: "77933745bf21dff6c17cadd08034e382184fe05a9c235c2c65ba96515da214df"
+        	Test:       	TestProbeCacheKeyRejectsSameSizeTimeReplacementIdentity
+        	Messages:   	相同大小/时间的不同文件不能复用旧探测
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	0.977s
+FAIL

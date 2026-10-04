@@ -1,0 +1,11 @@
+--- FAIL: TestV2SessionExpiringDuringResponseCannotReturnReadyURL (0.08s)
+    v2_sessions_test.go:359: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_sessions_test.go:359
+        	Error:      	Not equal: 
+        	            	expected: 410
+        	            	actual  : 200
+        	Test:       	TestV2SessionExpiringDuringResponseCannotReturnReadyURL
+        	Messages:   	{"data":{"id":"0ed088d9-e03f-42dd-9cfa-81576e330227","recording_id":"3d920d27-32c9-4137-b62e-08f657cd67bb","source_version":"1b1d4b7f8ef4b33e898167b9ad755ce4c7d655dc6614e4669cfbc66d0c3b9858","asset_version":"1b1d4b7f8ef4b33e898167b9ad755ce4c7d655dc6614e4669cfbc66d0c3b9858-raw-1b1d4b7f8ef4b33e898167b9ad755ce4c7d655dc6614e4669cfbc66d0c3b9858","status":"ready","decision":"direct","protocol":"file","url":"/api/v2/media/0ed088d9-e03f-42dd-9cfa-81576e330227/file?play_token=eyJzZXNzaW9uX2lkIjoiMGVkMDg4ZDktZTAzZi00MmRkLTljZmEtODE1NzZlMzMwMjI3Iiwic291cmNlX3ZlcnNpb24iOiIxYjFkNGI3ZjhlZjRiMzNlODk4MTY3YjlhZDc1NWNlNGM3ZDY1NWRjNjYxNGU0NjY5Y2ZiYzY2ZDBjM2I5ODU4IiwiYXNzZXRfdmVyc2lvbiI6IjFiMWQ0YjdmOGVmNGIzM2U4OTgxNjdiOWFkNzU1Y2U0YzdkNjU1ZGM2NjE0ZTQ2NjljZmJjNjZkMGMzYjk4NTgtcmF3LTFiMWQ0YjdmOGVmNGIzM2U4OTgxNjdiOWFkNzU1Y2U0YzdkNjU1ZGM2NjE0ZTQ2NjljZmJjNjZkMGMzYjk4NTgiLCJleHBpcmVzIjoxNzkxMDg4NzExfQ.SqA1RhB7G_KXJiiW0mXfApSyHrn7vYPLr_jW3ypGDQY","expires_at":1791088711,"token_expires_at":1791088711,"retry_after_seconds":0,"error":null},"error":null,"request_id":"bdfbc2ea-6503-4398-a446-203cc4340217"}
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	1.972s
+FAIL

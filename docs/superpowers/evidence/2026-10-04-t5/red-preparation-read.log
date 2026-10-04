@@ -1,0 +1,6 @@
+# github.com/bililive-go/bililive-go/src/pipeline [github.com/bililive-go/bililive-go/src/pipeline.test]
+src/pipeline/preparation_read_test.go:17:13: s.PreparationStatus undefined (type *SQLiteStore has no field or method PreparationStatus)
+src/pipeline/preparation_read_test.go:21:14: s.PreparationStatus undefined (type *SQLiteStore has no field or method PreparationStatus)
+src/pipeline/preparation_read_test.go:26:13: s.PreparationStatus undefined (type *SQLiteStore has no field or method PreparationStatus)
+FAIL	github.com/bililive-go/bililive-go/src/pipeline [build failed]
+FAIL

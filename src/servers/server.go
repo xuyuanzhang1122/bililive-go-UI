@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/listeners"
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pipeline"
+	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/tools"
@@ -66,6 +68,8 @@ func initMux(ctx context.Context) *mux.Router {
 			)
 		})
 	} /* , log */)
+
+	registerV2Routes(m)
 
 	// api router
 	apiRoute := m.PathPrefix(apiRouterPrefix).Subrouter()
@@ -140,7 +144,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/playback/resolve/{path:.*}", resolvePlayback).Methods("GET")
 	apiRoute.HandleFunc("/video-files/{path:.*}", getVideoFiles).Methods("GET")
 	apiRoute.HandleFunc("/stream/hls-segment/{cache_key}/{segment}", getHLSSegment).Methods("GET")
-	apiRoute.HandleFunc("/stream/hls-asset/{recording_id}/{asset_version}/{file}", getPersistentHLSFile).Methods("GET","HEAD")
+	apiRoute.HandleFunc("/stream/hls-asset/{recording_id}/{asset_version}/{file}", getPersistentHLSFile).Methods("GET", "HEAD")
 	apiRoute.HandleFunc("/stream/hls/{path:.*}", getHLSPlaylist).Methods("GET")
 	apiRoute.HandleFunc("/tools/headless-browser/probe", probeHeadlessBrowser).Methods("POST")
 	// 远程 WebUI 路由
@@ -341,4 +345,21 @@ func setupRecorderStatusBroadcast() {
 			applog.GetLogger().Info("所有录制已结束，开始执行优雅更新")
 		}
 	})
+}
+
+// v2 在旧 /api 前注册，鉴权和响应结构独立，避免旧 DTO 或同源免认证介入。
+func registerV2Routes(m *mux.Router) *v2Service {
+	secret, _ := securitypkg.GenerateAPIKey()
+	service := &v2Service{mu: sync.Mutex{}, sessions: make(map[string]v2Session), secret: secret, now: time.Now}
+	m.Use(service.contextMiddleware)
+	route := m.PathPrefix("/api/v2").Subrouter()
+	route.Use(mux.CORSMethodMiddleware(route))
+	route.Use(service.middleware)
+	route.HandleFunc("/recordings", getV2Recordings).Methods("GET")
+	route.HandleFunc("/recordings/batch-delete", batchDeleteV2Recordings).Methods("POST")
+	route.HandleFunc("/playback-sessions", createV2PlaybackSession).Methods("POST")
+	route.HandleFunc("/playback-sessions/{id}", getV2PlaybackSession).Methods("GET")
+	route.HandleFunc("/playback-sessions/{id}", cancelV2PlaybackSession).Methods("DELETE")
+	route.HandleFunc("/media/{id}/{file}", getV2PlaybackMedia).Methods("GET", "HEAD")
+	return service
 }

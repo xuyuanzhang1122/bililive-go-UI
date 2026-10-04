@@ -1,0 +1,14 @@
+# github.com/bililive-go/bililive-go/src/pkg/playbackdecision [github.com/bililive-go/bililive-go/src/pkg/playbackdecision.test]
+src/pkg/playbackdecision/decision_test.go:8:20: undefined: Capabilities
+src/pkg/playbackdecision/decision_test.go:9:9: undefined: Capabilities
+src/pkg/playbackdecision/decision_test.go:9:103: undefined: VideoCapability
+src/pkg/playbackdecision/decision_test.go:9: undefined: AudioCapability
+src/pkg/playbackdecision/decision_test.go:11:21: undefined: Media
+src/pkg/playbackdecision/decision_test.go:12:9: undefined: Media
+src/pkg/playbackdecision/decision_test.go:12:58: undefined: Video
+src/pkg/playbackdecision/decision_test.go:12:164: undefined: Audio
+src/pkg/playbackdecision/decision_test.go:17:20: undefined: Media
+src/pkg/playbackdecision/decision_test.go:19:33: undefined: Media
+src/pkg/playbackdecision/decision_test.go:19:33: too many errors
+FAIL	github.com/bililive-go/bililive-go/src/pkg/playbackdecision [build failed]
+FAIL

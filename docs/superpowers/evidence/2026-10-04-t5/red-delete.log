@@ -1,0 +1,18 @@
+# github.com/bililive-go/bililive-go/src/pkg/recordingcatalog [github.com/bililive-go/bililive-go/src/pkg/recordingcatalog.test]
+src/pkg/recordingcatalog/delete_test.go:26:14: m.DeleteRecording undefined (type *Manager has no field or method DeleteRecording)
+src/pkg/recordingcatalog/delete_test.go:31:13: m.DeleteRecording undefined (type *Manager has no field or method DeleteRecording)
+src/pkg/recordingcatalog/delete_test.go:37:13: m.DeleteRecording undefined (type *Manager has no field or method DeleteRecording)
+src/pkg/recordingcatalog/delete_test.go:45:13: m.DeleteRecording undefined (type *Manager has no field or method DeleteRecording)
+src/pkg/recordingcatalog/delete_test.go:75:14: m.DeleteRecording undefined (type *Manager has no field or method DeleteRecording)
+FAIL	github.com/bililive-go/bililive-go/src/pkg/recordingcatalog [build failed]
+--- FAIL: TestV2BatchDeleteReportsPartialFailureAndPreservesOtherRecording (0.17s)
+    v2_delete_test.go:29: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_delete_test.go:29
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 404
+        	Test:       	TestV2BatchDeleteReportsPartialFailureAndPreservesOtherRecording
+        	Messages:   	404 page not found
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	1.434s
+FAIL

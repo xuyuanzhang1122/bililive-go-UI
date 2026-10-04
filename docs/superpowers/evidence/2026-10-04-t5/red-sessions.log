@@ -1,0 +1,9 @@
+# github.com/bililive-go/bililive-go/src/servers [github.com/bililive-go/bililive-go/src/servers.test]
+src/servers/v2_sessions_test.go:31:57: undefined: v2Service
+src/servers/v2_sessions_test.go:69:13: undefined: registerV2Routes
+src/servers/v2_sessions_test.go:89:66: undefined: v2SessionDTO
+src/servers/v2_sessions_test.go:92:13: undefined: v2SessionDTO
+src/servers/v2_sessions_test.go:93:14: undefined: v2Error
+src/servers/v2_sessions_test.go:101:128: undefined: v2SessionDTO
+FAIL	github.com/bililive-go/bililive-go/src/servers [build failed]
+FAIL

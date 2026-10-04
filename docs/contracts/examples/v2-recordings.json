@@ -1,0 +1,21 @@
+{
+  "schema": "RecordingsEnvelope",
+  "value": {
+    "data": {
+      "items": [
+        {
+          "recording_id": "00000000-0000-4000-8000-000000000001",
+          "source_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "平台/主播/clip.mp4",
+          "room": "平台/主播",
+          "size_bytes": 189000000000,
+          "size_text": "189.0 GB"
+        }
+      ],
+      "next_cursor": "",
+      "catalog_status": "verified"
+    },
+    "error": null,
+    "request_id": "example-list"
+  }
+}

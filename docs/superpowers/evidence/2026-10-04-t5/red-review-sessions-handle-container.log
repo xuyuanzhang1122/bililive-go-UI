@@ -1,0 +1,79 @@
+--- FAIL: TestV2LateCancelledRefreshCannotOverwriteReadyAsset (1.30s)
+    --- FAIL: TestV2LateCancelledRefreshCannotOverwriteReadyAsset/file-v2 (0.26s)
+        v2_review_regression_test.go:79: 
+            	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:79
+            	Error:      	Not equal: 
+            	            	expected: "ready"
+            	            	actual  : "failed"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1 +1 @@
+            	            	-ready
+            	            	+failed
+            	Test:       	TestV2LateCancelledRefreshCannotOverwriteReadyAsset/file-v2
+    --- FAIL: TestV2LateCancelledRefreshCannotOverwriteReadyAsset/file-legacy (0.24s)
+        v2_review_regression_test.go:79: 
+            	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:79
+            	Error:      	Not equal: 
+            	            	expected: "ready"
+            	            	actual  : "failed"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1 +1 @@
+            	            	-ready
+            	            	+failed
+            	Test:       	TestV2LateCancelledRefreshCannotOverwriteReadyAsset/file-legacy
+    --- FAIL: TestV2LateCancelledRefreshCannotOverwriteReadyAsset/hls-v2 (0.40s)
+        v2_review_regression_test.go:79: 
+            	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:79
+            	Error:      	Not equal: 
+            	            	expected: "ready"
+            	            	actual  : "failed"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1 +1 @@
+            	            	-ready
+            	            	+failed
+            	Test:       	TestV2LateCancelledRefreshCannotOverwriteReadyAsset/hls-v2
+    --- FAIL: TestV2LateCancelledRefreshCannotOverwriteReadyAsset/hls-legacy (0.40s)
+        v2_review_regression_test.go:79: 
+            	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:79
+            	Error:      	Not equal: 
+            	            	expected: "ready"
+            	            	actual  : "failed"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1 +1 @@
+            	            	-ready
+            	            	+failed
+            	Test:       	TestV2LateCancelledRefreshCannotOverwriteReadyAsset/hls-legacy
+--- FAIL: TestV2MOVCapabilityUsesActualContainer (0.08s)
+    v2_review_regression_test.go:93: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:93
+        	Error:      	Not equal: 
+        	            	expected: "ready"
+        	            	actual  : "failed"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-ready
+        	            	+failed
+        	Test:       	TestV2MOVCapabilityUsesActualContainer
+--- FAIL: TestV2OpenedHandleCannotServeReplacementAfterPathRestored (0.05s)
+    v2_review_regression_test.go:112: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:112
+        	Error:      	An error is expected but got nil.
+        	Test:       	TestV2OpenedHandleCannotServeReplacementAfterPathRestored
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	2.754s
+FAIL

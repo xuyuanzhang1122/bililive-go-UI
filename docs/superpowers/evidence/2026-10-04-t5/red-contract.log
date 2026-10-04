@@ -1,0 +1,11 @@
+--- FAIL: TestV2ContractFixturesAndRealHTTPResponses (0.10s)
+    v2_contract_test.go:149: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_contract_test.go:149
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 404
+        	Test:       	TestV2ContractFixturesAndRealHTTPResponses
+        	Messages:   	404 page not found
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	1.401s
+FAIL

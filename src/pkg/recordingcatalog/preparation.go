@@ -36,9 +36,13 @@ func BeginRecording(path string) func() {
 	}
 }
 func IsRecording(path string) bool {
-	path, _ = filepath.Abs(path)
 	activeSources.Lock()
 	defer activeSources.Unlock()
+	return isRecordingLocked(path)
+}
+
+func isRecordingLocked(path string) bool {
+	path, _ = filepath.Abs(path)
 	for source := range activeSources.paths {
 		if path == source {
 			return true
@@ -68,6 +72,29 @@ func SnapshotVersion(path string) (string, error) {
 	}
 	if !os.SameFile(info, after) || info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) {
 		return "", fmt.Errorf("来源核验期间变化")
+	}
+	return version(identity, info.Size(), info.ModTime().UnixNano()), nil
+}
+
+// SnapshotOpenedFileVersion 绑定实际打开的句柄，不以当前路径的对象代替传输对象。
+func SnapshotOpenedFileVersion(f *os.File) (string, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", ErrPlaybackChanged
+	}
+	identity, err := fileHandleIdentity(f, info)
+	if err != nil {
+		return "", err
+	}
+	after, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !os.SameFile(info, after) || info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) {
+		return "", ErrPlaybackChanged
 	}
 	return version(identity, info.Size(), info.ModTime().UnixNano()), nil
 }

@@ -1,0 +1,25 @@
+--- FAIL: TestV2LegacyFileMIMEMatchesSelectedMOV (0.10s)
+    v2_review_regression_test.go:105: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:105
+        	Error:      	"{\"err_no\":0,\"err_msg\":\"\",\"data\":{\"status\":\"ready\",\"protocol\":\"file\",\"mime_type\":\"video/mp4\",\"url\":\"/api/v2/media/0f199c55-b0ce-45a8-8cdb-f91da3e38c19/file?play_token=eyJzZXNzaW9uX2lkIjoiMGYxOTljNTUtYjBjZS00NWE4LThjZGItZjkxZGEzZTM4YzE5Iiwic291cmNlX3ZlcnNpb24iOiI4MjM4NTUyODYzMzkwNWU0ZmRiN2ZjNjQ0NzNkMTA3MjYwYjg0MjQ0MWM4N2ZlYTNmMmFmMjJhOTA5ZTMwNGFkIiwiYXNzZXRfdmVyc2lvbiI6IjgyMzg1NTI4NjMzOTA1ZTRmZGI3ZmM2NDQ3M2QxMDcyNjBiODQyNDQxYzg3ZmVhM2YyYWYyMmE5MDllMzA0YWQtcmF3LTgyMzg1NTI4NjMzOTA1ZTRmZGI3ZmM2NDQ3M2QxMDcyNjBiODQyNDQxYzg3ZmVhM2YyYWYyMmE5MDllMzA0YWQiLCJleHBpcmVzIjoxNzkxMTAyNjQ1fQ.JjDV_FOqyH6P6uYYqFW0QWVoOXF3U4YxCWApfcM7MjA\",\"expires_at\":1791102645}}" does not contain "video/quicktime"
+        	Test:       	TestV2LegacyFileMIMEMatchesSelectedMOV
+--- FAIL: TestV2CancelledSessionsReleasePlaybackQuota (0.09s)
+    v2_review_regression_test.go:113: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_sessions_test.go:112
+        	            				/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:113
+        	Error:      	Not equal: 
+        	            	expected: 201
+        	            	actual  : 429
+        	Test:       	TestV2CancelledSessionsReleasePlaybackQuota
+        	Messages:   	{"data":null,"error":{"code":"session_limit","message":"播放会话数量已达到上限","retryable":true,"retry_after_seconds":2},"request_id":"f721d725-7517-4b76-b74b-12672b0732bb"}
+--- FAIL: TestV2ProbeIdentifiesWebMDocTypeAndRenamedMOVBrand (0.22s)
+    --- FAIL: TestV2ProbeIdentifiesWebMDocTypeAndRenamedMOVBrand/webm (0.06s)
+        v2_review_regression_test.go:127: 
+            	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_sessions_test.go:68
+            	            				/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_review_regression_test.go:127
+            	Error:      	Received unexpected error:
+            	            	来源目录尚未核验
+            	Test:       	TestV2ProbeIdentifiesWebMDocTypeAndRenamedMOVBrand/webm
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	1.471s
+FAIL

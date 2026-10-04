@@ -3657,3 +3657,14 @@ func deleteAPIKeyUser(writer http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(writer, commonResp{ErrNo: 0, ErrMsg: "ok"})
 }
+
+// v2 入口保持在统一 handler 文件；会话、媒体与目录逻辑按职责拆分。
+func getV2Recordings(w http.ResponseWriter, r *http.Request)         { v2FromRequest(r).list(w, r) }
+func createV2PlaybackSession(w http.ResponseWriter, r *http.Request) { v2FromRequest(r).create(w, r) }
+func getV2PlaybackSession(w http.ResponseWriter, r *http.Request)    { v2FromRequest(r).get(w, r) }
+func cancelV2PlaybackSession(w http.ResponseWriter, r *http.Request) { v2FromRequest(r).cancel(w, r) }
+func getV2PlaybackMedia(w http.ResponseWriter, r *http.Request)      { v2FromRequest(r).media(w, r) }
+
+func batchDeleteV2Recordings(w http.ResponseWriter, r *http.Request) {
+	v2FromRequest(r).batchDelete(w, r)
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "SessionEnvelope",
+  "value": {
+    "data": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "recording_id": "00000000-0000-4000-8000-000000000001",
+      "source_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "asset_version": "",
+      "status": "processing",
+      "decision": "remux",
+      "expires_at": 1791086400,
+      "retry_after_seconds": 2,
+      "error": null
+    },
+    "error": null,
+    "request_id": "example-processing"
+  }
+}

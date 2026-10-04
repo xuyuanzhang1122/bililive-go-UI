@@ -1,0 +1,24 @@
+--- FAIL: TestV2PersistentHLSPlaylistUsesSessionTokenForEverySegment (0.43s)
+    v2_sessions_test.go:236: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_sessions_test.go:236
+        	Error:      	Not equal: 
+        	            	expected: "application/vnd.apple.mpegurl"
+        	            	actual  : "video/mp4"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-application/vnd.apple.mpegurl
+        	            	+video/mp4
+        	Test:       	TestV2PersistentHLSPlaylistUsesSessionTokenForEverySegment
+--- FAIL: TestV2LegacySessionErrorsKeepLegacyEnvelope (0.08s)
+    v2_sessions_test.go:300: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_sessions_test.go:300
+        	Error:      	Not equal: 
+        	            	expected: int(410)
+        	            	actual  : <nil>(<nil>)
+        	Test:       	TestV2LegacySessionErrorsKeepLegacyEnvelope
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	1.518s
+FAIL

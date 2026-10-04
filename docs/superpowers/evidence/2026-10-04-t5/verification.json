@@ -1,0 +1,118 @@
+{
+  "date": "2026-10-04",
+  "base": "3c6240ecfcae3e458da1d3969ffeb07fc6c1eacd",
+  "branch": "feature/jit-hls-optimization",
+  "scope": "T5 bililive-go-UI",
+  "checks": [
+    {
+      "command": "make dev",
+      "exit_code": 0,
+      "log": "final-dev.log",
+      "sha256": "ac4aa3a4622815cca4952af3f4d48dd3d5b7e52cdd54f6012aaadd706b2e086a"
+    },
+    {
+      "command": "make build-web dev",
+      "exit_code": 0,
+      "log": "final-build-web-dev.log",
+      "sha256": "0997a8dbcbf91a5f6a8ced5cc6031d99e288c4e9839d5953f1ec868acea27c02"
+    },
+    {
+      "command": "PATH=/tmp/bilive-tools:$PATH make lint",
+      "exit_code": 0,
+      "log": "final-lint.log",
+      "sha256": "1674f0395412c5ebd62145135fa39c6ced638c6c863d2b7dd50290139c31822c"
+    },
+    {
+      "command": "make test",
+      "exit_code": 0,
+      "log": "final-test.log",
+      "sha256": "f5061ae07d506da406a9e3f484ada7f3e0acbb40510cb1980827cdd51f081d67"
+    },
+    {
+      "command": "go test -race -tags=dev ./src/pkg/playbackdecision ./src/pkg/recordingcatalog ./src/pipeline/... ./src/servers",
+      "exit_code": 0,
+      "log": "final-race.log",
+      "sha256": "af3a5789c7685282f73c0902fee0761b69996113b8f139d6aa5d0671b62531d1"
+    },
+    {
+      "command": "make dev PLATFORM=windows ARCH=amd64",
+      "exit_code": 0,
+      "log": "final-windows-build.log",
+      "sha256": "9cc41e4da12c66e07f1ed68025ffd1e475280757077b8d491dd0d709266f0c0d"
+    },
+    {
+      "command": "make dev PLATFORM=linux ARCH=amd64",
+      "exit_code": 0,
+      "log": "final-linux-build.log",
+      "sha256": "1df591235ed71debf7ab3b5e0834dc0b17499f03620502d19157ec9164b2a5de"
+    }
+  ],
+  "source_sha256": {
+    "src/pipeline/preparation_read.go": "e17336e845c96db068f150150d368ec79ab155e5cdb85fdf4719f692e79eaf78",
+    "src/pipeline/preparation_read_test.go": "2c95efa439d5b5a1a0f0875b280a1e61105e51e619664557d6f11be69aa479c7",
+    "src/pkg/playbackdecision/decision.go": "95c6271d8420815c6b41438ee53ad7ad06ccf34ac8fa84aaff0fc44c5b454fe7",
+    "src/pkg/playbackdecision/decision_test.go": "8ec322dc7dde66fffd8dd9dbd4272a976d59998039207b504965b0ff6d5a93a4",
+    "src/pkg/recordingcatalog/delete.go": "ca3efe3ab8598696f705ed6fcecd65bf99ee520671e91bded54a848099287b0b",
+    "src/pkg/recordingcatalog/delete_pinned_other.go": "8e497945d7e3faf9fd5e0ce1129fbd3163493e73f3b487e8069af0ddadffca1b",
+    "src/pkg/recordingcatalog/delete_pinned_unix.go": "5c89018a8a94e8c7eaf38c3f8e97294bcd7be6208c2bb6984597aac9f9280bbf",
+    "src/pkg/recordingcatalog/delete_pinned_windows.go": "a7b604c61c87fe2bc0acca84b42c6f48174ae39204cf2d5752d02962e42602fb",
+    "src/pkg/recordingcatalog/delete_race_test.go": "e307ef2b754a3d178a95c95294c9a525f5bfbe2ab2a9dcd4fb7a9b4d42106402",
+    "src/pkg/recordingcatalog/delete_test.go": "47312cf97064d83e9aedeff51ab3c0b3986c0b74247138b031b829cbb1c7bca8",
+    "src/pkg/recordingcatalog/identity_handle_linux.go": "b730b91183ee5ca3edf7f46005cff1604e059310a5edb37fe89b5555a5f379ec",
+    "src/pkg/recordingcatalog/identity_handle_unix.go": "cc847748eb447bb774cd655d83b2ede1062fb06e973219c3f519def90b286ffa",
+    "src/pkg/recordingcatalog/identity_handle_windows.go": "9b4c714f705ac1d70c3ce864a1ea3d0809f7be530c5a98da7d983268eac6bc1b",
+    "src/pkg/recordingcatalog/playback.go": "81f4b36658530d8b79fd54e1ace67db7ccfeebbfb0e96fdc83ae83a790db5b68",
+    "src/pkg/recordingcatalog/playback_test.go": "3af3f2eb52ef802334917cd08ca6b697cf2d3ec0b4e1f90b72dff7ab2ce9c526",
+    "src/pkg/recordingcatalog/preparation.go": "0d01b945934f377ca6ac30a71960c27a2bebbb3908f8077d2bc422049d17fe9d",
+    "src/pkg/recordingcatalog/scan.go": "c7af5975289c72a38bdc7069a1e94e3c18714bb28dd9b3a581151981d98405ee",
+    "src/servers/handler.go": "952228bd39846510b0ecca2772962af02bacdd8d53c936026efe8372e9e215f8",
+    "src/servers/media_container.go": "93b72349e088fe2fdd4d1b5c7a258b942e8b9c0d38dd3eea646899564aeec6cb",
+    "src/servers/media_probe.go": "bf2a39a1ccd1ea294e15aa25a760dffc283b6cc15b0b1c0dd7f4170945504549",
+    "src/servers/media_probe_cache.go": "6eefe6c6af9ac7cd38264cb5d7e17931236466a48a56320d42fee66eaa3b32da",
+    "src/servers/media_probe_cache_test.go": "78c9bca7b08e04fd21f16539fd84ddea78bb1d905b2020134039e433ba4001d0",
+    "src/servers/playback_resolver.go": "3b8423f1aec0fa04d99de1b459cba7b7fcf2df957edfbe0028d446f26748bd33",
+    "src/servers/server.go": "b6ac83ad3736f6a1f8bc3ac449c44ebd9c07c687a0b10685221d53d84f49e11a",
+    "src/servers/v2_contract_test.go": "fa5c18f335ad95169fdb6076f74f44c074bff23de7f977b6e7b5021d8ce86b4e",
+    "src/servers/v2_delete_test.go": "27e38841e41d8e055a6f4367dad40d271c258e70a4dddc249a1bef751f28c729",
+    "src/servers/v2_dto.go": "3050c00cc0d025bf420da343316dead0b2855b4bca29a18cdefde6ca97ed3818",
+    "src/servers/v2_legacy.go": "ecbbf3d8048329613a25726e5995a66dd26517b83887a61d6219fd394341154d",
+    "src/servers/v2_media.go": "001a6846f6a25a1844e25eebc8e319455a2c13fe140557657443724231efb604",
+    "src/servers/v2_recordings.go": "b039dec7b6e6bf1e6e24ca6bc656db27983695a5e6c43b52d913c503e87ab66e",
+    "src/servers/v2_review_regression_test.go": "f902da5dd9b91604f09f257ae5aa3c49047173c6771597841f913136f9ce90b3",
+    "src/servers/v2_security_test.go": "6e87d053ed8ea06f51b949514abd91873e444360217b7c5920366bed02bfe022",
+    "src/servers/v2_selection.go": "d3ae01cb9572c036d819f7ac31f532502b85f12c7354e3e5acbb40cf989a4976",
+    "src/servers/v2_sessions.go": "0671c0dffbd5d672ae915dc29ac37ab8e18d862f58b1976f7fb274ff96c98bec",
+    "src/servers/v2_sessions_test.go": "58bf63b24130f0eb790a6b01e5623ba293ed77f058fca96fdc1ba7d7e2da776c"
+  },
+  "contract_sha256": {
+    "docs/contracts/examples/v2-batch-delete.json": "c8d80d4c807dc83ef86d681411bb10dba994e344a753412edb2273f1cf04c4d0",
+    "docs/contracts/examples/v2-batch-partial.json": "ed451a0a11a31b8ca866b839c86759d2d6bfe0cb1dc464c43dd50b13cea8d22d",
+    "docs/contracts/examples/v2-create-session.json": "ace8530e8e3b2fee45546a943245db0f51c21a687b515f31f7221f65961c4082",
+    "docs/contracts/examples/v2-recordings.json": "00fb9d053b0243bafd835aa0980f83e45fa12367e98e9e46f9699ef7071d3853",
+    "docs/contracts/examples/v2-session-cancelled.json": "386bd22fa16c4ec5049e013e9bd83de95ffb8cc6911f74a08d873925acd15406",
+    "docs/contracts/examples/v2-session-expired.json": "97c4392cfd289ade23bab16650f061c97e7c9f3d9c0efe34426f2d9ef20969fb",
+    "docs/contracts/examples/v2-session-failed.json": "2368b95946f38e700b70f36777b41f380e0bdfa8c7567116a0d3630269667741",
+    "docs/contracts/examples/v2-session-paused.json": "a1ab2318fbf1a26871b30be4d08ac379c71baa702c5f50e94534cf388f931211",
+    "docs/contracts/examples/v2-session-processing.json": "35894adc09754656c91d7e78539b90293678ff9fb102c72830f2d92e699c5fa5",
+    "docs/contracts/examples/v2-session-ready.json": "9a3ac64255720842b555a2e570f13feebb171924fac9ca2f4e24d84b55496206",
+    "docs/contracts/examples/v2-unauthorized.json": "04e600220ba26258568b5a447dfbd44c7fd7dbc41dab57e1e2e86fcd5b41c76a",
+    "docs/contracts/openapi-v2.yaml": "9b97bffb217c760fe3af8b8bc8ef03f735b7fa2d7e6bf3d5c803dd26083f5c6b",
+    "docs/contracts/v2-playback.md": "b78b12f2d25f596cce8bd9d4af5787f1878cce7121754fbe72ea7c20d0639ab9"
+  },
+  "review": {
+    "model": "gpt-6-astra",
+    "independent_reviews": 1,
+    "fix_passes": 1,
+    "original": "C1,I1,I2,I3; M1/M2 promoted Important",
+    "all_fixed": true,
+    "deferred_minors": []
+  },
+  "pending": [
+    "鸿蒙/iOS设备消费与真机验收",
+    "Windows/Linux真实运行及句柄删除验证",
+    "生产长样本与容量",
+    "T3 HDR正向验收",
+    "Unix隔离捕获中崩溃需人工恢复，无新的批删恢复日志"
+  ],
+  "note": "退出码由本轮工具输出确认。构建内嵌HEAD为提交前基线，源码指纹绑定实际受测修改。其他平台v2安全批删失败保源。"
+}

@@ -24,6 +24,10 @@ type playbackResolveResponse struct {
 }
 
 func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("session_id") != "" {
+		resolveV2LegacySession(writer, r)
+		return
+	}
 	cfg := configs.GetCurrentConfig()
 	if cfg == nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{ErrNo: http.StatusInternalServerError, ErrMsg: "配置未加载"})

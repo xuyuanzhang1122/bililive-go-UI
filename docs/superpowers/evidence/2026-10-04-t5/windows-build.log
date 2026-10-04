@@ -1,0 +1,2 @@
+building bililive-go (Platform: windows, Arch: amd64, GoVersion: go1.27.1, Tags: dev)
+time=2026-10-04 16:07:42 level=info msg=/opt/homebrew/Cellar/go/1.27.1/libexec/bin/go build -tags dev -gcflags=all=-N -l -o bin/bililive-windows-amd64.exe -ldflags=-X github.com/bililive-go/bililive-go/src/consts.BuildTime=1791101262 -X github.com/bililive-go/bililive-go/src/consts.AppVersion=v2.1.2-rc.1-7-g3c6240e -X github.com/bililive-go/bililive-go/src/consts.GitHash=3c6240ecfcae3e458da1d3969ffeb07fc6c1eacd ./src/cmd/bililive

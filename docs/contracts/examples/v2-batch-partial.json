@@ -1,0 +1,21 @@
+{
+  "schema": "BatchEnvelope",
+  "value": {
+    "data": {
+      "items": [
+        {
+          "recording_id": "00000000-0000-4000-8000-000000000001",
+          "status": "failed",
+          "deleted_files": 0,
+          "error": {
+            "code": "source_changed",
+            "message": "来源版本变化",
+            "retryable": false
+          }
+        }
+      ]
+    },
+    "error": null,
+    "request_id": "example-batch"
+  }
+}

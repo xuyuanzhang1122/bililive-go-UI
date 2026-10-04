@@ -1,0 +1,25 @@
+--- FAIL: TestV2SessionFollowsVerifiedSourceRenameWithoutChangingAsset (0.17s)
+    v2_sessions_test.go:254: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_sessions_test.go:254
+        	Error:      	Not equal: 
+        	            	expected: "ready"
+        	            	actual  : "failed"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-ready
+        	            	+failed
+        	Test:       	TestV2SessionFollowsVerifiedSourceRenameWithoutChangingAsset
+--- FAIL: TestV2LegacySessionAdapterPreservesExistingEnvelopeAndPolling (0.08s)
+    v2_sessions_test.go:263: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/v2_sessions_test.go:263
+        	Error:      	Not equal: 
+        	            	expected: 200
+        	            	actual  : 404
+        	Test:       	TestV2LegacySessionAdapterPreservesExistingEnvelopeAndPolling
+        	Messages:   	{"err_no":404,"err_msg":"stat /var/folders/yz/52z5640s02gbk2ylqwpz6v3c0000gn/T/TestV2LegacySessionAdapterPreservesExistingEnvelopeAndPolling1512281354/001/legacy.mp4: no such file or directory","data":null}
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	1.483s
+FAIL

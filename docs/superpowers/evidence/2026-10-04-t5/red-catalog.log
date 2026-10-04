@@ -1,0 +1,14 @@
+# github.com/bililive-go/bililive-go/src/pkg/recordingcatalog [github.com/bililive-go/bililive-go/src/pkg/recordingcatalog.test]
+src/pkg/recordingcatalog/playback_test.go:24:17: m.ListRecordings undefined (type *Manager has no field or method ListRecordings)
+src/pkg/recordingcatalog/playback_test.go:29:18: m.PlaybackFiles undefined (type *Manager has no field or method PlaybackFiles)
+src/pkg/recordingcatalog/playback_test.go:32:23: m.VerifyPlaybackFile undefined (type *Manager has no field or method VerifyPlaybackFile)
+src/pkg/recordingcatalog/playback_test.go:36:21: m.VerifyPlaybackFile undefined (type *Manager has no field or method VerifyPlaybackFile)
+src/pkg/recordingcatalog/playback_test.go:38:19: m.PlaybackRecording undefined (type *Manager has no field or method PlaybackRecording)
+src/pkg/recordingcatalog/playback_test.go:41:17: m.PlaybackFiles undefined (type *Manager has no field or method PlaybackFiles)
+src/pkg/recordingcatalog/playback_test.go:45:23: m.VerifyPlaybackFile undefined (type *Manager has no field or method VerifyPlaybackFile)
+src/pkg/recordingcatalog/playback_test.go:47:23: m.VerifyPlaybackFile undefined (type *Manager has no field or method VerifyPlaybackFile)
+src/pkg/recordingcatalog/playback_test.go:50:21: m.VerifyPlaybackFile undefined (type *Manager has no field or method VerifyPlaybackFile)
+src/pkg/recordingcatalog/playback_test.go:52:13: m.PlaybackFiles undefined (type *Manager has no field or method PlaybackFiles)
+src/pkg/recordingcatalog/playback_test.go:52:13: too many errors
+FAIL	github.com/bililive-go/bililive-go/src/pkg/recordingcatalog [build failed]
+FAIL

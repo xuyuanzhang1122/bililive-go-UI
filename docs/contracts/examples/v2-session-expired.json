@@ -1,0 +1,12 @@
+{
+  "schema": "ErrorEnvelope",
+  "value": {
+    "data": null,
+    "error": {
+      "code": "session_expired",
+      "message": "播放会话已过期，请重新创建",
+      "retryable": false
+    },
+    "request_id": "example-expired"
+  }
+}

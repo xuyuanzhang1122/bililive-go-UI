@@ -1,0 +1,49 @@
+go run build.go build-web
+已生成 src/webapp/src/utils/generated-api.ts，共 93 个 API 方法
+time=2026-10-04 16:05:39 level=info msg=/Users/xumy/.local/share/fnm/node-versions/v24.18.1/installation/bin/yarn install
+yarn install v1.22.22
+(node:31862) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[1/5] Validating package.json...
+[2/5] Resolving packages...
+success Already up-to-date.
+Done in 0.39s.
+time=2026-10-04 16:05:40 level=info msg=/Users/xumy/.local/share/fnm/node-versions/v24.18.1/installation/bin/yarn build
+yarn run v1.22.22
+(node:31884) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ cross-env CI=true react-scripts build
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+(node:31976) [DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Creating an optimized production build...
+Browserslist: browsers data (caniuse-lite) is 13 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+Browserslist: browsers data (caniuse-lite) is 13 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+Compiled successfully.
+
+File sizes after gzip:
+
+  691.59 kB  build/static/js/main.2ea397f8.js
+  5.95 kB    build/static/css/main.47f07a45.css
+
+The bundle size is significantly larger than recommended.
+Consider reducing it with code splitting: https://goo.gl/9VhYWB
+You can also analyze the project dependencies: https://goo.gl/LeUzfb
+
+The project was built assuming it is hosted at ./.
+You can control this with the homepage field in your package.json.
+
+The build folder is ready to be deployed.
+
+Find out more about deployment here:
+
+  https://cra.link/deployment
+
+Done in 16.84s.
+building bililive-go (Platform: darwin, Arch: arm64, GoVersion: go1.27.1, Tags: dev)
+time=2026-10-04 16:05:57 level=info msg=/opt/homebrew/Cellar/go/1.27.1/libexec/bin/go build -tags dev -gcflags=all=-N -l -o bin/bililive-darwin-arm64 -ldflags=-X github.com/bililive-go/bililive-go/src/consts.BuildTime=1791101157 -X github.com/bililive-go/bililive-go/src/consts.AppVersion=v2.1.2-rc.1-7-g3c6240e -X github.com/bililive-go/bililive-go/src/consts.GitHash=3c6240ecfcae3e458da1d3969ffeb07fc6c1eacd ./src/cmd/bililive
