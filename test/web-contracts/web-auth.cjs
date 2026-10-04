@@ -1,0 +1,10 @@
+require('./setup.cjs');const assert=require('assert/strict');
+global.window=Object.assign(new EventTarget(),{location:{origin:'https://local.test'}});
+const values=new Map();global.localStorage={getItem:k=>values.get(k)||'',setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
+(async()=>{const {initializeWebAuth}=require('../../src/webapp/src/utils/common.ts');let calls=0;
+ global.fetch=async (url,init)=>{calls++;assert.equal(new URL(url).origin,'https://local.test');assert.equal(init.redirect,'error');return Response.json({enable_api_key:true,api_key:'compatibility-key'})};
+ await initializeWebAuth();assert.equal(values.get('bililive_api_key'),'compatibility-key');
+ values.set('bililive_api_key','individual-user-key');await initializeWebAuth();assert.equal(calls,1);assert.equal(values.get('bililive_api_key'),'individual-user-key','已有用户凭据不能被兼容身份覆盖');
+ values.clear();global.fetch=async()=>{values.set('bililive_api_key','new-user-key');return Response.json({enable_api_key:true,api_key:'compatibility-key'})};await initializeWebAuth();assert.equal(values.get('bililive_api_key'),'new-user-key');
+ console.log('PASS: Web 首次同源认证初始化、既有用户保留与晚到隔离');
+})().catch(e=>{console.error(e);process.exitCode=1});

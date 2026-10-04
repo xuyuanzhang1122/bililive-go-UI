@@ -20,6 +20,20 @@ export function setAPIKey(value: string): void {
     }
 }
 
+// 首次打开同源管理页时初始化已有兼容身份，不能覆盖用户选择的 Key。
+export async function initializeWebAuth(): Promise<void> {
+    if (getAPIKey()) return;
+    const response = await fetch(new URL('/api/auth-status', window.location.origin).toString(), {
+        credentials: 'same-origin', redirect: 'error', cache: 'no-store'
+    });
+    if (response.status === 404 || response.status === 405) return;
+    if (!response.ok) throw new Error(`认证初始化失败（${response.status}）`);
+    const status = await response.json();
+    if (status.enable_api_key && typeof status.api_key === 'string' && status.api_key && !getAPIKey()) {
+        setAPIKey(status.api_key);
+    }
+}
+
 function customFetch(arg1: Parameters<typeof fetch>[0], ...args: any[]) {
     const init = (args[0] || {}) as RequestInit;
     args[0] = authenticatedInit(arg1, init);

@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Alert, Spin } from 'antd';
+import { initializeWebAuth } from './utils/common';
 import './App.css';
 import { Routes, Route } from 'react-router-dom';
 import RootLayout from './component/layout/index';
@@ -13,6 +15,17 @@ import VideoLibrary from './component/video-library/index';
 import HistoryPage from './component/history-page/index';
 
 const App: React.FC = () => {
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState('');
+  useEffect(() => {
+    let active = true;
+    initializeWebAuth().then(() => { if (active) setAuthReady(true); })
+      .catch(error => { if (active) setAuthError(error instanceof Error ? error.message : '认证初始化失败'); });
+    return () => { active = false; };
+  }, []);
+  if (authError) return <Alert type="error" message={authError} description="请检查服务端连接后刷新页面。" />;
+  if (!authReady) return <Spin tip="正在初始化认证"><div style={{ minHeight: 160 }} /></Spin>;
+
   return (
     <>
       <RootLayout>
