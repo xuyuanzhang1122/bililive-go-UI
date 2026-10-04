@@ -140,6 +140,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/playback/resolve/{path:.*}", resolvePlayback).Methods("GET")
 	apiRoute.HandleFunc("/video-files/{path:.*}", getVideoFiles).Methods("GET")
 	apiRoute.HandleFunc("/stream/hls-segment/{cache_key}/{segment}", getHLSSegment).Methods("GET")
+	apiRoute.HandleFunc("/stream/hls-asset/{recording_id}/{asset_version}/{file}", getPersistentHLSFile).Methods("GET","HEAD")
 	apiRoute.HandleFunc("/stream/hls/{path:.*}", getHLSPlaylist).Methods("GET")
 	apiRoute.HandleFunc("/tools/headless-browser/probe", probeHeadlessBrowser).Methods("POST")
 	// 远程 WebUI 路由

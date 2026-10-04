@@ -64,6 +64,7 @@ func DecorateConfigNode(node *yaml.Node) {
 
 	finishNode := findNode(root, "on_record_finished")
 	if finishNode != nil {
+		setFieldComment(finishNode, "prepare_hls_profiles", "# 持久 HLS 档位，仅允许 source/720p/1080p，默认空；显式配置后先准备兼容播放资产，保源且禁止上传后删除。不能与自定义命令同用。", "")
 		setFieldComment(finishNode, "prepare_playback", "# 显式启用新录播自动准备；默认关闭。替代 fix_flv_at_first/convert_to_mp4，保留来源并禁止上传后删除。不能与 custom_commandline 同用。", "")
 		setFieldComment(finishNode, "custom_commandline",
 			`#  当 custom_commandline 的值 不为空时，convert_to_mp4 的值会被无视，

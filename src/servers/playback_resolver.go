@@ -34,6 +34,9 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "缺少视频路径"})
 		return
 	}
+	if r.URL.Query().Get("hls_profile") != "" && resolvePersistentHLS(writer, r, cfg, relPath) {
+		return
+	}
 
 	// 保持原录播 relPath 身份，同时把播放地址指向已准备的产物。
 	if target, original, ok := preparedPlayback(cfg, relPath); ok {
@@ -60,7 +63,7 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isCurrentRecordingFile(r.Context(), cfg.OutPutPath, sourcePath) {
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "recording", Error: "文件正在录制中", RetryAfter: 10}})
+		writePlaybackResponse(writer, playbackResolveResponse{Status: "recording", Error: "文件正在录制中", RetryAfter: 10})
 		return
 	}
 
@@ -77,6 +80,9 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	cacheKey := hlsCacheKey(resolvedPath, sourceInfo)
+	if resolvePersistentHLS(writer, r, cfg, resolvedPath) {
+		return
+	}
 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
 
@@ -100,19 +106,30 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 
 	case hlsJobFailed, hlsJobPartial:
 		// 失败
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "failed", Error: errMsg, RetryAfter: globalHLSJobManager.RetryAfter(job)}})
+		writePlaybackResponse(writer, playbackResolveResponse{Status: "failed", Error: errMsg, RetryAfter: globalHLSJobManager.RetryAfter(job)})
 		return
 
 	case hlsJobQueued, hlsJobStarting:
 		// 处理中
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
+		writePlaybackResponse(writer, playbackResolveResponse{Status: "processing", RetryAfter: 2})
 		return
 
 	default:
 		// 未知状态
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
+		writePlaybackResponse(writer, playbackResolveResponse{Status: "processing", RetryAfter: 2})
 		return
 	}
+}
+
+func writePlaybackResponse(w http.ResponseWriter, data playbackResolveResponse) {
+	if data.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(data.RetryAfter))
+	}
+	if strings.Contains(data.Error, "队列已满") || strings.Contains(data.Error, "任务记录已满") {
+		writeJsonWithStatusCode(w, http.StatusTooManyRequests, commonResp{ErrNo: 0, Data: data})
+		return
+	}
+	writeJSON(w, commonResp{ErrNo: 0, Data: data})
 }
 
 func playbackURLExpiresAt(urlValue string) int64 {

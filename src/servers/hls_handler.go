@@ -48,6 +48,9 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 		http.Error(writer, "缺少视频路径", http.StatusBadRequest)
 		return
 	}
+	if tryPersistentHLS(writer, r, cfg, relPath) {
+		return
+	}
 
 	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, relPath)
 	var existing *hlsJob
@@ -84,13 +87,19 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	snapshot, err := globalHLSJobManager.WaitPlayable(ctx, job)
 	if err != nil {
+		writer.Header().Set("Retry-After", "2")
 		http.Error(writer, fmt.Sprintf("HLS 转换失败: %v", err), http.StatusServiceUnavailable)
 		return
 	}
 
 	// 检查任务状态
 	if snapshot.status == hlsJobFailed || snapshot.status == hlsJobPartial {
-		http.Error(writer, fmt.Sprintf("HLS 转换失败: %s", snapshot.errMsg), http.StatusServiceUnavailable)
+		writer.Header().Set("Retry-After", strconv.Itoa(globalHLSJobManager.RetryAfter(job)))
+		status := http.StatusServiceUnavailable
+		if strings.Contains(snapshot.errMsg, "队列已满") || strings.Contains(snapshot.errMsg, "任务记录已满") {
+			status = http.StatusTooManyRequests
+		}
+		http.Error(writer, fmt.Sprintf("HLS 转换失败: %s", snapshot.errMsg), status)
 		return
 	}
 
@@ -142,14 +151,34 @@ func getHLSSegment(writer http.ResponseWriter, r *http.Request) {
 	segmentPath := filepath.Join(cacheDir, segment)
 	release, ok := globalHLSJobManager.acquireRead(cacheKey, nil)
 	if !ok {
+		writer.Header().Set("Retry-After", "2")
 		http.Error(writer, "缓存尚未就绪或已失效", http.StatusServiceUnavailable)
 		return
 	}
 	defer release()
+	file, err := waitHLSSegment(r.Context(), globalHLSJobManager.GetJob(cacheKey), segmentPath)
+	if err != nil {
+		if r.Context().Err() != nil {
+			return
+		}
+		if os.IsNotExist(err) {
+			http.NotFound(writer, r)
+			return
+		}
+		writer.Header().Set("Retry-After", "2")
+		http.Error(writer, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(writer, "读取 HLS 分片失败", http.StatusInternalServerError)
+		return
+	}
 	touchHLSCacheDir(cacheDir)
 	writer.Header().Set("Content-Type", "video/MP2T")
 	writer.Header().Set("Cache-Control", "public, max-age=86400")
-	http.ServeFile(writer, r, segmentPath)
+	http.ServeContent(writer, r, segment, info.ModTime(), file)
 }
 
 func isPlaylistComplete(path string) bool {

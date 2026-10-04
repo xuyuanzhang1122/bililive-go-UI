@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-04",
+  "base": "3cd117e846d89541dfd1b339769cc2a086997318",
+  "branch": "feature/jit-hls-optimization",
+  "scope": "T4 bililive-go-UI",
+  "checks": [
+    {
+      "command": "make build-web dev",
+      "exit_code": 0,
+      "log": "final-build-web-dev.log",
+      "sha256": "afcd349eeb1942619984b67477762196db078d85d434322426276b88c0b8a16b"
+    },
+    {
+      "command": "PATH=/tmp/bilive-tools:$PATH make lint",
+      "exit_code": 0,
+      "log": "final-lint.log",
+      "sha256": "1674f0395412c5ebd62145135fa39c6ced638c6c863d2b7dd50290139c31822c"
+    },
+    {
+      "command": "make test",
+      "exit_code": 0,
+      "log": "final-test.log",
+      "sha256": "43a5c8ddd1745fba4386f4ea448b4d809393d77da99c5a2df6ed5fc0e2f64d6c"
+    },
+    {
+      "command": "go test -race -tags=dev ./src/pipeline/... ./src/pkg/hlsasset ./src/pkg/recordingcatalog ./src/servers",
+      "exit_code": 0,
+      "log": "final-race.log",
+      "sha256": "42af23d2f25e6ac1a9d00bf45b39fa39411894d12df1ef3ea43ce20a4a1142eb"
+    },
+    {
+      "command": "make dev PLATFORM=windows ARCH=amd64",
+      "exit_code": 0,
+      "log": "windows-build.log",
+      "sha256": "dd46769462e798c88a25a045b289c85841e2239c88b0afe293732db258f79b05"
+    },
+    {
+      "command": "make dev PLATFORM=linux ARCH=amd64",
+      "exit_code": 0,
+      "log": "linux-build.log",
+      "sha256": "199f0f8e85fc20f899588f452941e6bd3e30d99666725cd1d267b67f4107aac2"
+    }
+  ],
+  "source_sha256": {
+    "src/configs/config.go": "a8b9d8b168352fe78c693fc0bcdf8dbc491c1fe30318d80d910b40ceba4096df",
+    "src/configs/config_comments.go": "8d2189edb04880cfa7a5b1b9988137fe8bb560f89f6120350162a9bf6b5b4efc",
+    "src/configs/prepare_hls_test.go": "9feb8c215fa509e200851ee980da011ba0c0c39ea815164133bff9c937a0ea86",
+    "src/pipeline/config.go": "67d1ac4675b3b8bfc4347544ddc8a31ba4a9433c75eafc7d6ea4071eaedf53f6",
+    "src/pipeline/config_hls_test.go": "28ecbc5c28aa8dcb43d161b4a39b3ae4d5eba895cf838111e3e52a185fde2473",
+    "src/pipeline/manager.go": "c6706e67a05d30be1349655a9f187bbdfa03c40bdad5602241815d3da12b4d89",
+    "src/pipeline/stages/prepare_hls.go": "de8bb8d4236f86b8a9d27ff337c6f815c76fc8d781e2d128de644684c1f8fdca",
+    "src/pipeline/stages/prepare_hls_regression_test.go": "bbde65c53b6b937b46effaace04e60c80a1745d6f59aa355fe79235fd842f2d8",
+    "src/pipeline/stages/prepare_hls_test.go": "97a0320d8fe1e6beaa901c019c430176d40f7eaa7f1968e716e051c6758773e7",
+    "src/pipeline/stages/register.go": "1622d0b7086d8165878ec5414eeb470ccc6890a7f81f0c47c9d6f868fb9e4655",
+    "src/pkg/hlsasset/build.go": "0b1ba0790b6ad02571ce809691a504318b2c707c33bca6823390ecc9698786b0",
+    "src/pkg/hlsasset/manifest.go": "c7410a78b814bf52c6a1953bec49fc64c10408ef6f062ce8a33cdbd056d6a1cc",
+    "src/pkg/hlsasset/manifest_test.go": "a8df7f981925211d8755f5fb32c18b989087a3b05cca4fac4d9b85e45b9bd7fa",
+    "src/pkg/hlsasset/publish.go": "b774827068e0213b360b4036e529fb03c10e5d4fd405e8c17bffdd277c4b6b02",
+    "src/pkg/migration/config_prepare_hls.go": "3369f6f58fbd32c4cff297024a5016807f3bfe0b4be07ee835a49fcaa85e3d02",
+    "src/pkg/playbackasset/sync.go": "44f420dd914695e8fbae273f9c00469b211e6bcfbc580566c2588f9a3660a5f3",
+    "src/pkg/recordingcatalog/hls.go": "b8257d1b3da187f1d440a0b66f870ba5ff52bdba9145cbbf18b03e075e97863e",
+    "src/pkg/recordingcatalog/hls_test.go": "1427f2f7049c7da43dd3567f8622a7fa85288aca2cb89c59f14eeb6f6d12245e",
+    "src/recorders/recorder.go": "603d580233ee6c662bb0a0486d8e990e6f2956aae6417c8c4e69c434ea04d8f7",
+    "src/servers/auth.go": "38184c45b8cdf434765ca1e882d92b940c1028e9d35b6023e35921912936d029",
+    "src/servers/hls_handler.go": "2baa90eeaa68faf46d153d05c4a6014212a4b1fd2652eb9b52ad6d6af7b5e58c",
+    "src/servers/hls_persistent.go": "3849e9e3479ac6500d7f63f800c0c4f537d74022d72097aa699333fd761dfbcf",
+    "src/servers/hls_persistent_regression_test.go": "2c2c896c11a3307f6eec886375d2724dd40b41219777edffe3c5fd22faed75c1",
+    "src/servers/hls_persistent_test.go": "00be9f4efa3074b20335212a2240a5bf54dd17db2a7746d8194aa42ac8b28a0e",
+    "src/servers/hls_segment_wait.go": "d9c337d604470fc83bae23c9d4fd5d2a5b44ab9eaa4a850521e0c6979087f670",
+    "src/servers/playback_resolver.go": "19292b3610816be2db469ebf804f5a1dedd19ea731d12ba271dc15374323d823",
+    "src/servers/server.go": "92b90eb7a0f193e703f3b75f2cf7a8828574f86cbb1c660a775ea16a0d158ded",
+    "src/webapp/src/component/pipeline-task-list/index.tsx": "c0b6ac43d449edc525343ebe4ed801d406957a5fb2ae56e6ef85ea18b9d27cd4",
+    "src/webapp/src/utils/generated-api.ts": "47ca9769a56192dd62ca3290634c7e0b7f1f5c9ac33d46709efc9f066461274f"
+  },
+  "pending": [
+    "真机播放",
+    "Windows/Linux 实际运行及断电恢复",
+    "生产长样本容量",
+    "FIFO 公平性",
+    "T3 HDR 正向验收"
+  ],
+  "note": "退出码由主线程实际工具输出确认；构建内嵌 HEAD 是提交前基线，源码指纹覆盖受测 T4。"
+}

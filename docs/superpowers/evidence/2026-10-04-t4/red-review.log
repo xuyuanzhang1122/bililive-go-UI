@@ -1,0 +1,29 @@
+--- FAIL: TestPersistentHLSSourceRenameKeepsIdentityAndRejectsReplacement (0.03s)
+    hls_persistent_regression_test.go:21: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/servers/hls_persistent_regression_test.go:21
+        	Error:      	Received unexpected error:
+        	            	准备任务来源版本已变化
+        	Test:       	TestPersistentHLSSourceRenameKeepsIdentityAndRejectsReplacement
+        	Messages:   	同录播及源版本的 HLS 应跟随目录改名
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/servers	1.362s
+--- FAIL: TestPersistentHLSReuseAfterSourceRename (0.20s)
+    prepare_hls_regression_test.go:23: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/pipeline/stages/prepare_hls_regression_test.go:23
+        	Error:      	Received unexpected error:
+        	            	已完成持久 HLS 失效，拒绝复用或覆盖
+        	Test:       	TestPersistentHLSReuseAfterSourceRename
+--- FAIL: TestHLSRestartCleansOnlyOwnedUncommittedBuildsBeforeAdmission (0.08s)
+    prepare_hls_regression_test.go:51: 
+        	Error Trace:	/Users/xumy/Desktop/bilive/bililive-go-UI/src/pipeline/stages/prepare_hls_regression_test.go:51
+        	            				/Users/xumy/Desktop/bilive/bililive-go-UI/src/pipeline/stages/prepare_playback.go:43
+        	            				/Users/xumy/Desktop/bilive/bililive-go-UI/src/pipeline/stages/prepare_hls.go:178
+        	            				/Users/xumy/Desktop/bilive/bililive-go-UI/src/pipeline/stages/prepare_hls.go:65
+        	            				/Users/xumy/Desktop/bilive/bililive-go-UI/src/pipeline/stages/prepare_hls_regression_test.go:56
+        	            				/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/asm_arm64.s:1039
+        	Error:      	directory "/var/folders/yz/52z5640s02gbk2ylqwpz6v3c0000gn/T/TestHLSRestartCleansOnlyOwnedUncommittedBuildsBeforeAdmission2185747772/001/media-assets/9fd61ea9-afed-4c26-8d79-069907732fa3/516966de35fb77947e145b54397727050b61d8f451f66179e39bdff48a027bde-hls-source-v1/.hls-build-abandoned" exists
+        	Test:       	TestHLSRestartCleansOnlyOwnedUncommittedBuildsBeforeAdmission
+        	Messages:   	重启必须先释放本任务的未发布媒体
+FAIL
+FAIL	github.com/bililive-go/bililive-go/src/pipeline/stages	1.599s
+FAIL

@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 )
 
+// SyncDirectory 供集合资产复用主资产的目录持久化平台策略，path 是目录中的一个文件。
+func SyncDirectory(path string) error { return syncPublicationDir(path) }
+
 func syncPublicationParent(path string, flush bool) error {
 	dir, err := os.Open(filepath.Dir(path))
 	if err != nil {

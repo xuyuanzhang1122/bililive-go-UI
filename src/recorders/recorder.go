@@ -447,7 +447,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	// 使用层级配置的 OnRecordFinished
 	cmdStr := strings.Trim(resolvedConfig.OnRecordFinished.CustomCommandline, "")
-	if resolvedConfig.OnRecordFinished.PreparePlayback && cmdStr != "" {
+	if (resolvedConfig.OnRecordFinished.PreparePlayback || len(resolvedConfig.OnRecordFinished.PrepareHLSProfiles) > 0) && cmdStr != "" {
 		r.getLogger().Error("prepare_playback 与自定义命令不可同时启用，已保留源文件")
 		return
 	}

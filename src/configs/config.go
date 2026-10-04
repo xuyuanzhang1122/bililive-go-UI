@@ -135,6 +135,7 @@ type CloudUpload struct {
 
 // On record finished actions.
 type OnRecordFinished struct {
+	PrepareHLSProfiles    []string     `yaml:"prepare_hls_profiles" json:"prepare_hls_profiles"`
 	PreparePlayback       bool         `yaml:"prepare_playback" json:"prepare_playback"`
 	ConvertToMp4          bool         `yaml:"convert_to_mp4" json:"convert_to_mp4"`
 	DeleteFlvAfterConvert bool         `yaml:"delete_flv_after_convert" json:"delete_flv_after_convert"`
@@ -856,6 +857,9 @@ func (c *Config) Verify() error {
 	if c.HLSCache.ReadGraceSeconds < 0 {
 		return fmt.Errorf("HLS 读取保护时长不能小于 0")
 	}
+	if err := migration.ValidateHLSProfiles(c.OnRecordFinished.PrepareHLSProfiles); err != nil {
+		return err
+	}
 
 	// 验证平台配置
 	if err := c.ValidatePlatformConfigs(); err != nil {
@@ -929,6 +933,9 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 	}
 
 	if err := migration.ApplyPreparePlayback(b, &config.OnRecordFinished.PreparePlayback); err != nil {
+		return nil, err
+	}
+	if err := migration.ApplyPrepareHLS(b, &config.OnRecordFinished.PrepareHLSProfiles); err != nil {
 		return nil, err
 	}
 

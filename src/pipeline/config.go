@@ -8,6 +8,7 @@ import (
 const (
 	StageNameFixFlv          = "fix_flv"
 	StageNamePreparePlayback = "prepare_playback"
+	StageNamePrepareHLS      = "prepare_hls"
 	StageNameConvertMp4      = "convert_mp4"
 	StageNameExtractCover    = "extract_cover"
 	StageNameCloudUpload     = "cloud_upload"
@@ -54,20 +55,24 @@ func ConvertLegacyConfig(legacy *configs.OnRecordFinished) *PipelineConfig {
 	}
 
 	var stages []StageConfig
+	prepare := legacy.PreparePlayback || len(legacy.PrepareHLSProfiles) > 0
 
 	// 1. FLV 修复（在转换之前）
-	if legacy.PreparePlayback {
+	if prepare {
 		stages = append(stages, StageConfig{Name: StageNamePreparePlayback})
 	}
+	if len(legacy.PrepareHLSProfiles) > 0 {
+		stages = append(stages, StageConfig{Name: StageNamePrepareHLS, Options: map[string]any{"profiles": append([]string(nil), legacy.PrepareHLSProfiles...)}})
+	}
 
-	if legacy.FixFlvAtFirst && !legacy.PreparePlayback {
+	if legacy.FixFlvAtFirst && !prepare {
 		stages = append(stages, StageConfig{
 			Name: StageNameFixFlv,
 		})
 	}
 
 	// 2. MP4 转换
-	if legacy.ConvertToMp4 && !legacy.PreparePlayback {
+	if legacy.ConvertToMp4 && !prepare {
 		stages = append(stages, StageConfig{
 			Name: StageNameConvertMp4,
 			Options: map[string]any{
@@ -90,7 +95,7 @@ func ConvertLegacyConfig(legacy *configs.OnRecordFinished) *PipelineConfig {
 			Options: map[string]any{
 				OptionStorage:      legacy.CloudUpload.StorageName,
 				OptionPathTemplate: legacy.CloudUpload.UploadPathTmpl,
-				OptionDeleteAfter:  legacy.CloudUpload.DeleteAfterUpload && !legacy.PreparePlayback,
+				OptionDeleteAfter:  legacy.CloudUpload.DeleteAfterUpload && !prepare,
 			},
 		})
 	}

@@ -1,0 +1,82 @@
+time=2026-10-04 11:35:14 level=info msg=/opt/homebrew/Cellar/go/1.27.1/libexec/bin/go test -tags release --cover -coverprofile=coverage.txt ./src/...
+	github.com/bililive-go/bililive-go/src/cmd/bililive		coverage: 0.0% of statements
+?   	github.com/bililive-go/bililive-go/src/cmd/bililive/internal	[no test files]
+	github.com/bililive-go/bililive-go/src/cmd/bililive/internal/flag		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/cmd/build		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/configs	(cached)	coverage: 53.5% of statements
+	github.com/bililive-go/bililive-go/src/consts		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/instance	(cached)	coverage: 91.3% of statements
+?   	github.com/bililive-go/bililive-go/src/interfaces	[no test files]
+ok  	github.com/bililive-go/bililive-go/src/listeners	0.371s	coverage: 63.1% of statements
+	github.com/bililive-go/bililive-go/src/live		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/acfun		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/bilibili		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/cc		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/douyin		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/douyu		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/hongdoufm		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/huajiao		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/huya		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/internal		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/kuaishou		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/lang		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/missevan		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/mock		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/openrec		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/qq		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/system		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/twitch		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/weibolive		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/xiaohongshu		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/yizhibo		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/yy		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/live/zhanqi		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/livestate		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/log		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/metrics		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/notify	(cached)	coverage: 18.0% of statements
+	github.com/bililive-go/bililive-go/src/notify/email		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/notify/ntfy		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/notify/telegram		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pipeline	0.388s	coverage: 48.6% of statements
+ok  	github.com/bililive-go/bililive-go/src/pipeline/stages	10.482s	coverage: 52.6% of statements
+	github.com/bililive-go/bililive-go/src/pkg/counter		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/doctor		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/events	1.369s	coverage: 86.7% of statements
+	github.com/bililive-go/bililive-go/src/pkg/events/mock		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/flvproxy		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/hlsasset	0.627s	coverage: 72.8% of statements
+	github.com/bililive-go/bililive-go/src/pkg/iostats		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/ipc		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/kliveproxy		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/launcher		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/livelogger		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/mediawork	(cached)	coverage: 88.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/memstats		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/metadata		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/migration	(cached)	coverage: 30.0% of statements
+?   	github.com/bililive-go/bililive-go/src/pkg/migration/examples	[no test files]
+	github.com/bililive-go/bililive-go/src/pkg/openlist		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/parser		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/parser/bililive_recorder		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/parser/mock		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/parser/native/flv		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/playbackasset	(cached)	coverage: 70.6% of statements
+	github.com/bililive-go/bililive-go/src/pkg/proxy		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/ratelimit	(cached)	coverage: 37.9% of statements
+	github.com/bililive-go/bililive-go/src/pkg/reader		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/recordingcatalog	0.463s	coverage: 58.2% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/security	(cached)	coverage: 71.1% of statements
+	github.com/bililive-go/bililive-go/src/pkg/sentry		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/streamprobe		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/telemetry		coverage: 0.0% of statements
+	github.com/bililive-go/bililive-go/src/pkg/update		coverage: 0.0% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/urlresolver	(cached)	coverage: 17.7% of statements
+ok  	github.com/bililive-go/bililive-go/src/pkg/utils	(cached)	coverage: 17.9% of statements
+ok  	github.com/bililive-go/bililive-go/src/reconcile	(cached)	coverage: 84.7% of statements
+ok  	github.com/bililive-go/bililive-go/src/recorders	0.922s	coverage: 8.3% of statements
+ok  	github.com/bililive-go/bililive-go/src/servers	4.670s	coverage: 19.9% of statements
+ok  	github.com/bililive-go/bililive-go/src/tools	(cached)	coverage: 6.4% of statements
+?   	github.com/bililive-go/bililive-go/src/types	[no test files]
+	github.com/bililive-go/bililive-go/src/webapp		coverage: 0.0% of statements

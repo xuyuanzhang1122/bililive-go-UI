@@ -2,3 +2,4 @@
 # Markdown 双空格换行及原始补丁证据需保持原样。
 docs/**/*.md whitespace=-blank-at-eol
 docs/superpowers/evidence/**/*.patch -whitespace
+docs/superpowers/evidence/**/*.log -whitespace

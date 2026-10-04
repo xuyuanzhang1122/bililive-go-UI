@@ -291,7 +291,7 @@ func (m *Manager) broadcastTaskUpdate(task *PipelineTask) {
 func (m *Manager) EnqueueTask(task *PipelineTask) error {
 	if task.PipelineConfig != nil {
 		for _, stage := range task.PipelineConfig.Stages {
-			if stage.Name == StageNamePreparePlayback && stage.IsEnabled() {
+			if (stage.Name == StageNamePreparePlayback || stage.Name == StageNamePrepareHLS) && stage.IsEnabled() {
 				for i := range task.InitialFiles {
 					file := &task.InitialFiles[i]
 					if file.Type != FileTypeVideo {

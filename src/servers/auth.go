@@ -191,6 +191,7 @@ func canUseSignedURL(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/files/") ||
 		strings.HasPrefix(r.URL.Path, "/api/thumbnail/") ||
 		strings.HasPrefix(r.URL.Path, "/api/stream/hls/") ||
+		strings.HasPrefix(r.URL.Path, "/api/stream/hls-asset/") ||
 		strings.HasPrefix(r.URL.Path, "/api/stream/hls-segment/")
 }
 

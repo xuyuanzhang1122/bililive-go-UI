@@ -50,6 +50,8 @@ export const apiEndpoints = {
   getMemoryStats_get: { method: 'GET', path: '/api/memory', handler: 'getMemoryStats', params: [] },
   getMemoryStatsHistory_get: { method: 'GET', path: '/api/iostats/memory', handler: 'getMemoryStatsHistory', params: [] },
   getOpenListStatus_get: { method: 'GET', path: '/api/openlist/status', handler: 'getOpenListStatus', params: [] },
+  getPersistentHLSFile_get: { method: 'GET', path: '/api/stream/hls-asset/{recording_id}/{asset_version}/{file}', handler: 'getPersistentHLSFile', params: ['recording_id', 'asset_version', 'file'] },
+  getPersistentHLSFile_head: { method: 'HEAD', path: '/api/stream/hls-asset/{recording_id}/{asset_version}/{file}', handler: 'getPersistentHLSFile', params: ['recording_id', 'asset_version', 'file'] },
   getPlatformStats_get: { method: 'GET', path: '/api/config/platforms', handler: 'getPlatformStats', params: [] },
   getRawConfig_get: { method: 'GET', path: '/api/raw-config', handler: 'getRawConfig', params: [] },
   getRemoteWebuiStatus_get: { method: 'GET', path: '/api/webui/remote/status', handler: 'getRemoteWebuiStatus', params: [] },
