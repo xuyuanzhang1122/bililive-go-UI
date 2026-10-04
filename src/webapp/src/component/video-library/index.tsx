@@ -932,7 +932,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
                                     </Tooltip>
                                     <div className="file-meta">
                                         <span>{f.size_text || Utils.byteSizeToHumanReadableFileSize(f.size)}</span>
-                                        <span style={{ fontSize: 10 }}>{Utils.timestampToHumanReadable(f.mod_time)}</span>
+                                        <span style={{ fontSize: 10 }}>{f.mod_time > 0 ? Utils.timestampToHumanReadable(f.mod_time) : '时间未知'}</span>
                                     </div>
                                     {f.playback_status && f.playback_status !== 'ready' && (
                                         <Tag color={f.playback_status === 'recording' ? 'red' : 'orange'} style={{ marginTop: 6 }}>
