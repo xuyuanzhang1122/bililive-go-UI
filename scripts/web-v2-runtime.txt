@@ -1,0 +1,54 @@
+
+// 运行时也核验契约，防止未知状态被 TypeScript 断言掩盖。
+function validate(value: any, schema: any, path = 'response'): void {
+  if (value === null && schema.nullable) return;
+  if (schema.$ref) return validate(value, schemas[schema.$ref.split('/').pop()], path);
+  if (schema.allOf) { schema.allOf.forEach((s: any) => validate(value, s, path)); return; }
+  const invalid = () => { throw new Error(`v2 契约无效: ${path}`); };
+  if (schema.enum && !schema.enum.includes(value)) invalid();
+  if (schema.type === 'object') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
+    (schema.required || []).forEach((key: string) => { if (!(key in value)) invalid(); });
+    Object.entries(value).forEach(([key, v]) => {
+      if (schema.properties?.[key]) validate(v, schema.properties[key], `${path}.${key}`);
+      else if (schema.additionalProperties === false) invalid();
+    });
+  } else if (schema.type === 'array') {
+    if (!Array.isArray(value) || (schema.minItems !== undefined && value.length < schema.minItems) || (schema.maxItems !== undefined && value.length > schema.maxItems)) invalid();
+    value.forEach((v: any, i: number) => validate(v, schema.items, `${path}[${i}]`));
+  } else if (schema.type === 'integer' || schema.type === 'number') {
+    if (typeof value !== 'number' || !Number.isFinite(value) || (schema.type === 'integer' && !Number.isInteger(value)) || (schema.minimum !== undefined && value < schema.minimum) || (schema.maximum !== undefined && value > schema.maximum)) invalid();
+  } else if (schema.type === 'string') {
+    if (typeof value !== 'string' || (schema.minLength !== undefined && value.length < schema.minLength) || (schema.pattern && !new RegExp(schema.pattern).test(value))) invalid();
+  } else if (schema.type === 'boolean' && typeof value !== 'boolean') invalid();
+}
+export class V2HTTPError extends Error {
+  constructor(public status: number, public failure: Error, public requestId: string) { super(failure.message); }
+  get code(): string { return this.failure.code; }
+}
+export class MissingV2Endpoint extends Error {}
+export class V2Client {
+  constructor(private transport: typeof fetch = authFetch) {}
+/* GENERATED_METHODS */
+  private async request(method: string, template: string, schema: string, options: { params?: Record<string, string>; query?: Record<string, string | number>; body?: unknown }): Promise<any> {
+    let url = template.replace(/\{([^}]+)\}/g, (_, key: string) => {
+      if (!options.params?.[key]) throw new globalThis.Error(`缺少路径参数: ${key}`);
+      return encodeURIComponent(options.params[key]);
+    });
+    const query = new URLSearchParams();
+    Object.entries(options.query || {}).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)); });
+    if (query.toString()) url += `?${query}`;
+    const response = await this.transport(url, { method, redirect: 'error', headers: options.body ? { 'Content-Type': 'application/json' } : undefined, body: options.body ? JSON.stringify(options.body) : undefined });
+    const text = await response.text();
+    if ((response.status === 404 && text.trim() === '404 page not found') || response.status === 405) throw new MissingV2Endpoint('服务端未提供 v2');
+    let envelope: any;
+    try { envelope = JSON.parse(text); } catch { throw new globalThis.Error(`v2 契约无效: HTTP ${response.status}`); }
+    validate(envelope, schemas[response.ok ? schema : 'ErrorEnvelope']);
+    if (!response.ok || envelope.error) {
+      if (!envelope.error) throw new globalThis.Error('v2 契约无效: 缺少错误');
+      throw new V2HTTPError(response.status, envelope.error, envelope.request_id);
+    }
+    if (envelope.data === null) throw new globalThis.Error('v2 契约无效: 缺少 data');
+    return envelope;
+  }
+}

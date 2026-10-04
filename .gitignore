@@ -204,3 +204,6 @@ test/launcher-config-local.json
 
 # npm 锁文件（项目统一使用 yarn）
 package-lock.json
+
+.local-t8/
+.local-t9/

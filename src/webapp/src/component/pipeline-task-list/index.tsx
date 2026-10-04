@@ -12,6 +12,7 @@ import {
   ClearOutlined,
   StopOutlined
 } from '@ant-design/icons';
+import { subscribeSSE, unsubscribeSSE } from '../../utils/sse';
 import { authFetch } from '../../utils/common';
 import './index.css';
 
@@ -103,7 +104,7 @@ interface PipelineTaskListState {
 
 class PipelineTaskList extends Component<object, PipelineTaskListState> {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
-  private eventSource: EventSource | null = null;
+  private sseSubscription: string | null = null;
 
   constructor(props: object) {
     super(props);
@@ -128,45 +129,14 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
     }
-    if (this.eventSource) {
-      this.eventSource.close();
-    }
+    if (this.sseSubscription) unsubscribeSSE(this.sseSubscription);
   }
 
-  // 连接 SSE 事件源
+  // 与其他页面共用带 Bearer 的受控连接，卸载时释放订阅。
   connectSSE = () => {
-    try {
-      this.eventSource = new EventSource('/api/sse');
-
-      // 处理 Pipeline 任务更新事件
-      this.eventSource.addEventListener('pipeline_task_update', (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.data) {
-            this.handleTaskUpdate(data.data as PipelineTask);
-          }
-        } catch (error) {
-          console.error('Failed to parse pipeline task update:', error);
-        }
-      });
-
-      this.eventSource.addEventListener('connected', () => {
-        console.log('SSE connected for pipeline tasks');
-      });
-
-      this.eventSource.onerror = () => {
-        console.warn('SSE connection error, will retry...');
-        // 关闭当前连接，依赖轮询作为备用
-        if (this.eventSource) {
-          this.eventSource.close();
-          this.eventSource = null;
-        }
-        // 5秒后重连
-        setTimeout(() => this.connectSSE(), 5000);
-      };
-    } catch (error) {
-      console.error('Failed to connect SSE:', error);
-    }
+    this.sseSubscription = subscribeSSE('*', 'pipeline_task_update', event => {
+      if (event.data) this.handleTaskUpdate(event.data as PipelineTask);
+    });
   };
 
   // 处理单个任务更新

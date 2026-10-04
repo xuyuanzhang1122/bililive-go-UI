@@ -229,3 +229,11 @@ func (m *Manager) RebindPlaybackFile(ctx context.Context, f PlaybackFile) (Playb
 	}
 	return PlaybackFile{}, ErrPlaybackChanged
 }
+
+func (m *Manager) RecordingForPath(ctx context.Context, path string) (Recording, error) {
+	e, err := m.store.Lookup(ctx, path)
+	if err != nil {
+		return Recording{}, err
+	}
+	return m.PlaybackRecording(ctx, e.RecordingID)
+}

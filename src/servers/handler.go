@@ -3424,6 +3424,13 @@ func getWatchHistory(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		entries, err = canonicalWatchHistory(r.Context(), entries, inst.RecordingCatalog)
+		if err != nil {
+			writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{ErrNo: 503, ErrMsg: "观看历史身份核验失败"})
+			return
+		}
+	}
 	if entries == nil {
 		entries = []metadata.WatchHistoryEntry{}
 	}
@@ -3449,6 +3456,33 @@ func getWatchHistoryItem(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry, err := store.GetWatchHistoryItemForUser(r.Context(), currentAPIKeyUserID(r), videoPath)
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		recording, lookupErr := inst.RecordingCatalog.RecordingForPath(r.Context(), videoPath)
+		if lookupErr == nil {
+			entries, listErr := store.GetWatchHistoryForUser(r.Context(), currentAPIKeyUserID(r))
+			if listErr != nil {
+				err = listErr
+			} else {
+				entry = nil
+				err = sql.ErrNoRows
+				entries, listErr = canonicalWatchHistory(r.Context(), entries, inst.RecordingCatalog)
+				if listErr != nil {
+					err = listErr
+				} else {
+					for _, candidate := range entries {
+						if candidate.RecordingID == recording.RecordingID && candidate.SourceVersion == recording.SourceVersion {
+							copy := candidate
+							entry = &copy
+							err = nil
+							break
+						}
+					}
+				}
+			}
+		} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+			err = lookupErr
+		}
+	}
 	if err != nil {
 		status := http.StatusInternalServerError
 		msg := "获取观看历史失败: " + err.Error()
@@ -3487,6 +3521,23 @@ func upsertWatchHistory(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		recording, err := inst.RecordingCatalog.RecordingForPath(r.Context(), entry.VideoPath)
+		if err != nil {
+			writeJsonWithStatusCode(writer, http.StatusConflict, commonResp{ErrNo: 409, ErrMsg: "录播身份不可用"})
+			return
+		}
+		if entry.RecordingID != "" && (entry.RecordingID != recording.RecordingID || entry.SourceVersion != recording.SourceVersion) {
+			writeJsonWithStatusCode(writer, http.StatusConflict, commonResp{ErrNo: 409, ErrMsg: "录播来源已变化"})
+			return
+		}
+		entry.RecordingID = recording.RecordingID
+		entry.SourceVersion = recording.SourceVersion
+		entry.VideoPath = recording.Path
+	} else {
+		entry.RecordingID = ""
+		entry.SourceVersion = ""
+	}
 	if err := store.UpsertWatchHistoryForUser(r.Context(), currentAPIKeyUserID(r), &entry); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
@@ -3515,6 +3566,14 @@ func deleteWatchHistory(writer http.ResponseWriter, r *http.Request) {
 			ErrMsg: "videoPath 不能为空",
 		})
 		return
+	}
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		if recording, err := inst.RecordingCatalog.RecordingForPath(r.Context(), videoPath); err == nil {
+			if err := store.DeleteWatchHistoryRecording(r.Context(), currentAPIKeyUserID(r), recording.RecordingID); err != nil {
+				writeJsonWithStatusCode(writer, 500, commonResp{ErrNo: 500, ErrMsg: "删除观看历史失败"})
+				return
+			}
+		}
 	}
 	if err := store.DeleteWatchHistoryForUser(r.Context(), currentAPIKeyUserID(r), videoPath); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{

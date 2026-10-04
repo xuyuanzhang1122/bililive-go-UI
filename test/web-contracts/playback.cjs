@@ -1,0 +1,24 @@
+require('./setup.cjs');
+const assert=require('assert/strict'),fs=require('fs');
+(async()=>{
+ const {PlaybackAPI,validateSession,detectCapabilities}=require('../../src/webapp/src/utils/playback-v2.ts');
+ const fixture=n=>JSON.parse(fs.readFileSync(`docs/contracts/examples/v2-${n}.json`)).value;
+ let response=fixture('recordings'),paths=[];
+ global.fetch=async(url)=>{paths.push(url);return Response.json(response)};
+ const api=new PlaybackAPI();const rows=await api.list('平台/主播');
+ assert.equal(rows.length,1);assert.equal(rows[0].size_text,'189.0 GB');assert(rows.every(r=>r.recording_id&&r.source_version&&r.size_text));
+ const ready=fixture('session-ready').data; assert.equal(validateSession(ready).url,'https://local.test'+ready.url);
+ assert.throws(()=>validateSession({...ready,url:'https://external.test'+ready.url}),/地址/);
+ assert.throws(()=>validateSession({...ready,url:ready.url+'&_key=bad'}),/地址/);
+ assert.throws(()=>validateSession({...ready,status:'unknown'}),/状态/);
+ assert.throws(()=>validateSession({...ready,status:'processing'}),/地址/);
+ const probes=[];
+ const caps=await detectCapabilities({canPlayType:t=>t.includes('mp4')?'probably':'',decodingInfo:async config=>{probes.push(config);return {supported:config.video?.contentType.includes('4D')||!!config.audio,smooth:true}}});
+ assert.deepEqual(caps.video.map(c=>c.profiles),[['main']]); assert.equal(caps.protocols.includes('hls'),false);assert.equal(caps.audio.length,1);assert(probes.length>=4);
+ response=fixture('batch-partial');response.data.items.push({recording_id:'00000000-0000-4000-8000-000000000009',status:'deleted',deleted_files:1,error:null});const items=response.data.items.map((r)=>({recording_id:r.recording_id,source_version:ready.source_version}));
+ const result=await api.delete(items);assert.equal(result.items.filter(i=>i.status==='deleted').length,1);assert.equal(result.items.filter(i=>i.status==='failed').length,1);
+ response={...fixture('session-ready'),error:{code:'unauthorized',message:'认证失败',retryable:false},data:null};
+ global.fetch=async url=>{paths.push(url);return Response.json(response,{status:401})};
+ await assert.rejects(()=>new PlaybackAPI().list('x'),/认证失败/);assert(!paths.some(p=>p.includes('video-files')));
+ console.log('PASS: Web 共享录播、状态、URL、能力、统计文本、逐项删除与鉴权错误');
+})().catch(e=>{console.error(e);process.exitCode=1});

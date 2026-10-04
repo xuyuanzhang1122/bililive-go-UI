@@ -1,0 +1,19 @@
+{
+  "docs/contracts/playback-resolve-fixtures.json": "d1c5db80f489e0a00701ad08a085bfc2e5b0bd9170184ba8aa67839ecb5161f0",
+  "docs/contracts/examples/v2-session-cancelled.json": "386bd22fa16c4ec5049e013e9bd83de95ffb8cc6911f74a08d873925acd15406",
+  "docs/contracts/examples/v2-batch-partial.json": "ed451a0a11a31b8ca866b839c86759d2d6bfe0cb1dc464c43dd50b13cea8d22d",
+  "docs/contracts/examples/v2-session-ready.json": "9a3ac64255720842b555a2e570f13feebb171924fac9ca2f4e24d84b55496206",
+  "docs/contracts/examples/v2-session-processing.json": "35894adc09754656c91d7e78539b90293678ff9fb102c72830f2d92e699c5fa5",
+  "docs/contracts/examples/v2-recordings.json": "00fb9d053b0243bafd835aa0980f83e45fa12367e98e9e46f9699ef7071d3853",
+  "docs/contracts/examples/v2-unauthorized.json": "04e600220ba26258568b5a447dfbd44c7fd7dbc41dab57e1e2e86fcd5b41c76a",
+  "docs/contracts/examples/v2-session-paused.json": "a1ab2318fbf1a26871b30be4d08ac379c71baa702c5f50e94534cf388f931211",
+  "docs/contracts/examples/v2-create-session.json": "ace8530e8e3b2fee45546a943245db0f51c21a687b515f31f7221f65961c4082",
+  "docs/contracts/examples/v2-session-expired.json": "97c4392cfd289ade23bab16650f061c97e7c9f3d9c0efe34426f2d9ef20969fb",
+  "docs/contracts/examples/v2-session-failed.json": "2368b95946f38e700b70f36777b41f380e0bdfa8c7567116a0d3630269667741",
+  "docs/contracts/examples/v2-batch-delete.json": "c8d80d4c807dc83ef86d681411bb10dba994e344a753412edb2273f1cf04c4d0",
+  "docs/contracts/openapi-v2.yaml": "9b97bffb217c760fe3af8b8bc8ef03f735b7fa2d7e6bf3d5c803dd26083f5c6b",
+  "src/webapp/src/utils/generated-api-v2.ts": "671670b99eb262631f35c11356c60b60b1c9e708a9550ea71fbab0e9a0a658b5",
+  "src/webapp/src/utils/playback-v2.ts": "86634d2dc18aa942e7d4d48ab84bc2ef702e064bf9e445d61aabb3bb33385315",
+  "src/webapp/src/utils/playback-session.ts": "fb4931e7132dfbafa63c7df29832ac5f61303c842b90099200dd9fd8a2d0a658",
+  "src/webapp/src/utils/sse.ts": "9ebd3a25fdf8fcb3496b45600b50a5717e35e03f44a98449007e0622f924d9f7"
+}

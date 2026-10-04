@@ -1,27 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import './generate-web-v2.mjs';
 
 const repoRoot = process.cwd();
-const serverPath = path.join(repoRoot, 'src', 'servers', 'server.go');
 const outputPath = path.join(repoRoot, 'src', 'webapp', 'src', 'utils', 'generated-api.ts');
-
-const source = fs.readFileSync(serverPath, 'utf8');
-const routePattern = /apiRoute\.HandleFunc\("([^"]+)",\s*([A-Za-z0-9_]+)\)\.Methods\(([^)]+)\)/g;
-
+const extracted = JSON.parse(execFileSync('go', ['run', 'scripts/extract-web-routes.go'], { encoding: 'utf8' }));
 const routes = [];
-let match;
-while ((match = routePattern.exec(source)) !== null) {
-  const [, pathTemplate, handlerName, methodsRaw] = match;
-  const methods = [...methodsRaw.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  for (const method of methods) {
-    routes.push({
-      key: uniqueKey(routes, `${handlerName}_${method.toLowerCase()}`),
-      method,
-      path: `/api${pathTemplate}`,
-      handler: handlerName,
-      params: extractParams(pathTemplate),
-    });
-  }
+for (const item of extracted) for (const method of item.methods) {
+  routes.push({ key: uniqueKey(routes, `${item.handler}_${method.toLowerCase()}`), method, path: `/api${item.path}`, handler: item.handler, params: extractParams(item.path) });
 }
 
 routes.sort((a, b) => a.key.localeCompare(b.key));
@@ -34,6 +21,8 @@ const endpointEntries = routes
   .join('\n');
 
 const content = `// 此文件由 scripts/generate-web-api.mjs 自动生成，请不要手工修改。
+
+import { authFetch } from './common';
 
 export const apiEndpoints = {
 ${endpointEntries}
@@ -61,7 +50,7 @@ export async function requestApi<T = unknown>(name: ApiEndpointName, options: Ap
   if (options.body !== undefined) {
     init.body = JSON.stringify(options.body);
   }
-  const response = await fetch(url, init);
+  const response = await authFetch(url, init);
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }

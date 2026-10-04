@@ -24,21 +24,29 @@ func TestAddAndRemoveEventListener(t *testing.T) {
 }
 
 func TestDispatchEvent(t *testing.T) {
-	l := make([]int, 0)
+	received := make(chan int, 4)
 	d := NewDispatcher(context.Background()).(*dispatcher)
 	d.AddEventListener("test", NewEventListener(func(event *Event) {
-		l = append(l, 0)
+		received <- 0
 	}))
 	d.AddEventListener("test", NewEventListener(func(event *Event) {
-		l = append(l, 1)
+		received <- 1
 	}))
 	d.AddEventListener("test", NewEventListener(func(event *Event) {
-		l = append(l, 2)
+		received <- 2
 	}))
 	d.AddEventListener("test", NewEventListener(func(event *Event) {
-		l = append(l, 3)
+		received <- 3
 	}))
 	d.DispatchEvent(NewEvent("test", nil))
-	time.Sleep(time.Second)
+	l := make([]int, 0, 4)
+	for len(l) < 4 {
+		select {
+		case value := <-received:
+			l = append(l, value)
+		case <-time.After(time.Second):
+			t.Fatal("事件回调未完成")
+		}
+	}
 	assert.Equal(t, []int{0, 1, 2, 3}, l)
 }

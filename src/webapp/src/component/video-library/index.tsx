@@ -13,6 +13,8 @@ import mpegtsjs from 'mpegts.js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import API from '../../utils/api';
 import Utils from '../../utils/common';
+import { PlaybackAPI, RecordingFile, detectCapabilities } from '../../utils/playback-v2';
+import { WebPlaybackSession, refreshVideo } from '../../utils/playback-session';
 import { subscribeSSE, unsubscribeSSE } from '../../utils/sse';
 import './video-library.css';
 
@@ -59,17 +61,7 @@ interface VideoRoomInfo {
     url?: string;
 }
 
-interface VideoFileInfo {
-    name: string;
-    rel_path: string;
-    size: number;
-    mod_time: number;
-    file_url?: string;
-    hls_url?: string;
-    thumbnail_url?: string;
-    recording?: boolean;
-    playback_status?: 'ready' | 'recording' | 'processing' | 'unsupported';
-}
+type VideoFileInfo = RecordingFile;
 
 // ===== 添加直播间弹窗 =====
 function extractUrls(text: string): string[] {
@@ -261,12 +253,10 @@ const IconFullscreenExit = () => (
     </svg>
 );
 
-const buildFileUrl = (relPath: string) => `/files/${relPath.split('/').map(encodeURIComponent).join('/')}`;
-
 const playableExtensions = new Set(['mp4', 'm4v', 'mov', 'flv', 'ts', 'mkv', 'webm']);
 
 const isPlayableFile = (file: VideoFileInfo) => {
-    if (file.hls_url || file.file_url) return true;
+    if (file.recording_id || file.hls_url || file.file_url) return true;
     if (file.playback_status === 'unsupported' || file.playback_status === 'processing') return false;
     const ext = (file.rel_path.split('.').pop() || '').toLowerCase();
     return playableExtensions.has(ext);
@@ -321,47 +311,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         isLongPress: false,
     });
 
-    const fallbackPlayUrl = file.hls_url || file.file_url || buildFileUrl(file.rel_path);
     const [resolvedPlay, setResolvedPlay] = useState<{ url: string; protocol?: string; status?: string } | null>(null);
     const [resolvingPlay, setResolvingPlay] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
-        const resolve = async () => {
-            setResolvingPlay(true);
+        const abort = new AbortController();
+        const boundAPI = new PlaybackAPI();
+        const fail = (error: Error) => {
+            if (cancelled) return;
+            setStatusText(error.message); setResolvingPlay(false);
+            artRef.current?.pause(); setResolvedPlay(null);
+        };
+        const session = new WebPlaybackSession(boundAPI, async value => {
+            if (cancelled) return;
+            if (artRef.current) await refreshVideo(artRef.current.video, value.url!, abort.signal);
+            else setResolvedPlay({url:value.url!,protocol:value.protocol,status:value.status});
+            if (!cancelled) { setStatusText('');setResolvingPlay(false); }
+        }, fail);
+        const legacy = async () => {
             try {
-                const result = await api.resolvePlayback(file.rel_path) as { status?: string; url?: string; protocol?: string; retry_after_seconds?: number; error?: string };
+                const result = await api.resolvePlayback(file.rel_path);
                 if (cancelled) return;
-                if (result.status === 'ready' && result.url) {
-                    setResolvedPlay({ url: result.url, protocol: result.protocol, status: result.status });
-                    setStatusText('');
-                    setResolvingPlay(false);
-                    return;
-                }
-                if (result.status === 'failed' || result.status === 'recording') {
-                    setStatusText(result.error || (result.status === 'recording' ? '正在录制，请稍后再试' : '视频暂时无法播放'));
-                    setResolvingPlay(false);
-                    return;
-                }
-                setStatusText('正在准备播放缓存...');
-                timer = setTimeout(resolve, Math.max(1000, (result.retry_after_seconds || 2) * 1000));
-            } catch {
-                if (!cancelled) {
-                    // 兼容旧服务端：解析接口不存在时继续使用列表接口返回的地址。
-                    if (fallbackPlayUrl) setResolvedPlay({ url: fallbackPlayUrl });
-                    setStatusText(fallbackPlayUrl ? '' : '无法获取播放地址');
-                    setResolvingPlay(false);
-                }
-            }
+                if (result.status === 'ready') {
+                    setResolvedPlay({url:result.url!,protocol:result.protocol,status:result.status});
+                    setResolvingPlay(false);setStatusText('');
+                } else if (result.status === 'processing') {
+                    setStatusText('正在准备播放缓存...');
+                    timer=setTimeout(legacy,Math.min(60000,Math.max(1000,(result.retry_after_seconds || 2)*1000)));
+                } else fail(new Error(result.error || '视频暂时无法播放'));
+            } catch (error) { fail(error as Error); }
         };
-        setResolvedPlay(null);
-        resolve();
-        return () => {
-            cancelled = true;
-            if (timer) clearTimeout(timer);
-        };
-    }, [fallbackPlayUrl, file.rel_path]);
+        setResolvedPlay(null);setResolvingPlay(true);
+        void detectCapabilities().then(capabilities=>session.start(file,capabilities)).then(v2=>{if(!v2&&!cancelled)void legacy();}).catch(fail);
+        return () => { cancelled=true;abort.abort();if(timer)clearTimeout(timer);void session.close(); };
+    }, [file]);
 
     const effectivePlayUrl = resolvedPlay?.url || '';
 
@@ -502,10 +487,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             : Math.floor(art.currentTime);
         const record = savePlayRecord(file.rel_path, file.name, position, rawDuration);
         if (record) onRecordSaved?.(record);
-        api.saveWatchHistory(file.rel_path, file.name, position, rawDuration).catch(() => {
+        api.saveWatchHistory(file.rel_path, file.name, position, rawDuration, file.recording_id && file.source_version ? {recording_id:file.recording_id,source_version:file.source_version} : undefined).catch(() => {
             // 播放历史服务端写入失败时保留本地兜底即可。
         });
-    }, [file.name, file.rel_path, onRecordSaved]);
+    }, [file.name, file.rel_path, file.recording_id, file.source_version, onRecordSaved]);
 
     const safeSeekTo = useCallback((rawTarget: number) => {
         const art = artRef.current;
@@ -652,7 +637,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
 
         artRef.current = art;
 
+        let firstReady = true;
         art.on('ready', () => {
+            if (!firstReady) { syncPlayerState();return; }
+            firstReady = false;
             setStatusText('');
             art.video.controls = false;
             art.video.setAttribute('playsinline', 'true');
@@ -893,9 +881,13 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
     const [files, setFiles] = useState<VideoFileInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [notice, setNotice] = useState('');
+    const [selected, setSelected] = useState<string[]>([]);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
-        api.getVideoFiles(room.folder_path).then((d: any) => { setFiles(d || []); setLoading(false); }).catch(() => setLoading(false));
+        let cancelled = false;setLoading(true);setNotice('');
+        api.getVideoFiles(room.folder_path).then(d => { if (!cancelled) { setFiles(d);setLoading(false); } }).catch(error => { if (!cancelled) { setNotice(error.message);setLoading(false); } });
+    return () => { cancelled = true; };
     }, [room.folder_path]);
 
     const getThumbnailUrl = (relPath: string) => `/api/thumbnail/${relPath.split('/').map(encodeURIComponent).join('/')}`;
@@ -908,11 +900,26 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
         onPlay(file);
     };
 
+    const removeSelected = async () => {
+        setDeleting(true);
+        try {
+            const items=files.filter(f=>selected.includes(f.recording_id || '')).map(f=>({recording_id:f.recording_id!,source_version:f.source_version!}));
+            const result=await api.playback.delete(items);
+            const deleted=new Set(result.items.filter(i=>i.status==='deleted').map(i=>i.recording_id));
+            setFiles(previous=>previous.filter(f=>!deleted.has(f.recording_id || '')));
+            setSelected(previous=>previous.filter(id=>!deleted.has(id)));
+            const failed=result.items.filter(i=>i.status==='failed');
+            setNotice(failed.length?`${failed.length} 项删除失败：${failed[0].error?.message || '未知错误'}`:'已删除所选录播');
+        } catch(error) { setNotice((error as Error).message); }
+        finally { setDeleting(false); }
+    };
+
     return (
         <div>
             <div className="video-grid-header">
                 <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回</Button>
                 <span className="grid-host-name">{room.host_name}</span>
+                {selected.length > 0 && <Popconfirm title={`删除 ${selected.length} 个所选录播？`} onConfirm={removeSelected}><Button danger loading={deleting}>删除所选</Button></Popconfirm>}
                 <Tag color="blue">{room.platform}</Tag>
                 <Text type="secondary" style={{ fontSize: 12 }}>{files.length} 个视频</Text>
             </div>
@@ -924,7 +931,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
             ) : (
                 <Row gutter={[12, 12]}>
                     {files.map(f => (
-                        <Col key={f.rel_path} xs={24} sm={12} md={8} lg={6}>
+                        <Col key={f.recording_id || f.rel_path} xs={24} sm={12} md={8} lg={6}>
                             <Card
                                 className="video-file-card" hoverable
                                 onClick={() => handlePlay(f)}
@@ -946,11 +953,12 @@ const VideoGrid: React.FC<VideoGridProps> = ({ room, onBack, onPlay }) => {
                                 }
                             >
                                 <div className="file-card-body">
+                                    {f.recording_id && f.source_version && <Checkbox aria-label={`选择 ${f.name}`} checked={selected.includes(f.recording_id)} onClick={e=>e.stopPropagation()} onChange={e=>{const id=f.recording_id!;setSelected(previous=>e.target.checked?[...previous,id]:previous.filter(value=>value!==id));}} />}
                                     <Tooltip title={f.name}>
                                         <div className="file-name">{f.name}</div>
                                     </Tooltip>
                                     <div className="file-meta">
-                                        <span>{Utils.byteSizeToHumanReadableFileSize(f.size)}</span>
+                                        <span>{f.size_text || Utils.byteSizeToHumanReadableFileSize(f.size)}</span>
                                         <span style={{ fontSize: 10 }}>{Utils.timestampToHumanReadable(f.mod_time)}</span>
                                     </div>
                                     {f.playback_status && f.playback_status !== 'ready' && (

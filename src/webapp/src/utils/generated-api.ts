@@ -1,5 +1,7 @@
 // 此文件由 scripts/generate-web-api.mjs 自动生成，请不要手工修改。
 
+import { authFetch } from './common';
+
 export const apiEndpoints = {
   addLives_post: { method: 'POST', path: '/api/lives', handler: 'addLives', params: [] },
   applyUpdate_post: { method: 'POST', path: '/api/update/apply', handler: 'applyUpdate', params: [] },
@@ -118,7 +120,7 @@ export async function requestApi<T = unknown>(name: ApiEndpointName, options: Ap
   if (options.body !== undefined) {
     init.body = JSON.stringify(options.body);
   }
-  const response = await fetch(url, init);
+  const response = await authFetch(url, init);
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }

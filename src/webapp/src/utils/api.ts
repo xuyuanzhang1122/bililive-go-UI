@@ -5,6 +5,7 @@
  */
 
 import Utils from './common';
+import { PlaybackAPI, legacyResolve } from './playback-v2';
 import { StreamPreferenceV2 } from '../types/stream';
 
 const utils = new Utils();
@@ -14,6 +15,8 @@ const BASE_URL = "api";
 export { apiEndpoints, requestApi } from './generated-api';
 
 class API {
+    private boundPlayback = new PlaybackAPI();
+    get playback(): PlaybackAPI { if (!this.boundPlayback.isCurrent()) this.boundPlayback = new PlaybackAPI();return this.boundPlayback; }
     /**
      * 获取录播机状态
      */
@@ -92,20 +95,21 @@ class API {
      * @param folderPath 相对于 output_path 的文件夹路径（如 "抖音/北城"）
      */
     getVideoFiles(folderPath: string) {
-        return utils.requestGet(`${BASE_URL}/video-files/${folderPath.split('/').map(encodeURIComponent).join('/')}`);
+        return this.playback.list(folderPath);
     }
 
     resolvePlayback(relPath: string) {
         return utils.requestGet(`${BASE_URL}/playback/resolve/${relPath.split('/').map(encodeURIComponent).join('/')}`)
-            .then((response: any) => response?.data ?? response);
+            .then(legacyResolve);
     }
 
     getWatchHistoryItem(videoPath: string) {
         return utils.requestGet(`${BASE_URL}/history/${videoPath.split('/').map(encodeURIComponent).join('/')}`);
     }
 
-    saveWatchHistory(videoPath: string, videoName: string, positionSeconds: number, durationSeconds: number) {
+    saveWatchHistory(videoPath: string, videoName: string, positionSeconds: number, durationSeconds: number, identity?: {recording_id: string; source_version: string}) {
         return utils.requestPost(`${BASE_URL}/history`, {
+            ...identity,
             video_path: videoPath,
             video_name: videoName,
             position_seconds: positionSeconds,

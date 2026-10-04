@@ -194,6 +194,11 @@ func Init(dbDir string) error {
 		return err
 	}
 
+	if err := ensureWatchIdentitySchema(db); err != nil {
+		db.Close()
+		return err
+	}
+
 	globalStore = &Store{
 		db:     db,
 		dbPath: dbPath,
@@ -339,6 +344,8 @@ const (
 
 // WatchHistoryEntry 观看历史记录
 type WatchHistoryEntry struct {
+	RecordingID     string  `json:"recording_id,omitempty"`
+	SourceVersion   string  `json:"source_version,omitempty"`
 	ID              int64   `json:"id"`
 	APIKeyUserID    string  `json:"api_key_user_id,omitempty"`
 	VideoPath       string  `json:"video_path"`
@@ -361,14 +368,16 @@ func (s *Store) UpsertWatchHistoryForUser(ctx context.Context, userID string, e 
 	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO watch_history (api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at)
-		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		INSERT INTO watch_history (api_key_user_id, video_path, video_name, position_seconds, duration_seconds, recording_id, source_version, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(api_key_user_id, video_path) DO UPDATE SET
+			recording_id = excluded.recording_id,
+			source_version = excluded.source_version,
 			video_name = excluded.video_name,
 			position_seconds = excluded.position_seconds,
 			duration_seconds = excluded.duration_seconds,
 			updated_at = CURRENT_TIMESTAMP
-	`, userID, e.VideoPath, e.VideoName, e.PositionSeconds, e.DurationSeconds)
+	`, userID, e.VideoPath, e.VideoName, e.PositionSeconds, e.DurationSeconds, e.RecordingID, e.SourceVersion)
 	return err
 }
 
@@ -385,7 +394,7 @@ func (s *Store) GetWatchHistoryForUser(ctx context.Context, userID string) ([]Wa
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at
+		SELECT id, api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at, recording_id, source_version
 		FROM watch_history
 		WHERE api_key_user_id = ?
 		ORDER BY updated_at DESC
@@ -398,7 +407,7 @@ func (s *Store) GetWatchHistoryForUser(ctx context.Context, userID string) ([]Wa
 	var entries []WatchHistoryEntry
 	for rows.Next() {
 		var e WatchHistoryEntry
-		if err := rows.Scan(&e.ID, &e.APIKeyUserID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.APIKeyUserID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt, &e.RecordingID, &e.SourceVersion); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
@@ -415,10 +424,10 @@ func (s *Store) GetWatchHistoryItemForUser(ctx context.Context, userID, videoPat
 
 	var e WatchHistoryEntry
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at
+		SELECT id, api_key_user_id, video_path, video_name, position_seconds, duration_seconds, updated_at, recording_id, source_version
 		FROM watch_history
 		WHERE api_key_user_id = ? AND video_path = ?
-	`, userID, videoPath).Scan(&e.ID, &e.APIKeyUserID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt)
+	`, userID, videoPath).Scan(&e.ID, &e.APIKeyUserID, &e.VideoPath, &e.VideoName, &e.PositionSeconds, &e.DurationSeconds, &e.UpdatedAt, &e.RecordingID, &e.SourceVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -437,5 +446,35 @@ func (s *Store) DeleteWatchHistoryForUser(ctx context.Context, userID, videoPath
 		userID = DefaultAPIKeyUserID
 	}
 	_, err := s.db.ExecContext(ctx, "DELETE FROM watch_history WHERE api_key_user_id = ? AND video_path = ?", userID, videoPath)
+	return err
+}
+
+// 不猜测旧路径的录播身份；新写入由目录绑定，迁移保留旧历史。
+func ensureWatchIdentitySchema(db *sql.DB) error {
+	columns, err := tableColumns(db, "watch_history")
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, name := range []string{"recording_id", "source_version"} {
+		if !columns[name] {
+			if _, err := tx.Exec("ALTER TABLE watch_history ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''"); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+func (s *Store) DeleteWatchHistoryRecording(ctx context.Context, userID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(userID) == "" {
+		userID = DefaultAPIKeyUserID
+	}
+	_, err := s.db.ExecContext(ctx, "DELETE FROM watch_history WHERE api_key_user_id=? AND recording_id=?", userID, id)
 	return err
 }
