@@ -24,6 +24,7 @@ const assert=require('assert/strict'),fs=require('fs');
  global.fetch=async(url,init)=>{historyBody=JSON.parse(init.body);historyAuth=init.headers.get('Authorization');return Response.json({err_no:0})};
  await api.saveHistory('clip','clip',30,100,{recording_id:ready.recording_id,source_version:ready.source_version});
  assert.equal(historyBody.recording_id,ready.recording_id);assert.equal(historyAuth,'Bearer dummy-key');
+ global.fetch=async()=>new Response('{}',{status:404});assert.equal(await api.loadHistory('clip'),null,'明确无历史不能采用本地旧候选');
  global.localStorage={getItem:()=> 'changed-key'};
  await assert.rejects(()=>api.saveHistory('clip','clip',30,100,{recording_id:ready.recording_id,source_version:ready.source_version}),/认证已变化/);
  console.log('PASS: Web 共享录播、状态、URL、能力、统计文本、逐项删除与鉴权错误');

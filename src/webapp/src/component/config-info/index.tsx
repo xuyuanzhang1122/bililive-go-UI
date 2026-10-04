@@ -19,7 +19,7 @@ import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-yaml';
 import 'prismjs/themes/prism.css';
 import API from '../../utils/api';
-import { authFetch } from '../../utils/common';
+import { authFetch, setAPIKey } from '../../utils/common';
 import './config-info.css';
 import './config-gui.css';
 import {
@@ -2428,7 +2428,7 @@ const LegacyAPIKeyPanel: React.FC = () => {
         setEnabled(d.enable_api_key);
         setApiKey(d.api_key || '');
         if (d.api_key) {
-          try { localStorage.setItem('bililive_api_key', d.api_key); } catch {}
+          try { setAPIKey(d.api_key); } catch {}
         }
       })
       .catch(() => {});

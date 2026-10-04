@@ -210,8 +210,18 @@ func (s *SQLiteStore) DeleteTask(ctx context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.ExecContext(ctx, "DELETE FROM pipeline_tasks WHERE id = ?", id)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "DELETE FROM history_tasks WHERE task_id = ?", id); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM pipeline_tasks WHERE id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ListTasks 列出任务
@@ -326,13 +336,21 @@ func (s *SQLiteStore) DeleteTasksByStatus(ctx context.Context, status PipelineSt
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result, err := s.db.ExecContext(ctx, "DELETE FROM pipeline_tasks WHERE status = ?", status)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "DELETE FROM history_tasks WHERE task_id IN (SELECT id FROM pipeline_tasks WHERE status = ?)", status); err != nil {
+		return 0, err
+	}
+	result, err := tx.ExecContext(ctx, "DELETE FROM pipeline_tasks WHERE status = ?", status)
 	if err != nil {
 		return 0, err
 	}
 
 	affected, _ := result.RowsAffected()
-	return int(affected), nil
+	return int(affected), tx.Commit()
 }
 
 // Close 关闭存储

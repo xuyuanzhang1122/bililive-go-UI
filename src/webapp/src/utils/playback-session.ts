@@ -10,12 +10,15 @@ const delay = (seconds: number, signal: AbortSignal): Promise<void> => new Promi
 export class WebPlaybackSession {
   private controller = new AbortController();
   private current: Session | null = null;
+  private playedAsset: string | null = null;
   constructor(private api: PlaybackAPI, private onReady: (session: Session) => Promise<void>, private onError: (error: Error) => void, private sleep = delay) {}
   private active(): boolean { return !this.controller.signal.aborted; }
   private check(value: Session, body: CreateSession): Session {
     this.api.assertCurrent();
     if (value.recording_id !== body.recording_id || value.source_version !== body.source_version) throw new Error('播放来源已变化');
-    return validateSession(value);
+    const validated = validateSession(value);
+    if(validated.status==='ready' && this.playedAsset && validated.asset_version!==this.playedAsset) throw new Error('播放资产已变化，请重新打开');
+    return validated;
   }
   private async create(body: CreateSession): Promise<Session> {
     const {data} = await this.api.client.createV2PlaybackSession({body});
@@ -37,7 +40,7 @@ export class WebPlaybackSession {
       const body = {recording_id:file.recording_id,source_version:file.source_version,capabilities};
       const value = await this.create(body);
       void this.run(value,body);
-    } catch (e) { if (this.active()) this.onError(e as Error); }
+    } catch (e) { if (this.active()) { await this.close();this.onError(e as Error); } }
     return true;
   }
   private async run(initial: Session, body: CreateSession): Promise<void> {
@@ -45,7 +48,7 @@ export class WebPlaybackSession {
     try {
       while (this.active()) {
         value=this.check(value,body);this.current=value;
-        if (value.status==='ready') await this.onReady(value);
+        if (value.status==='ready') { this.playedAsset = this.playedAsset || value.asset_version;await this.onReady(value); }
         else if (value.status!=='processing'&&value.status!=='paused') throw new Error(value.error?.message || '播放会话已取消');
         await this.sleep(value.status==='ready'?Math.max(1,value.refresh_after_seconds || 1):Math.min(60,Math.max(1,value.retry_after_seconds || 2)),this.controller.signal);
         if (!this.active()) return;
@@ -69,7 +72,7 @@ export class WebPlaybackSession {
           }
         }
       }
-    } catch (e) { if (this.active()) this.onError(e as Error); }
+    } catch (e) { if (this.active()) { await this.close();this.onError(e as Error); } }
   }
   private async cancel(id: string): Promise<void> { try { await this.api.client.cancelV2PlaybackSession({params:{id}}); } catch { /* 取消为尽力请求，退出立即阻止本地回调。 */ } }
   async close(): Promise<void> { this.controller.abort();const value=this.current;this.current=null;if(value) await this.cancel(value.id); }

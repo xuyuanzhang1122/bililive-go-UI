@@ -1,7 +1,7 @@
 const fs = require('fs');
 const ts = require('../../src/webapp/node_modules/typescript');
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS }}).outputText, filename);
-global.window = { location: { origin: 'https://local.test' } };
+global.window = Object.assign(new EventTarget(),{location:{origin:'https://local.test'}});
 global.localStorage = { getItem: () => 'test-management-key' };
 (async () => {
  const assert = require('assert/strict');
@@ -26,6 +26,15 @@ global.localStorage = { getItem: () => 'test-management-key' };
  assert.deepEqual(seen,[2]);
  const [url,init]=calls[calls.length-1];
  assert.equal(url,'https://local.test/api/sse'); assert.equal(new Headers(init.headers).get('Authorization'),'Bearer test-management-key');
+ global.localStorage={getItem:()=> 'new-key'};
+ const storageEvent=new Event('storage');storageEvent.key='bililive_api_key';window.dispatchEvent(storageEvent);
+ await new Promise(r=>setTimeout(r,20));assert(init.signal.aborted,'换Key必须中止旧SSE');
+ assert.equal(new Headers(calls[calls.length-1][1].headers).get('Authorization'),'Bearer new-key');
+ const storage=new Map([['bililive_api_key','new-key'],['bililive_play_history','old-progress']]);
+ global.localStorage={getItem:k=>storage.get(k)||'',setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+ const previous=calls[calls.length-1][1];require('../../src/webapp/src/utils/common.ts').setAPIKey('same-page-key');
+ await new Promise(r=>setTimeout(r,20));assert(previous.signal.aborted);assert.equal(storage.has('bililive_play_history'),false);
+ assert.equal(new Headers(calls[calls.length-1][1].headers).get('Authorization'),'Bearer same-page-key');
  manager.unsubscribe(id); await new Promise(r=>setTimeout(r,20));
  assert(init.signal.aborted); assert(cancelled); assert.equal(manager.getSubscriberCount(),0); assert.equal(manager.isConnected(),false);
  console.log('PASS: Web 鉴权与 SSE 流分块、分发、取消');

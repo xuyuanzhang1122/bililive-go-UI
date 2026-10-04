@@ -10,6 +10,16 @@ export function getAPIKey(): string {
     try { return localStorage.getItem(API_KEY_STORAGE_KEY) || ''; } catch { return ''; }
 }
 
+export const AUTH_CHANGED_EVENT = 'bililive-auth-changed';
+export function setAPIKey(value: string): void {
+    const previous=getAPIKey();
+    localStorage.setItem(API_KEY_STORAGE_KEY,value);
+    if(previous!==value) {
+        localStorage.removeItem('bililive_play_history');
+        window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+    }
+}
+
 function customFetch(arg1: Parameters<typeof fetch>[0], ...args: any[]) {
     const init = (args[0] || {}) as RequestInit;
     args[0] = authenticatedInit(arg1, init);

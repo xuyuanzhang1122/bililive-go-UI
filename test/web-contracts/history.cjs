@@ -1,0 +1,11 @@
+require('./setup.cjs');const assert=require('assert/strict');
+const {resumePosition,roomSizeText}=require('../../src/webapp/src/utils/watch-history.ts');
+const record={relPath:'same',position:30,duration:100,savedAt:1,recording_id:'id',source_version:'old',origin:'https://local.test'};
+assert.equal(resumePosition(record,'id','new','https://local.test'),0);
+assert.equal(resumePosition({...record,source_version:'new'},'id','new','https://local.test'),30);
+assert.equal(resumePosition({...record,source_version:'new'},'id','new','https://other.test'),0);
+assert.equal(resumePosition({...record,recording_id:undefined},'id','old','https://local.test'),0);
+assert.equal(roomSizeText({total_size:188978561024,total_size_text:'189.0 GB',statistics_status:'verified'}),'189.0 GB');
+assert.equal(roomSizeText({total_size:188978561024}),'189.0 GB');
+assert.equal(roomSizeText({total_size:188978561024,total_size_text:'189.0 GB',statistics_status:'unavailable'}),'统计暂不可用');
+console.log('PASS: Web 续播来源/服务器边界与房间核验统计');

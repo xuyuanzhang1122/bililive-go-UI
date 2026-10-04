@@ -19,7 +19,8 @@ const historySchema = `
 CREATE TABLE IF NOT EXISTS history_previews(id TEXT PRIMARY KEY,owner TEXT NOT NULL,digest TEXT NOT NULL,body TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'dry_run',paused INTEGER NOT NULL DEFAULT 0,expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS history_tasks(task_id INTEGER PRIMARY KEY,preview_id TEXT NOT NULL,recording_id TEXT NOT NULL,source_version TEXT NOT NULL,profile_version TEXT NOT NULL,UNIQUE(recording_id,source_version,profile_version));
 CREATE TABLE IF NOT EXISTS history_control(id INTEGER PRIMARY KEY CHECK(id=1),last_started INTEGER NOT NULL DEFAULT 0);
-INSERT OR IGNORE INTO history_control(id,last_started) VALUES(1,0);`
+INSERT OR IGNORE INTO history_control(id,last_started) VALUES(1,0);
+DELETE FROM history_tasks WHERE task_id NOT IN (SELECT id FROM pipeline_tasks);`
 
 type HistoryItem struct {
 	RecordingID   string `json:"recording_id"`
@@ -214,6 +215,15 @@ func (m *Manager) ConfirmHistory(ctx context.Context, owner, id, digest string) 
 		return p, fmt.Errorf("预览摘要不匹配")
 	}
 	if p.State == "confirmed" {
+		for _, taskID := range p.TaskIDs {
+			var count int
+			if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM pipeline_tasks WHERE id=?", taskID).Scan(&count); err != nil {
+				return p, err
+			}
+			if count == 0 {
+				return p, fmt.Errorf("已确认任务被清理，请创建新预览")
+			}
+		}
 		return p, nil
 	}
 	if p.ExpiresAt <= time.Now().Unix() || p.SourceRoot != cat.RootPath() {

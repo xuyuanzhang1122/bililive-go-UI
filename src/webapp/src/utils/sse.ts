@@ -1,4 +1,4 @@
-import { authFetch } from './common';
+import { authFetch, getAPIKey, AUTH_CHANGED_EVENT } from './common';
 
 export type SSEEventType = 'live_update' | 'log' | 'conn_stats' | 'recorder_status' | 'connected' | 'list_change' | 'rate_limit_update' | 'update_available' | 'update_downloading' | 'update_ready' | 'update_error' | 'pipeline_task_update';
 export interface SSEMessage { type: SSEEventType; room_id: string; data: any; }
@@ -45,10 +45,17 @@ export class SSEManager {
   private generation = 0;
   private attempts = 0;
   private sequence = 0;
+  private authChanged = (): void => { this.reconnect(); };
+  private storageChanged = (event: StorageEvent): void => {
+    if(event.key===null || event.key==='bililive_api_key') {
+      try {localStorage.removeItem('bililive_play_history');} catch { /* 缓存不可用不阻止认证隔离。 */ }
+      this.reconnect();
+    }
+  };
 
   private async connect(): Promise<void> {
     if (this.controller || !this.subscriptions.size) return;
-    const controller = new AbortController(), generation = this.generation;
+    const controller = new AbortController(), generation = this.generation, key = getAPIKey(), origin = window.location.origin;
     this.controller = controller;
     let retry = true;
     try {
@@ -62,6 +69,7 @@ export class SSEManager {
       this.connected = true;
       const decoder = new SSEDecoder((type, data) => {
         if (generation !== this.generation || controller.signal.aborted) return;
+        if(key!==getAPIKey() || origin!==window.location.origin) {this.reconnect();return;}
         try {
           const message = JSON.parse(data) as SSEMessage;
           message.type = type as SSEEventType;
@@ -100,10 +108,14 @@ export class SSEManager {
   subscribe(roomId: string, eventType: SSEEventType | '*', callback: SSECallback): string {
     const id = String(++this.sequence);
     this.subscriptions.set(id, { roomId, eventType, callback });
-    if (this.subscriptions.size === 1) void this.connect();
+    if (this.subscriptions.size === 1) {
+      window.addEventListener(AUTH_CHANGED_EVENT,this.authChanged);
+      window.addEventListener('storage',this.storageChanged);
+      void this.connect();
+    }
     return id;
   }
-  unsubscribe(id: string): void { this.subscriptions.delete(id); if (!this.subscriptions.size) this.stop(); }
+  unsubscribe(id: string): void { this.subscriptions.delete(id); if (!this.subscriptions.size) { this.stop();window.removeEventListener(AUTH_CHANGED_EVENT,this.authChanged);window.removeEventListener('storage',this.storageChanged); } }
   isConnected(): boolean { return this.connected; }
   getSubscriberCount(): number { return this.subscriptions.size; }
   reconnect(): void { this.stop(); if (this.subscriptions.size) void this.connect(); }

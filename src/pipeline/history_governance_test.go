@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
 	"github.com/stretchr/testify/require"
@@ -175,4 +176,35 @@ func TestHistoryPauseRateLimitAndRestartPreserveSource(t *testing.T) {
 	after, err := os.ReadFile(source)
 	require.NoError(t, err)
 	require.Equal(t, before, after)
+}
+
+func TestHistoryDeletedTaskCanBeConfirmedAgainWithoutAuditCorruption(t *testing.T) {
+	for _, bulk := range []bool{false, true} {
+		t.Run(fmt.Sprint(bulk), func(t *testing.T) {
+			m, s, _, _, ctx := historyFixture(t)
+			first, err := m.PreviewHistory(ctx, "u", "", 100, "profile")
+			require.NoError(t, err)
+			first, err = m.ConfirmHistory(ctx, "u", first.ID, first.Digest)
+			require.NoError(t, err)
+			if bulk {
+				task, e := s.GetTask(ctx, first.TaskIDs[0])
+				require.NoError(t, e)
+				task.Status = PipelineStatusCancelled
+				require.NoError(t, s.UpdateTask(ctx, task))
+				_, err = s.DeleteTasksByStatus(ctx, PipelineStatusCancelled)
+			} else {
+				err = s.DeleteTask(ctx, first.TaskIDs[0])
+			}
+			require.NoError(t, err)
+			_, err = m.ConfirmHistory(ctx, "u", first.ID, first.Digest)
+			require.Error(t, err, "旧审计不能伪装已丢失的可执行任务")
+			second, err := m.PreviewHistory(ctx, "u", "", 100, "profile")
+			require.NoError(t, err)
+			second, err = m.ConfirmHistory(ctx, "u", second.ID, second.Digest)
+			require.NoError(t, err)
+			require.NotEqual(t, first.TaskIDs, second.TaskIDs)
+			require.NoError(t, m.SetHistoryPaused(ctx, "u", second.ID, true))
+			require.NoError(t, m.SetHistoryPaused(ctx, "u", second.ID, false))
+		})
+	}
 }

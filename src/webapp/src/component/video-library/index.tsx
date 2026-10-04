@@ -1,3 +1,4 @@
+import { PlayRecord, loadPlayRecord, savePlayRecord, resumePosition, roomSizeText } from '../../utils/watch-history';
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Card, Row, Col, Spin, Empty, Tag, Typography, Tooltip, Button, Modal, Input, Alert, Space, message, Checkbox, Popconfirm, Badge } from 'antd';
 import {
@@ -21,33 +22,6 @@ import './video-library.css';
 const api = new API();
 const { Text, Title } = Typography;
 
-// ===== 播放历史记录（localStorage，每10秒保存） =====
-const HISTORY_KEY = 'bililive_play_history';
-
-interface PlayRecord {
-    relPath: string;
-    name: string;
-    position: number;
-    duration: number;
-    savedAt: number;
-}
-
-function savePlayRecord(relPath: string, name: string, position: number, duration: number) {
-    try {
-        const record: PlayRecord = { relPath, name, position, duration, savedAt: Date.now() };
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(record));
-        return record;
-    } catch { }
-    return null;
-}
-
-function loadPlayRecord(): PlayRecord | null {
-    try {
-        const s = localStorage.getItem(HISTORY_KEY);
-        return s ? JSON.parse(s) : null;
-    } catch { return null; }
-}
-
 // ===== 接口类型 =====
 interface VideoRoomInfo {
     host_name: string;
@@ -55,6 +29,8 @@ interface VideoRoomInfo {
     folder_path: string;
     video_count: number;
     total_size: number;
+    total_size_text?: string;
+    statistics_status?: string;
     latest_video_at: number;
     latest_video: string;
     recording?: boolean;
@@ -281,6 +257,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
     const containerRef = useRef<HTMLDivElement>(null);
     const artRef = useRef<Artplayer | null>(null);
     const historyAPIRef = useRef<PlaybackAPI | null>(null);
+    const historyLoadedRef = useRef(false);
     const identityRef = useRef(file.recording_id && file.source_version ? {recording_id:file.recording_id,source_version:file.source_version} : undefined);
     const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const uiTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -295,10 +272,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
     const seekingBySliderRef = useRef(false);
     const [sliderValue, setSliderValue] = useState(0);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const [resumeTime, setResumeTime] = useState(() => {
-        const savedRecord = loadPlayRecord();
-        return (savedRecord?.relPath === file.rel_path) ? savedRecord.position : 0;
-    });
+    const [resumeTime, setResumeTime] = useState(0);
     const [statusText, setStatusText] = useState(file.recording ? '正在录制，尝试播放当前文件...' : '');
     const streamTypeRef = useRef<'flv' | 'ts' | 'other'>('other');
     const mpegtsPlayerRef = useRef<any>(null);
@@ -330,6 +304,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         const session = new WebPlaybackSession(boundAPI, async value => {
             if (cancelled) return;
             identityRef.current = {recording_id:value.recording_id,source_version:value.source_version};
+            if(!historyLoadedRef.current) {
+                historyLoadedRef.current=true;
+                let position=resumePosition(loadPlayRecord(),value.recording_id,value.source_version,window.location.origin);
+                try {
+                    const data=await boundAPI.loadHistory(file.rel_path);
+                    if(cancelled || !boundAPI.isCurrent()) return;
+                    position=data?.recording_id===value.recording_id && data?.source_version===value.source_version && Number.isFinite(data.position_seconds) ? data.position_seconds : 0;
+                } catch { /* 仅有相同身份本地缓存可作为网络失败时的兜底。 */ }
+                if(cancelled || !boundAPI.isCurrent()) return;
+                setResumeTime(position);
+            }
             if (artRef.current) await refreshVideo(artRef.current.video, value.url!, abort.signal);
             else setResolvedPlay({url:value.url!,protocol:value.protocol,status:value.status});
             if (!cancelled) { setStatusText('');setResolvingPlay(false); }
@@ -382,24 +367,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
 
     useEffect(() => {
         resetToolbarTimer();
-        let cancelled = false;
-        const savedRecord = loadPlayRecord();
-        setResumeTime((savedRecord?.relPath === file.rel_path) ? savedRecord.position : 0);
-        api.getWatchHistoryItem(file.rel_path)
-            .then((payload: any) => {
-                if (cancelled) return;
-                const data = payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload;
-                const position = Number(data?.position_seconds ?? data?.position ?? 0);
-                if (Number.isFinite(position) && position > 0) {
-                    setResumeTime(position);
-                }
-            })
-            .catch(() => {
-                // localStorage 已在上方作为兜底续播缓存。
-            });
         const touchState = touch.current;
         return () => {
-            cancelled = true;
             if (toolbarTimerRef.current) clearTimeout(toolbarTimerRef.current);
             if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
             if (touchState.singleTapTimer) clearTimeout(touchState.singleTapTimer);
@@ -489,7 +458,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         const position = rawDuration > 0
             ? Math.min(Math.floor(art.currentTime), rawDuration)
             : Math.floor(art.currentTime);
-        const record = savePlayRecord(file.rel_path, file.name, position, rawDuration);
+        const record = savePlayRecord(file.rel_path, file.name, position, rawDuration, identityRef.current);
         if (record) onRecordSaved?.(record);
         historyAPIRef.current?.saveHistory(file.rel_path, file.name, position, rawDuration, identityRef.current).catch(() => {
             // 播放历史服务端写入失败时保留本地兜底即可。
@@ -1328,7 +1297,7 @@ const VideoLibrary: React.FC = () => {
                                                 {Utils.timestampToHumanReadable(room.latest_video_at)}
                                             </div>
                                             <div style={{ color: '#bbb', fontSize: 11 }}>
-                                                {Utils.byteSizeToHumanReadableFileSize(room.total_size)}
+                                                {roomSizeText(room)}
                                             </div>
                                         </div>
                                     }
