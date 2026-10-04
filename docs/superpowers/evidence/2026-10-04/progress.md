@@ -35,3 +35,5 @@ Ruling: 录播目录新增事务性 v1→v2 迁移，仅增加 prepared_verifica
 Final declined-to-judge: 审查未评估Windows真实断电、手机首帧、生产部署、HDR正向映射；这些需要独立环境/设备证据，继续列待验，不据代码审查宣称通过。旧T1/T2/HLS并非本轮完整复审范围，既有回归随全仓运行。
 
 T3: 核心代码与自动验证完成；最终 make test / make build-web dev / make dev、lint 0 issues、Web ESLint、相关包 race、git diff --check 通过。Mac构建及Windows/Linux交叉编译通过；独立审查两项+目录证明补充回归RED→GREEN，无延期minor。保留28文件指纹、源码快照、三仓HEAD/status及所有日志，不提交、不推送、不部署。HDR正向/WindowsLinux真实运行断电/手机验收保持待办。
+
+2026-10-04 commit: `94312d7907d23a25679ba1ee1750ce7a6984baec` — feat: 保存 T1-T3 录播播放主线检查点。服务端包含此前 T1/T2 与 HLS 修复依赖及本轮 T3，源码与最终验证快照一致；提交后服务端工作区干净。用户新约定为每次改动完成并验证后主动本地 commit；未 push。
