@@ -1,0 +1,17 @@
+[
+  {"name":"ready-signed","response":{"err_no":0,"err_msg":"","data":{"status":"ready","protocol":"file","url":"/files/clip.mp4?expires=123&sig=abc"}},"url":"https://server/proxy/files/clip.mp4?expires=123&sig=abc"},
+  {"name":"ready-absolute","response":{"err_no":0,"err_msg":"","data":{"status":"ready","url":"https://cdn/clip.mp4?expires=123&sig=abc"}},"url":"https://cdn/clip.mp4?expires=123&sig=abc"},
+  {"name":"ready-unsigned","response":{"err_no":0,"err_msg":"","data":{"status":"ready","url":"/files/clip.mp4"}},"url":"https://server/proxy/files/clip.mp4?_key=secret"},
+  {"name":"processing-default","response":{"err_no":0,"err_msg":"","data":{"status":"processing"}},"retry":2},
+  {"name":"processing-malformed","response":{"err_no":0,"err_msg":"","data":{"status":"processing","retry_after_seconds":"bad"}},"retry":2},
+  {"name":"processing-max","response":{"err_no":0,"err_msg":"","data":{"status":"processing","retry_after_seconds":99}},"retry":10},
+  {"name":"processing-min","response":{"err_no":0,"err_msg":"","data":{"status":"processing","retry_after_seconds":0}},"retry":1},
+  {"name":"processing-fraction","response":{"err_no":0,"err_msg":"","data":{"status":"processing","retry_after_seconds":1.5}},"retry":1.5},
+  {"name":"recording","response":{"err_no":0,"err_msg":"","data":{"status":"recording","error":"正在录制"}}},
+  {"name":"failed","response":{"err_no":0,"err_msg":"","data":{"status":"failed","error":"转换失败"}}},
+  {"name":"unknown","response":{"err_no":0,"err_msg":"","data":{"status":"unknown"}},"reject":true},
+  {"name":"ready-empty","response":{"err_no":0,"err_msg":"","data":{"status":"ready","url":" "}},"reject":true},
+  {"name":"ready-missing","response":{"err_no":0,"err_msg":"","data":{"status":"ready"}},"reject":true},
+  {"name":"data-missing","response":{"err_no":0,"err_msg":""},"reject":true},
+  {"name":"api-error","response":{"err_no":403,"err_msg":"无权限","data":null},"reject":true}
+]

@@ -17,6 +17,7 @@ type Stamp struct {
 	ModTime int64 `json:"mtime_ns"`
 }
 type Manifest struct {
+	SourcePath string `json:"source_path,omitempty"`
 	Version    int    `json:"version"`
 	SourceName string `json:"source_name"`
 	TargetName string `json:"target_name"`
@@ -39,7 +40,7 @@ func read(target string) (Manifest, error) {
 	if err != nil {
 		return m, err
 	}
-	if m.Version != 1 || !safeName(m.SourceName) || !safeName(m.TargetName) || m.TargetName != filepath.Base(target) || m.SourceName == m.TargetName {
+	if (m.Version != 1 && m.Version != 2) || (m.Version == 1 && m.SourcePath != "") || (m.Version == 2 && (!filepath.IsAbs(m.SourcePath) || filepath.Base(m.SourcePath) != m.SourceName)) || !safeName(m.SourceName) || !safeName(m.TargetName) || m.TargetName != filepath.Base(target) || m.SourceName == m.TargetName {
 		return m, fmt.Errorf("无效播放资产关联")
 	}
 	return m, nil
@@ -57,6 +58,9 @@ func Load(target string) (Manifest, error) {
 		return m, fmt.Errorf("播放产物已变化")
 	}
 	source := filepath.Join(filepath.Dir(target), m.SourceName)
+	if m.Version == 2 {
+		source = m.SourcePath
+	}
 	info, err = os.Lstat(source)
 	if err != nil && !os.IsNotExist(err) {
 		return m, err
@@ -69,6 +73,19 @@ func Load(target string) (Manifest, error) {
 
 // Save 必须在产物验证成功后调用，sourceInfo 为转换开始时的源版本。
 func Save(source, target string, sourceInfo os.FileInfo) error {
+	return saveManifest(source, target, sourceInfo, false)
+}
+
+func makeManifest(source, target string, sourceInfo, targetInfo os.FileInfo, derived bool) Manifest {
+	m := Manifest{Version: 1, SourceName: filepath.Base(source), TargetName: filepath.Base(target), Source: stamp(sourceInfo), Target: stamp(targetInfo)}
+	if derived {
+		m.Version = 2
+		m.SourcePath = source
+	}
+	return m
+}
+
+func saveManifest(source, target string, sourceInfo os.FileInfo, derived bool) error {
 	source, err := filepath.Abs(source)
 	if err != nil {
 		return err
@@ -77,7 +94,7 @@ func Save(source, target string, sourceInfo os.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	if filepath.Dir(source) != filepath.Dir(target) || source == target || sourceInfo == nil {
+	if (!derived && filepath.Dir(source) != filepath.Dir(target)) || source == target || sourceInfo == nil {
 		return fmt.Errorf("播放资产必须与来源同目录且路径不同")
 	}
 	current, err := os.Lstat(source)
@@ -94,7 +111,7 @@ func Save(source, target string, sourceInfo os.FileInfo) error {
 	if !info.Mode().IsRegular() || info.Size() == 0 {
 		return fmt.Errorf("播放产物不是有效文件")
 	}
-	m := Manifest{1, filepath.Base(source), filepath.Base(target), stamp(sourceInfo), stamp(info)}
+	m := makeManifest(source, target, sourceInfo, info, derived)
 	if old, err := read(target); err == nil {
 		if old == m {
 			return nil

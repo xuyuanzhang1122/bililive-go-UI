@@ -19,7 +19,7 @@ const { Text, Paragraph } = Typography;
 const { Panel } = Collapse;
 
 // Pipeline 状态
-type PipelineStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+type PipelineStatus = 'pending' | 'paused' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 // 阶段状态
 type StageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
@@ -87,6 +87,7 @@ interface PipelineStats {
   max_concurrent: number;
   running_count: number;
   pending_count: number;
+  paused_count?: number;
   completed_count: number;
   failed_count: number;
   cancelled_count: number;
@@ -289,6 +290,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
     const labels: Record<string, string> = {
       'fix_flv': '修复FLV',
       'convert_mp4': '转换MP4',
+      'prepare_playback': '准备播放版本',
       'extract_cover': '提取封面',
       'cloud_upload': '云盘上传',
       'custom_command': '自定义命令',
@@ -300,6 +302,8 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
     switch (status) {
       case 'pending':
         return <Tag icon={<ClockCircleOutlined />} color="default">等待中</Tag>;
+      case 'paused':
+        return <Tag icon={<ClockCircleOutlined />} color="warning">已暂停</Tag>;
       case 'running':
         return <Tag icon={<LoadingOutlined spin />} color="processing">运行中</Tag>;
       case 'completed':
@@ -549,9 +553,9 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
             <Space direction="vertical" style={{ width: '100%' }}>
               {task.error_message && (
                 <Alert
-                  message="任务失败"
+                  message={task.status === 'paused' ? '准备已暂停，稍后自动重试' : '任务失败'}
                   description={task.error_message}
-                  type="error"
+                  type={task.status === 'paused' ? 'warning' : 'error'}
                 />
               )}
             </Space>
@@ -564,7 +568,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
         {/* 操作按钮 */}
         <div style={{ marginTop: 16, borderTop: '1px solid #e8e8e8', paddingTop: 12 }}>
           <Space>
-            {task.status === 'running' && (
+            {(task.status === 'running' || task.status === 'paused') && (
               <Button danger icon={<StopOutlined />} onClick={() => this.handleCancel(task.id)}>
                 取消任务
               </Button>
@@ -719,7 +723,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
               <Card size="small" onClick={() => this.setState({ statusFilter: 'all' })} style={{ cursor: 'pointer' }}>
                 <Statistic
                   title="全部"
-                  value={stats.running_count + stats.pending_count + stats.completed_count + stats.failed_count + stats.cancelled_count}
+                  value={stats.running_count + stats.pending_count + (stats.paused_count || 0) + stats.completed_count + stats.failed_count + stats.cancelled_count}
                 />
               </Card>
             </Col>
@@ -759,6 +763,7 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
                 { value: 'all', label: '全部' },
                 { value: 'running', label: '运行中' },
                 { value: 'pending', label: '等待中' },
+                { value: 'paused', label: '已暂停' },
                 { value: 'completed', label: '已完成' },
                 { value: 'failed', label: '失败' },
                 { value: 'cancelled', label: '已取消' },

@@ -1,6 +1,7 @@
 package instance
 
 import (
+	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
 	"sync"
 
 	"github.com/bililive-go/bililive-go/src/interfaces"
@@ -8,6 +9,7 @@ import (
 )
 
 type Instance struct {
+	RecordingCatalog *recordingcatalog.Manager
 	WaitGroup        sync.WaitGroup
 	Lives            LiveMap
 	Cache            gcache.Cache

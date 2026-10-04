@@ -30,6 +30,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/parser/bililive_recorder"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
+	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/pkg/streamprobe"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
@@ -430,7 +431,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.setCurrentFilePath(fileName)
 
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
+	finishRecording := recordingcatalog.BeginRecording(fileName)
 	err = r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName)
+	finishRecording()
 
 	// 清除当前录制文件路径
 	r.setCurrentFilePath("")
@@ -444,6 +447,10 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	// 使用层级配置的 OnRecordFinished
 	cmdStr := strings.Trim(resolvedConfig.OnRecordFinished.CustomCommandline, "")
+	if resolvedConfig.OnRecordFinished.PreparePlayback && cmdStr != "" {
+		r.getLogger().Error("prepare_playback 与自定义命令不可同时启用，已保留源文件")
+		return
+	}
 	if len(cmdStr) > 0 {
 		ffmpegPath, ffmpegErr := utils.GetFFmpegPathForLive(ctx, r.Live)
 		if ffmpegErr != nil {
@@ -539,6 +546,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			return
 		}
 
+		if inst.RecordingCatalog != nil {
+			inst.RecordingCatalog.Notify()
+		}
 		// 获取 PipelineManager
 		pipelineManager := pipeline.GetManager(inst)
 		if pipelineManager == nil {

@@ -24,7 +24,7 @@ func writePublicationIntent(t *testing.T, source, target, temp string, sourceInf
 	t.Helper()
 	info, err := os.Stat(temp)
 	require.NoError(t, err)
-	data, err := json.Marshal(publicationIntent{Manifest: Manifest{1, filepath.Base(source), filepath.Base(target), stamp(sourceInfo), stamp(info)}, TempName: filepath.Base(temp)})
+	data, err := json.Marshal(publicationIntent{Manifest: makeManifest(source, target, sourceInfo, info, false), TempName: filepath.Base(temp)})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(target+IntentSuffix, data, 0600))
 }
@@ -79,16 +79,40 @@ func TestPublicationRecoveryDoesNotDeleteReplacement(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "other media", string(data))
 }
-func TestPublicationRecoveryKeepsConcurrentCommit(t *testing.T) {
+func TestPublicationRecoveryRejectsDifferentCommittedManifest(t *testing.T) {
+	source, target, temp, info := publicationFixture(t)
+	otherSource := filepath.Join(filepath.Dir(source), "other.flv")
+	require.NoError(t, os.WriteFile(otherSource, []byte("other source"), 0600))
+	otherInfo, err := os.Stat(otherSource)
+	require.NoError(t, err)
+	writePublicationIntent(t, source, target, temp, info)
+	require.NoError(t, os.Link(temp, target))
+	require.NoError(t, Save(otherSource, target, otherInfo))
+
+	_, err = RecoverPublication(source, target, info, func(string) error { return nil })
+	require.Error(t, err)
+	_, err = os.Stat(source)
+	require.NoError(t, err, "不同来源的已提交关联不得触发删源")
+	manifest, err := Load(target)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Base(otherSource), manifest.SourceName)
+}
+
+func TestPublicationRecoveryKeepsSameConcurrentCommit(t *testing.T) {
 	source, target, temp, info := publicationFixture(t)
 	writePublicationIntent(t, source, target, temp, info)
 	require.NoError(t, os.Link(temp, target))
-	_, _ = RecoverPublication(source, target, info, func(string) error {
-		require.NoError(t, Save(source, target, info))
+	recovered, err := RecoverPublication(source, target, info, func(string) error {
+		if err := Save(source, target, info); err != nil {
+			return err
+		}
 		return os.Remove(source)
 	})
-	_, err := os.Stat(target)
-	require.NoError(t, err, "另一恢复已提交且按策略删源时，不得回滚已提交产物")
-	_, err = Load(target)
 	require.NoError(t, err)
+	require.True(t, recovered)
+	manifest, err := Load(target)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Base(source), manifest.SourceName)
+	_, err = os.Stat(target + IntentSuffix)
+	require.True(t, os.IsNotExist(err))
 }

@@ -100,7 +100,7 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_pipeline_tasks_created_at ON pipeline_tasks(created_at);
 	`
 
-	_, err := s.db.Exec(schema)
+	_, err := s.db.Exec(schema + preparationSchema)
 	return err
 }
 
@@ -275,10 +275,10 @@ func (s *SQLiteStore) GetPendingTasks(ctx context.Context, limit int) ([]*Pipeli
 			progress, created_at, started_at, completed_at,
 			error_message, can_retry
 		FROM pipeline_tasks
-		WHERE status = ?
-		ORDER BY created_at ASC
+		WHERE status IN (?, ?)
+		ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, COALESCE(started_at,created_at) ASC
 		LIMIT ?
-	`, PipelineStatusPending, limit)
+	`, PipelineStatusPending, PipelineStatusPaused, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +306,10 @@ func (s *SQLiteStore) ResetRunningTasks(ctx context.Context) error {
 		UPDATE pipeline_tasks SET status = ?, started_at = NULL
 		WHERE status = ?
 	`, PipelineStatusPending, PipelineStatusRunning)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "UPDATE playback_preparations SET status='queued' WHERE status='running'")
 	return err
 }
 

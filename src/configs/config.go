@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -134,6 +135,7 @@ type CloudUpload struct {
 
 // On record finished actions.
 type OnRecordFinished struct {
+	PreparePlayback       bool         `yaml:"prepare_playback" json:"prepare_playback"`
 	ConvertToMp4          bool         `yaml:"convert_to_mp4" json:"convert_to_mp4"`
 	DeleteFlvAfterConvert bool         `yaml:"delete_flv_after_convert" json:"delete_flv_after_convert"`
 	CustomCommandline     string       `yaml:"custom_commandline" json:"custom_commandline"`
@@ -267,15 +269,23 @@ var defaultUpdateConfig = UpdateConfig{
 }
 
 // HLSCacheConfig 控制本地视频转封装产生的 HLS 播放缓存。
-// 两个限制均允许显式配置为 0，以关闭对应维度的回收。
+// 缓存回收和剩余空间限制允许显式配置为 0，关闭对应限制。
 type HLSCacheConfig struct {
-	MaxAgeHours    int     `yaml:"max_age_hours" json:"max_age_hours"`
-	MaxTotalSizeGB float64 `yaml:"max_total_size_gb" json:"max_total_size_gb"`
+	MaxConcurrent    int     `yaml:"max_concurrent" json:"max_concurrent"`
+	MaxQueued        int     `yaml:"max_queued" json:"max_queued"`
+	MinFreeSpaceGB   float64 `yaml:"min_free_space_gb" json:"min_free_space_gb"`
+	ReadGraceSeconds int     `yaml:"read_grace_seconds" json:"read_grace_seconds"`
+	MaxAgeHours      int     `yaml:"max_age_hours" json:"max_age_hours"`
+	MaxTotalSizeGB   float64 `yaml:"max_total_size_gb" json:"max_total_size_gb"`
 }
 
 var defaultHLSCacheConfig = HLSCacheConfig{
-	MaxAgeHours:    24,
-	MaxTotalSizeGB: 10,
+	MaxConcurrent:    3,
+	MaxQueued:        64,
+	MinFreeSpaceGB:   1,
+	ReadGraceSeconds: 60,
+	MaxAgeHours:      24,
+	MaxTotalSizeGB:   10,
 }
 
 // StreamPreference 流偏好配置
@@ -834,6 +844,19 @@ func (c *Config) Verify() error {
 		return fmt.Errorf("HLS 缓存总大小上限不能小于 0")
 	}
 
+	if c.HLSCache.MaxConcurrent < 1 || c.HLSCache.MaxConcurrent > 32 {
+		return fmt.Errorf("HLS 最大并发任务数必须在 1 到 32 之间")
+	}
+	if c.HLSCache.MaxQueued < 1 || c.HLSCache.MaxQueued > 1024 {
+		return fmt.Errorf("HLS 最大排队任务数必须在 1 到 1024 之间")
+	}
+	if c.HLSCache.MinFreeSpaceGB < 0 || math.IsNaN(c.HLSCache.MinFreeSpaceGB) || math.IsInf(c.HLSCache.MinFreeSpaceGB, 0) {
+		return fmt.Errorf("HLS 最小剩余磁盘空间必须是大于等于 0 的有限数值")
+	}
+	if c.HLSCache.ReadGraceSeconds < 0 {
+		return fmt.Errorf("HLS 读取保护时长不能小于 0")
+	}
+
 	// 验证平台配置
 	if err := c.ValidatePlatformConfigs(); err != nil {
 		return err
@@ -893,6 +916,19 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 		defaultHLSCacheConfig.MaxAgeHours,
 		defaultHLSCacheConfig.MaxTotalSizeGB,
 	); err != nil {
+		return nil, err
+	}
+
+	if err := migration.ApplyHLSResourceConfigV210(b,
+		&config.HLSCache.MaxConcurrent, &config.HLSCache.MaxQueued,
+		&config.HLSCache.MinFreeSpaceGB, &config.HLSCache.ReadGraceSeconds,
+		defaultHLSCacheConfig.MaxConcurrent, defaultHLSCacheConfig.MaxQueued,
+		defaultHLSCacheConfig.MinFreeSpaceGB, defaultHLSCacheConfig.ReadGraceSeconds,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := migration.ApplyPreparePlayback(b, &config.OnRecordFinished.PreparePlayback); err != nil {
 		return nil, err
 	}
 

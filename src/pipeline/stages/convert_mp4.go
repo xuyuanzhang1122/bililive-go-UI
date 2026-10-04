@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,8 +13,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/pipeline"
-	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
+	"github.com/bililive-go/bililive-go/src/pkg/mediawork"
+	"github.com/bililive-go/bililive-go/src/pkg/playbackasset"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -45,6 +48,16 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
 		return input, nil
 	}
 
+	limit := 3
+	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.HLSCache.MaxConcurrent > 0 {
+		limit = cfg.HLSCache.MaxConcurrent
+	}
+	release, err := mediawork.Shared.Acquire(ctx.Ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	ffmpegPath := ctx.FFmpegPath
 	if ffmpegPath == "" {
 		var err error
@@ -64,82 +77,155 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
 			continue
 		}
 
-		// 检查文件是否存在
-		if _, err := os.Stat(file.Path); os.IsNotExist(err) {
-			s.logs += fmt.Sprintf("文件不存在: %s\n", file.Path)
-			continue
+		sourceInfo, err := os.Stat(file.Path)
+		if os.IsNotExist(err) && s.deleteSource {
+			ext := filepath.Ext(file.Path)
+			target := strings.TrimSuffix(file.Path, ext) + ".mp4"
+			if strings.EqualFold(ext, ".mp4") {
+				target = strings.TrimSuffix(file.Path, ext) + ".prepared.mp4"
+			}
+			manifest, loadErr := playbackasset.Load(target)
+			if loadErr == nil && manifest.SourceName == filepath.Base(file.Path) {
+				if _, err := inspectMP4Media(ctx.Ctx, ffmpegPath, target); err != nil {
+					return nil, err
+				}
+				if err := checkMP4Faststart(target); err != nil {
+					return nil, err
+				}
+				if _, err := playbackasset.RecoverSourceDeletion(target); err != nil {
+					return nil, err
+				}
+				output = append(output, pipeline.FileInfo{Path: target, Type: pipeline.FileTypeVideo, SourcePath: file.Path})
+				continue
+			}
 		}
-
-		// 如果已经是 MP4 文件，跳过
-		ext := strings.ToLower(filepath.Ext(file.Path))
-		if ext == ".mp4" {
-			s.logs += fmt.Sprintf("文件 %s 已经是 MP4 格式，跳过转换。\n", filepath.Base(file.Path))
-			output = append(output, file)
-			continue
-		}
-
-		// 确定输出文件名
-		base := strings.TrimSuffix(file.Path, ext)
-		outputPath := base + ".mp4"
-
-		// 临时文件路径
-		dir := filepath.Dir(outputPath)
-		baseName := filepath.Base(outputPath)
-		tempFile := filepath.Join(dir, ".converting_"+baseName)
-
-		ctx.Logger.Infof("转换 MP4: %s -> %s", file.Path, outputPath)
-
-		// 获取视频时长用于进度计算
-		duration := s.getVideoDuration(ctx.Ctx, ffmpegPath, file.Path)
-
-		// 构建 ffmpeg 命令
-		args := []string{
-			"-i", file.Path,
-			"-c", "copy",
-			"-movflags", "+faststart",
-			"-y",
-			"-progress", "pipe:1",
-			tempFile,
-		}
-
-		cmdStr := fmt.Sprintf("%s %s", ffmpegPath, strings.Join(args, " "))
-		s.commands = append(s.commands, cmdStr)
-
-		cmd := exec.CommandContext(ctx.Ctx, ffmpegPath, args...)
-
-		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			s.logs += fmt.Sprintf("创建输出管道失败: %s\n", err.Error())
-			return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+			return nil, fmt.Errorf("读取源文件: %w", err)
 		}
-
-		if err := cmd.Start(); err != nil {
-			s.logs += fmt.Sprintf("启动 ffmpeg 失败: %s\n", err.Error())
-			return nil, fmt.Errorf("failed to start ffmpeg: %w", err)
+		if !sourceInfo.Mode().IsRegular() {
+			return nil, fmt.Errorf("源文件不是普通文件: %s", file.Path)
 		}
-
-		// 解析进度（后台）
-		bilisentry.GoWithContext(ctx.Ctx, func(goCtx context.Context) {
-			s.parseProgress(goCtx, stdout, duration)
-		})
-
-		// 等待命令完成
-		if err := cmd.Wait(); err != nil {
-			os.Remove(tempFile)
-			s.logs += fmt.Sprintf("ffmpeg 转换失败: %s - %s\n", file.Path, err.Error())
-			return nil, fmt.Errorf("ffmpeg conversion failed for %s: %w", file.Path, err)
+		sourceMedia, err := inspectMP4Media(ctx.Ctx, ffmpegPath, file.Path)
+		if err != nil {
+			return nil, fmt.Errorf("检查源媒体: %w", err)
 		}
-
-		// 检查临时文件
-		if _, err := os.Stat(tempFile); os.IsNotExist(err) {
-			s.logs += fmt.Sprintf("临时文件未创建: %s\n", tempFile)
-			return nil, fmt.Errorf("temp file was not created: %s", tempFile)
+		ext := filepath.Ext(file.Path)
+		outputPath := strings.TrimSuffix(file.Path, ext) + ".mp4"
+		if strings.EqualFold(ext, ".mp4") {
+			if err := checkMP4Faststart(file.Path); err == nil {
+				output = append(output, file)
+				continue
+			}
+			outputPath = strings.TrimSuffix(file.Path, ext) + ".prepared.mp4"
 		}
+		validateOutput := func(path string) error {
+			result, err := inspectMP4Media(ctx.Ctx, ffmpegPath, path)
+			if err != nil {
+				return err
+			}
+			if result.audio != sourceMedia.audio || math.Abs(result.duration-sourceMedia.duration) > math.Max(1, sourceMedia.duration*0.01) {
+				return fmt.Errorf("产物轨道或时长不符")
+			}
+			return checkMP4Faststart(path)
+		}
+		if _, err := playbackasset.RecoverPublication(file.Path, outputPath, sourceInfo, validateOutput); err != nil {
+			return nil, fmt.Errorf("恢复发布失败: %w", err)
+		}
+		reused := false
+		if _, err := os.Lstat(outputPath); err == nil {
+			manifest, loadErr := playbackasset.Load(outputPath)
+			if loadErr != nil || manifest.SourceName != filepath.Base(file.Path) {
+				return nil, fmt.Errorf("目标文件已存在且来源无法确认: %s", outputPath)
+			}
+			result, checkErr := inspectMP4Media(ctx.Ctx, ffmpegPath, outputPath)
+			if checkErr != nil {
+				return nil, checkErr
+			}
+			if result.audio != sourceMedia.audio || math.Abs(result.duration-sourceMedia.duration) > math.Max(1, sourceMedia.duration*0.01) {
+				return nil, fmt.Errorf("已有产物轨道或时长不符")
+			}
+			if err := checkMP4Faststart(outputPath); err != nil {
+				return nil, err
+			}
+			reused = true
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+		if !reused {
+			temp, err := os.CreateTemp(filepath.Dir(outputPath), ".converting-*.mp4")
+			if err != nil {
+				return nil, fmt.Errorf("创建临时文件: %w", err)
+			}
+			tempFile := temp.Name()
+			if err := temp.Close(); err != nil {
+				os.Remove(tempFile)
+				return nil, err
+			}
+			// 只清理本次创建的临时文件，任何失败都保留源文件。
+			err = func() error {
+				defer os.Remove(tempFile)
+				args := []string{"-nostdin", "-v", "error", "-i", file.Path, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", "-y", "-progress", "pipe:1", tempFile}
+				s.commands = append(s.commands, fmt.Sprintf("%s %s", ffmpegPath, strings.Join(args, " ")))
+				cmd := exec.CommandContext(ctx.Ctx, ffmpegPath, args...)
+				stderr := &mp4LimitedBuffer{}
+				cmd.Stderr = stderr
+				stdout, err := cmd.StdoutPipe()
+				if err != nil {
+					return err
+				}
+				if err := cmd.Start(); err != nil {
+					stdout.Close()
+					return err
+				}
+				// 读至 EOF 后再 Wait，避免 Wait 提前关闭管道；取消由 CommandContext 回收。
+				s.parseProgress(ctx.Ctx, stdout, sourceMedia.duration)
+				// 进度行过长导致 scanner 停止时仍排空管道，避免子进程阻塞。
+				_, _ = io.Copy(io.Discard, stdout)
+				if err := cmd.Wait(); err != nil {
+					return fmt.Errorf("ffmpeg 转换失败: %w: %s", err, stderr.String())
+				}
+				if err := ctx.Ctx.Err(); err != nil {
+					return err
+				}
+				result, err := inspectMP4Media(ctx.Ctx, ffmpegPath, tempFile)
+				if err != nil {
+					return fmt.Errorf("产物检查失败: %w", err)
+				}
+				if result.audio != sourceMedia.audio || math.Abs(result.duration-sourceMedia.duration) > math.Max(1, sourceMedia.duration*0.01) {
+					return fmt.Errorf("产物轨道或时长与源文件不符")
+				}
+				if err := checkMP4Faststart(tempFile); err != nil {
+					return err
+				}
+				current, err := os.Stat(file.Path)
+				if err != nil {
+					return err
+				}
+				if !os.SameFile(sourceInfo, current) || sourceInfo.Size() != current.Size() || !sourceInfo.ModTime().Equal(current.ModTime()) {
+					return fmt.Errorf("转换期间源文件发生变化")
+				}
+				ready, err := os.OpenFile(tempFile, os.O_RDWR, 0)
+				if err != nil {
+					return err
+				}
+				syncErr := ready.Sync()
+				closeErr := ready.Close()
+				if syncErr != nil {
+					return syncErr
+				}
+				if closeErr != nil {
+					return closeErr
+				}
+				if err := playbackasset.PublishValidated(file.Path, outputPath, tempFile, sourceInfo); err != nil {
+					return err
+				}
+				return nil
+			}()
+			if err != nil {
+				s.logs += err.Error() + "\n"
+				return nil, err
+			}
 
-		// 重命名临时文件
-		if err := os.Rename(tempFile, outputPath); err != nil {
-			os.Remove(tempFile)
-			return nil, fmt.Errorf("failed to rename temp file: %w", err)
 		}
 
 		// 添加输出文件
@@ -151,9 +237,10 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
 
 		// 删除原始文件
 		if s.deleteSource && file.Path != outputPath {
-			if err := os.Remove(file.Path); err != nil {
+			if err := playbackasset.DeleteSourceValidated(file.Path, outputPath, sourceInfo); err != nil {
 				logrus.WithError(err).WithField("file", file.Path).Warn("failed to delete original file")
 				s.logs += fmt.Sprintf("删除原始文件失败: %s\n", file.Path)
+				return nil, err
 			} else {
 				s.logs += fmt.Sprintf("已删除原始文件: %s\n", file.Path)
 				ctx.Logger.Infof("已删除原始文件: %s", file.Path)
@@ -172,41 +259,12 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
 	return output, nil
 }
 
-// getVideoDuration 获取视频时长（秒）
-func (s *ConvertMp4Stage) getVideoDuration(ctx context.Context, ffmpegPath, inputFile string) float64 {
-	cmd := exec.CommandContext(ctx, ffmpegPath,
-		"-i", inputFile,
-		"-hide_banner",
-	)
-
-	output, _ := cmd.CombinedOutput()
-
-	// 解析 Duration: HH:MM:SS.ms
-	re := regexp.MustCompile(`Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})`)
-	matches := re.FindStringSubmatch(string(output))
-	if len(matches) < 5 {
-		return 0
-	}
-
-	hours, _ := strconv.ParseFloat(matches[1], 64)
-	minutes, _ := strconv.ParseFloat(matches[2], 64)
-	seconds, _ := strconv.ParseFloat(matches[3], 64)
-	ms, _ := strconv.ParseFloat(matches[4], 64)
-
-	return hours*3600 + minutes*60 + seconds + ms/100
-}
-
 // parseProgress 解析 ffmpeg 进度输出
 func (s *ConvertMp4Stage) parseProgress(ctx context.Context, stdout io.Reader, totalDuration float64) {
 	scanner := bufio.NewScanner(stdout)
 	re := regexp.MustCompile(`out_time_us=(\d+)`)
 
 	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
 
 		line := scanner.Text()
 		matches := re.FindStringSubmatch(line)

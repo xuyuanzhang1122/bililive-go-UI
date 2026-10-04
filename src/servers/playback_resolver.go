@@ -6,12 +6,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/gorilla/mux"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	applog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/instance"
 )
 
 type playbackResolveResponse struct {
@@ -36,7 +35,26 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, relPath)
+	// 保持原录播 relPath 身份，同时把播放地址指向已准备的产物。
+	if target, original, ok := preparedPlayback(cfg, relPath); ok {
+		originalPath, _ := getSafePath(cfg.OutPutPath, filepath.FromSlash(original))
+		if !isCurrentRecordingFile(r.Context(), cfg.OutPutPath, originalPath) {
+			urlValue := signedURLForAsset(r, "file", target, cfg)
+			if urlValue == "" {
+				urlValue = joinEscapedURLPath("/files", target)
+			}
+			writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "ready", Protocol: "file", MimeType: "video/mp4", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue)}})
+			return
+		}
+	}
+	// 改名/可信替换后的旧入口保持原请求身份，媒体地址使用目录核验的现存路径。
+	resolvedPath := relPath
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil && inst.RecordingCatalog.MatchesRoot(cfg.OutPutPath) {
+		if target, err := inst.RecordingCatalog.ResolveAlias(r.Context(), relPath); err == nil {
+			resolvedPath = target
+		}
+	}
+	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, resolvedPath)
 	if err != nil {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{ErrNo: http.StatusNotFound, ErrMsg: err.Error()})
 		return
@@ -48,9 +66,9 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 
 	ext := strings.ToLower(filepath.Ext(sourceInfo.Name()))
 	if ext != ".flv" && ext != ".ts" && ext != ".mkv" {
-		urlValue := signedURLForAsset(r, "file", relPath, cfg)
+		urlValue := signedURLForAsset(r, "file", resolvedPath, cfg)
 		if urlValue == "" {
-			urlValue = joinEscapedURLPath("/files", relPath)
+			urlValue = joinEscapedURLPath("/files", resolvedPath)
 		}
 		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
 			Status: "ready", Protocol: "file", MimeType: mimeTypeForVideoExtension(ext), URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
@@ -58,40 +76,31 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheKey := hlsCacheKey(relPath, sourceInfo)
+	cacheKey := hlsCacheKey(resolvedPath, sourceInfo)
 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
 
-	// 使用新的任务管理器
-	job, created := globalHLSJobManager.GetOrCreateJob(cfg, cacheKey, sourcePath, cacheDir, playlistPath)
+	// 使用统一的任务管理器（A1-1：统一入口）
+	job := globalHLSJobManager.EnsureJob(cfg, cacheKey, sourcePath, cacheDir, playlistPath)
 
-	if created {
-		// 新创建的任务，启动它
-		if err := globalHLSJobManager.StartJob(cfg, job); err != nil {
-			applog.GetLogger().WithError(err).WithField("path", relPath).Warn("启动 HLS 任务失败")
-		}
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
-		return
-	}
-
-	// 已存在的任务，检查状态
+	// 检查当前状态
 	status, errMsg := job.GetStatus()
 
 	switch status {
-	case hlsJobCompleted, hlsJobPlayable, hlsJobPartial:
+	case hlsJobCompleted, hlsJobPlayable:
 		// 可以播放
-		urlValue := signedHLSURLForVideoFile(r, ext, relPath, cfg)
+		urlValue := signedHLSURLForVideoFile(r, ext, resolvedPath, cfg)
 		if urlValue == "" {
-			urlValue = joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8"
+			urlValue = joinEscapedURLPath("/api/stream/hls", resolvedPath) + "/playlist.m3u8"
 		}
 		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
 			Status: "ready", Protocol: "hls", MimeType: "application/vnd.apple.mpegurl", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
 		}})
 		return
 
-	case hlsJobFailed:
+	case hlsJobFailed, hlsJobPartial:
 		// 失败
-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "failed", Error: errMsg, RetryAfter: 5}})
+		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "failed", Error: errMsg, RetryAfter: globalHLSJobManager.RetryAfter(job)}})
 		return
 
 	case hlsJobQueued, hlsJobStarting:

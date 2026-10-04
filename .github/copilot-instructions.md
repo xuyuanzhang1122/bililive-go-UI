@@ -26,7 +26,7 @@
 1. **编译验证**：修改代码后必须运行 `make dev` 验证编译通过
 2. **不要使用** `go build ./...`，必须使用 Make 命令（`make dev` 或 `make build-web dev`）
 3. **提交前检查**：确保 `make build-web dev`、`make lint`、`make test` 全部通过
-4. **禁止擅自提交**：不要主动执行 `git commit`、`git push` 等 git 操作，除非用户明确要求
+4. **主动提交本地 commit**：用户于 2026-10-04 明确要求每次改动完成并验证通过后，主动执行本地 `git commit`，方便追溯，无需再次询问。提交说明应写清改动范围和验证结果；只纳入本次改动及必要依赖，已有累积改动作为检查点提交时必须明确说明。`git push` 仍须用户明确授权。
 5. **配置变更**：修改 `Config` 结构体必须同步在 `src/pkg/migration/` 添加迁移函数
 6. **平台扩展**：新平台只需在 `src/live/<platform>/` 添加 Parser，不修改主循环
 7. **API 新增**：路由注册在 `src/servers/server.go`，handler 实现在 `src/servers/handler.go`

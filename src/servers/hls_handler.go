@@ -20,7 +20,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	applog "github.com/bililive-go/bililive-go/src/log"
 	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
@@ -51,6 +50,16 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, relPath)
+	var existing *hlsJob
+	if os.IsNotExist(err) {
+		if target, original, ok := preparedPlayback(cfg, relPath); ok && original == relPath {
+			existing = preparedOriginalHLSJob(cfg, original, target)
+			sourcePath, sourceInfo, err = getSafeVideoFile(cfg, target)
+			if err == nil {
+				relPath = target
+			}
+		}
+	}
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
@@ -63,22 +72,36 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
 
-	lock := acquireHLSCacheLock(cacheKey)
-	lock.mutex.Lock()
-	defer func() {
-		lock.mutex.Unlock()
-		lock.users.Add(-1)
-	}()
-
-	// JIT HLS: 只要有分片就可以返回播放列表，不必等待完整
-	if !isPlaylistReady(playlistPath) {
-		if err := buildHLSCache(cfg, sourcePath, cacheDir, playlistPath); err != nil {
-			http.Error(writer, err.Error(), http.StatusServiceUnavailable)
-			return
-		}
+	// 使用统一的任务管理器（A1-1：统一入口）
+	job := existing
+	if job == nil {
+		job = globalHLSJobManager.EnsureJob(cfg, cacheKey, sourcePath, cacheDir, playlistPath)
+	} else {
+		cacheKey, cacheDir, playlistPath = job.key, job.cacheDir, job.playlistPath
 	}
 
-	content, err := os.ReadFile(playlistPath)
+	// 等待任务变为可播放或完成
+	ctx := r.Context()
+	snapshot, err := globalHLSJobManager.WaitPlayable(ctx, job)
+	if err != nil {
+		http.Error(writer, fmt.Sprintf("HLS 转换失败: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	// 检查任务状态
+	if snapshot.status == hlsJobFailed || snapshot.status == hlsJobPartial {
+		http.Error(writer, fmt.Sprintf("HLS 转换失败: %s", snapshot.errMsg), http.StatusServiceUnavailable)
+		return
+	}
+
+	// 读租约与回收互斥，但不阻塞后台生成。
+	release, ok := globalHLSJobManager.acquireRead(cacheKey, job)
+	if !ok {
+		http.Error(writer, "缓存已失效，请重试", http.StatusServiceUnavailable)
+		return
+	}
+	defer release()
+	content, err := readHLSPlaylist(playlistPath, false)
 	if err != nil {
 		http.Error(writer, "读取 HLS 播放列表失败", http.StatusInternalServerError)
 		return
@@ -117,6 +140,12 @@ func getHLSSegment(writer http.ResponseWriter, r *http.Request) {
 	}
 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
 	segmentPath := filepath.Join(cacheDir, segment)
+	release, ok := globalHLSJobManager.acquireRead(cacheKey, nil)
+	if !ok {
+		http.Error(writer, "缓存尚未就绪或已失效", http.StatusServiceUnavailable)
+		return
+	}
+	defer release()
 	touchHLSCacheDir(cacheDir)
 	writer.Header().Set("Content-Type", "video/MP2T")
 	writer.Header().Set("Cache-Control", "public, max-age=86400")
@@ -126,16 +155,6 @@ func getHLSSegment(writer http.ResponseWriter, r *http.Request) {
 func isPlaylistComplete(path string) bool {
 	content, err := os.ReadFile(path)
 	return err == nil && bytes.Contains(content, []byte("#EXT-X-ENDLIST"))
-}
-
-// isPlaylistReady 检查播放列表是否至少有一个分片可播放（JIT HLS）
-func isPlaylistReady(path string) bool {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	// 检查是否有至少一个 EXTINF 条目（表示有分片）
-	return bytes.Contains(content, []byte("#EXTINF"))
 }
 
 func isCurrentRecordingFile(ctx context.Context, rootPath, sourcePath string) bool {
@@ -170,95 +189,6 @@ func getSafeVideoFile(cfg *configs.Config, relPath string) (string, os.FileInfo,
 		return "", nil, fmt.Errorf("不支持的视频文件类型")
 	}
 	return absPath, info, nil
-}
-
-func buildHLSCache(cfg *configs.Config, sourcePath, cacheDir, playlistPath string) error {
-	conversionCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	ffmpegPath, err := findFFmpegPath(conversionCtx, cfg)
-	if err != nil {
-		return err
-	}
-	if err := os.RemoveAll(cacheDir); err != nil {
-		return fmt.Errorf("清理 HLS 缓存失败: %w", err)
-	}
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return fmt.Errorf("创建 HLS 缓存目录失败: %w", err)
-	}
-	segmentPattern := filepath.Join(cacheDir, "seg_%05d.ts")
-	args := []string{
-		"-hide_banner",
-		"-loglevel", "error",
-		"-y",
-		"-probesize", "1000000",      // 限制探测只读取 1MB
-		"-analyzeduration", "1000000", // 限制分析时长为 1 秒（单位：微秒）
-		"-i", sourcePath,
-		"-c", "copy",
-		"-avoid_negative_ts", "make_zero",
-		"-f", "hls",
-		"-hls_time", "6",
-		"-hls_playlist_type", "event", // 改用 event 类型，支持可增长播放列表
-		"-hls_flags", "independent_segments+temp_file", // temp_file 确保分片原子写入
-		"-hls_segment_filename", segmentPattern,
-		playlistPath,
-	}
-	if ffprobePath, probeErr := findFFprobePath(conversionCtx, cfg); probeErr == nil {
-		if probe, probeErr := probeMedia(conversionCtx, ffprobePath, sourcePath); probeErr == nil {
-			if hlsEncodeModeForProbe(probe) == hlsEncodeTranscode {
-				applog.GetLogger().WithFields(map[string]interface{}{
-					"source": filepath.Base(sourcePath),
-					"format": probe.Format.FormatName,
-				}).Info("媒体不满足跨平台 HLS 直封装条件，改用 H.264/AAC 转码")
-				args = hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath)
-			}
-		} else {
-			applog.GetLogger().WithError(probeErr).WithField("source", filepath.Base(sourcePath)).Warn("媒体探测失败，回退到 HLS 直封装")
-		}
-	} else {
-		applog.GetLogger().WithError(probeErr).WithField("source", filepath.Base(sourcePath)).Warn("ffprobe 不可用，回退到 HLS 直封装")
-	}
-	cmd := exec.CommandContext(conversionCtx, ffmpegPath, args...)
-
-	// 启动 ffmpeg 后立即返回，不阻塞等待完成
-	// ffmpeg 会边切边写，播放列表和分片会逐步出现在 cacheDir
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动 ffmpeg 失败: %w", err)
-	}
-
-	// 后台等待 ffmpeg 完成，完成时追加 ENDLIST（如果 event 没有自动添加）
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				applog.GetLogger().WithField("panic", r).Error("HLS 构建 goroutine panic")
-			}
-		}()
-
-		err := cmd.Wait()
-		if err == nil || isPlaylistReady(playlistPath) {
-			// 转换成功或虽然出错但已有可用分片
-			// event 类型在结束时 ffmpeg 会自动添加 ENDLIST，但为保险起见检查一下
-			if content, readErr := os.ReadFile(playlistPath); readErr == nil {
-				if !bytes.Contains(content, []byte("#EXT-X-ENDLIST")) {
-					// 手动追加 ENDLIST 标记播放列表完整
-					f, appendErr := os.OpenFile(playlistPath, os.O_APPEND|os.O_WRONLY, 0644)
-					if appendErr == nil {
-						_, _ = f.WriteString("#EXT-X-ENDLIST\n")
-						_ = f.Close()
-					}
-				}
-			}
-			if err != nil {
-				applog.GetLogger().WithError(err).WithField("source", filepath.Base(sourcePath)).Warn("ffmpeg 非零退出但播放列表可用")
-			}
-			return
-		}
-
-		// 转换失败且无可用内容
-		applog.GetLogger().WithError(err).WithField("source", filepath.Base(sourcePath)).Error("HLS 转换失败")
-	}()
-
-	return nil
 }
 
 func findFFmpegPath(ctx context.Context, cfg *configs.Config) (string, error) {

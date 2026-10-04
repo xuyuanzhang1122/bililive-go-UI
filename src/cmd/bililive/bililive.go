@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/signal"
@@ -35,6 +36,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	"github.com/bililive-go/bililive-go/src/pkg/openlist"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
+	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
 	bilisentryPkg "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/pkg/telemetry"
 	"github.com/bililive-go/bililive-go/src/pkg/update"
@@ -390,6 +392,20 @@ func main() {
 		logger.Info("云上传功能已启用")
 	}
 
+	// 录播目录后台核验，HTTP 只读持久统计，不触发媒体遍历。
+	catalogRoot, err := filepath.Abs(config.OutPutPath)
+	if err != nil {
+		logger.WithError(err).Fatal("解析录播根目录失败")
+	}
+	catalogKey := fmt.Sprintf("%x", sha256.Sum256([]byte(catalogRoot)))
+	catalogStore, err := recordingcatalog.Open(filepath.Join(config.AppDataPath, "db", "recordings-"+catalogKey[:16]+".db"), catalogRoot, filepath.Join(config.AppDataPath, "media-assets"))
+	if err != nil {
+		logger.WithError(err).Fatal("初始化录播目录失败")
+	}
+	catalogManager := recordingcatalog.NewManager(catalogStore, 30*time.Second)
+	inst.RecordingCatalog = catalogManager
+	catalogManager.Start(ctx)
+
 	// 初始化 Pipeline 管道管理器
 	pipelineDbPath := filepath.Join(config.AppDataPath, "db", "pipeline.db")
 	pipelineStore, err := pipeline.NewSQLiteStore(pipelineDbPath)
@@ -441,6 +457,8 @@ func main() {
 	// 尽早启动 HTTP 服务器，让用户可以快速访问 Web 界面
 	// 即使 live rooms 还在初始化，用户也能看到页面
 	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
+		// 清理旧缓存必须先于监听HTTP，避免删除刚启动的作业或在读分片。
+		servers.StartHLSCacheJanitor(ctx)
 		if err = servers.NewServer(ctx).Start(ctx); err != nil {
 			logger.WithError(err).Fatalf("failed to init server")
 		}
@@ -482,7 +500,6 @@ func main() {
 			}
 		}
 
-		servers.StartHLSCacheJanitor(ctx)
 	}
 
 	// 启动 manager
@@ -739,6 +756,9 @@ func main() {
 		// 关闭 Pipeline 管道管理器
 		if inst.PipelineManager != nil {
 			inst.PipelineManager.Close(ctx)
+		}
+		if inst.RecordingCatalog != nil {
+			_ = inst.RecordingCatalog.Close()
 		}
 		// 关闭直播间状态管理器
 		if liveStateManager != nil {

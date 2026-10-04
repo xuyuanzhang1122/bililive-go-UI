@@ -1,0 +1,3684 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f0dd845..bf058bc 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,14 @@
+ # Changelog
+ 
++## 未发布（2026-09-21）
++
++### 修复与增强
++- 统一 HLS 作业生命周期和有界队列，修复首批读取被转换阻塞、退出结果重复消费、失败无法恢复、缓存回收及启动清理竞态；非零退出不再仅凭 ENDLIST 视为完整成功。
++- 新增 HLS 并发/队列/剩余空间/读宽限配置、持久探测缓存与延迟日志。
++- 录后 MP4 验证轨道、时长、可读性和 faststart 后发布，保留来源关联、旧播放路径与观看记录；失败保源，不覆盖其他媒体。
++- 修复 MP4 签名文件请求被拒绝，以及来源删除后旧 HLS、缩略图和文件操作路径失效。
++- 详细验证与未覆盖范围见 `docs/superpowers/plans/2026-09-21-playback-delivery.md`；尚无双端真机首帧性能结论。
++
+ ## v2.1.1 (2026-08-24)
+ 
+ ### 修复
+diff --git a/src/cmd/bililive/bililive.go b/src/cmd/bililive/bililive.go
+index a905bee..b3ca3ca 100644
+--- a/src/cmd/bililive/bililive.go
++++ b/src/cmd/bililive/bililive.go
+@@ -2,6 +2,7 @@ package main
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
+ 	"fmt"
+ 	"os"
+ 	"os/signal"
+@@ -35,6 +36,7 @@ import (
+ 	"github.com/bililive-go/bililive-go/src/pkg/metadata"
+ 	"github.com/bililive-go/bililive-go/src/pkg/openlist"
+ 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
++	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
+ 	bilisentryPkg "github.com/bililive-go/bililive-go/src/pkg/sentry"
+ 	"github.com/bililive-go/bililive-go/src/pkg/telemetry"
+ 	"github.com/bililive-go/bililive-go/src/pkg/update"
+@@ -390,6 +392,20 @@ func main() {
+ 		logger.Info("云上传功能已启用")
+ 	}
+ 
++	// 录播目录后台核验，HTTP 只读持久统计，不触发媒体遍历。
++	catalogRoot, err := filepath.Abs(config.OutPutPath)
++	if err != nil {
++		logger.WithError(err).Fatal("解析录播根目录失败")
++	}
++	catalogKey := fmt.Sprintf("%x", sha256.Sum256([]byte(catalogRoot)))
++	catalogStore, err := recordingcatalog.Open(filepath.Join(config.AppDataPath, "db", "recordings-"+catalogKey[:16]+".db"), catalogRoot, filepath.Join(config.AppDataPath, "media-assets"))
++	if err != nil {
++		logger.WithError(err).Fatal("初始化录播目录失败")
++	}
++	catalogManager := recordingcatalog.NewManager(catalogStore, 30*time.Second)
++	inst.RecordingCatalog = catalogManager
++	catalogManager.Start(ctx)
++
+ 	// 初始化 Pipeline 管道管理器
+ 	pipelineDbPath := filepath.Join(config.AppDataPath, "db", "pipeline.db")
+ 	pipelineStore, err := pipeline.NewSQLiteStore(pipelineDbPath)
+@@ -441,6 +457,8 @@ func main() {
+ 	// 尽早启动 HTTP 服务器，让用户可以快速访问 Web 界面
+ 	// 即使 live rooms 还在初始化，用户也能看到页面
+ 	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
++		// 清理旧缓存必须先于监听HTTP，避免删除刚启动的作业或在读分片。
++		servers.StartHLSCacheJanitor(ctx)
+ 		if err = servers.NewServer(ctx).Start(ctx); err != nil {
+ 			logger.WithError(err).Fatalf("failed to init server")
+ 		}
+@@ -482,7 +500,6 @@ func main() {
+ 			}
+ 		}
+ 
+-		servers.StartHLSCacheJanitor(ctx)
+ 	}
+ 
+ 	// 启动 manager
+@@ -740,6 +757,9 @@ func main() {
+ 		if inst.PipelineManager != nil {
+ 			inst.PipelineManager.Close(ctx)
+ 		}
++		if inst.RecordingCatalog != nil {
++			_ = inst.RecordingCatalog.Close()
++		}
+ 		// 关闭直播间状态管理器
+ 		if liveStateManager != nil {
+ 			liveStateManager.Close()
+diff --git a/src/configs/config.go b/src/configs/config.go
+index 26b7ea8..4e34b62 100644
+--- a/src/configs/config.go
++++ b/src/configs/config.go
+@@ -4,6 +4,7 @@ import (
+ 	"bytes"
+ 	"errors"
+ 	"fmt"
++	"math"
+ 	"net"
+ 	"net/url"
+ 	"os"
+@@ -267,15 +268,23 @@ var defaultUpdateConfig = UpdateConfig{
+ }
+ 
+ // HLSCacheConfig 控制本地视频转封装产生的 HLS 播放缓存。
+-// 两个限制均允许显式配置为 0，以关闭对应维度的回收。
++// 缓存回收和剩余空间限制允许显式配置为 0，关闭对应限制。
+ type HLSCacheConfig struct {
+-	MaxAgeHours    int     `yaml:"max_age_hours" json:"max_age_hours"`
+-	MaxTotalSizeGB float64 `yaml:"max_total_size_gb" json:"max_total_size_gb"`
++	MaxConcurrent    int     `yaml:"max_concurrent" json:"max_concurrent"`
++	MaxQueued        int     `yaml:"max_queued" json:"max_queued"`
++	MinFreeSpaceGB   float64 `yaml:"min_free_space_gb" json:"min_free_space_gb"`
++	ReadGraceSeconds int     `yaml:"read_grace_seconds" json:"read_grace_seconds"`
++	MaxAgeHours      int     `yaml:"max_age_hours" json:"max_age_hours"`
++	MaxTotalSizeGB   float64 `yaml:"max_total_size_gb" json:"max_total_size_gb"`
+ }
+ 
+ var defaultHLSCacheConfig = HLSCacheConfig{
+-	MaxAgeHours:    24,
+-	MaxTotalSizeGB: 10,
++	MaxConcurrent:    3,
++	MaxQueued:        64,
++	MinFreeSpaceGB:   1,
++	ReadGraceSeconds: 60,
++	MaxAgeHours:      24,
++	MaxTotalSizeGB:   10,
+ }
+ 
+ // StreamPreference 流偏好配置
+@@ -834,6 +843,19 @@ func (c *Config) Verify() error {
+ 		return fmt.Errorf("HLS 缓存总大小上限不能小于 0")
+ 	}
+ 
++	if c.HLSCache.MaxConcurrent < 1 || c.HLSCache.MaxConcurrent > 32 {
++		return fmt.Errorf("HLS 最大并发任务数必须在 1 到 32 之间")
++	}
++	if c.HLSCache.MaxQueued < 1 || c.HLSCache.MaxQueued > 1024 {
++		return fmt.Errorf("HLS 最大排队任务数必须在 1 到 1024 之间")
++	}
++	if c.HLSCache.MinFreeSpaceGB < 0 || math.IsNaN(c.HLSCache.MinFreeSpaceGB) || math.IsInf(c.HLSCache.MinFreeSpaceGB, 0) {
++		return fmt.Errorf("HLS 最小剩余磁盘空间必须是大于等于 0 的有限数值")
++	}
++	if c.HLSCache.ReadGraceSeconds < 0 {
++		return fmt.Errorf("HLS 读取保护时长不能小于 0")
++	}
++
+ 	// 验证平台配置
+ 	if err := c.ValidatePlatformConfigs(); err != nil {
+ 		return err
+@@ -896,6 +918,15 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
+ 		return nil, err
+ 	}
+ 
++	if err := migration.ApplyHLSResourceConfigV210(b,
++		&config.HLSCache.MaxConcurrent, &config.HLSCache.MaxQueued,
++		&config.HLSCache.MinFreeSpaceGB, &config.HLSCache.ReadGraceSeconds,
++		defaultHLSCacheConfig.MaxConcurrent, defaultHLSCacheConfig.MaxQueued,
++		defaultHLSCacheConfig.MinFreeSpaceGB, defaultHLSCacheConfig.ReadGraceSeconds,
++	); err != nil {
++		return nil, err
++	}
++
+ 	// 确保映射在向后兼容时被初始化
+ 	if config.PlatformConfigs == nil {
+ 		config.PlatformConfigs = map[string]PlatformConfig{}
+diff --git a/src/configs/config_comments.go b/src/configs/config_comments.go
+index c479de4..c20dd32 100644
+--- a/src/configs/config_comments.go
++++ b/src/configs/config_comments.go
+@@ -25,6 +25,10 @@ func DecorateConfigNode(node *yaml.Node) {
+ 	setFieldHeadComment(root, "hls_cache", "# HLS 播放缓存生命周期配置")
+ 	hlsCacheNode := findNode(root, "hls_cache")
+ 	if hlsCacheNode != nil {
++		setFieldComment(hlsCacheNode, "max_concurrent", "# HLS 最大并发转封装任务数，默认 3，范围 1 到 32", "")
++		setFieldComment(hlsCacheNode, "max_queued", "# HLS 最大排队任务数，默认 64，范围 1 到 1024", "")
++		setFieldComment(hlsCacheNode, "min_free_space_gb", "# 启动 HLS 转封装所需最小剩余磁盘空间（GB），默认 1，0 表示禁用检查", "")
++		setFieldComment(hlsCacheNode, "read_grace_seconds", "# HLS 文件读取后暂缓缓存回收的保护时长（秒），默认 60，0 表示禁用保护", "")
+ 		setFieldComment(hlsCacheNode, "max_age_hours",
+ 			"# HLS 播放缓存单个目录最大保留时长（小时），0 表示不按时间清理", "")
+ 		setFieldComment(hlsCacheNode, "max_total_size_gb",
+diff --git a/src/configs/config_test.go b/src/configs/config_test.go
+index e0993ca..8db29c5 100644
+--- a/src/configs/config_test.go
++++ b/src/configs/config_test.go
+@@ -11,8 +11,16 @@ import (
+ )
+ 
+ func TestNewConfig(t *testing.T) {
+-	file := "../../config.yml"
+-	c, err := NewConfigWithFile("../../config.yml")
++	// 配置加载会执行迁移并回写，测试必须在副本上运行。
++	data, err := os.ReadFile("../../config.yml")
++	if err != nil {
++		t.Fatal(err)
++	}
++	file := filepath.Join(t.TempDir(), "config.yml")
++	if err := os.WriteFile(file, data, 0600); err != nil {
++		t.Fatal(err)
++	}
++	c, err := NewConfigWithFile(file)
+ 	assert.NoError(t, err)
+ 	assert.Equal(t, file, c.File)
+ }
+@@ -31,6 +39,7 @@ func TestConfig_Verify(t *testing.T) {
+ 	var cfg *Config
+ 	assert.Error(t, cfg.Verify())
+ 	cfg = &Config{
++		HLSCache:   defaultHLSCacheConfig,
+ 		RPC:        defaultRPC,
+ 		Interval:   30,
+ 		OutPutPath: os.TempDir(),
+diff --git a/src/instance/instance.go b/src/instance/instance.go
+index a088dc0..e843ee4 100644
+--- a/src/instance/instance.go
++++ b/src/instance/instance.go
+@@ -1,6 +1,7 @@
+ package instance
+ 
+ import (
++	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
+ 	"sync"
+ 
+ 	"github.com/bililive-go/bililive-go/src/interfaces"
+@@ -8,6 +9,7 @@ import (
+ )
+ 
+ type Instance struct {
++	RecordingCatalog *recordingcatalog.Manager
+ 	WaitGroup        sync.WaitGroup
+ 	Lives            LiveMap
+ 	Cache            gcache.Cache
+diff --git a/src/pipeline/manager.go b/src/pipeline/manager.go
+index da7880d..b8aef4b 100644
+--- a/src/pipeline/manager.go
++++ b/src/pipeline/manager.go
+@@ -217,6 +217,9 @@ func (m *Manager) executeTask(ctx context.Context, task *PipelineTask) {
+ 		},
+ 	)
+ 
++	if inst := instance.GetInstance(ctx); inst != nil && inst.RecordingCatalog != nil {
++		inst.RecordingCatalog.Notify()
++	}
+ 	// 保存阶段结果
+ 	task.StageResults = results
+ 
+diff --git a/src/pipeline/stages/convert_mp4.go b/src/pipeline/stages/convert_mp4.go
+index d5f29d6..fa3d216 100644
+--- a/src/pipeline/stages/convert_mp4.go
++++ b/src/pipeline/stages/convert_mp4.go
+@@ -5,6 +5,7 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"io"
++	"math"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+@@ -12,8 +13,10 @@ import (
+ 	"strconv"
+ 	"strings"
+ 
++	"github.com/bililive-go/bililive-go/src/configs"
+ 	"github.com/bililive-go/bililive-go/src/pipeline"
+-	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
++	"github.com/bililive-go/bililive-go/src/pkg/mediawork"
++	"github.com/bililive-go/bililive-go/src/pkg/playbackasset"
+ 	"github.com/bililive-go/bililive-go/src/pkg/utils"
+ 	"github.com/sirupsen/logrus"
+ )
+@@ -45,6 +48,16 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
+ 		return input, nil
+ 	}
+ 
++	limit := 3
++	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.HLSCache.MaxConcurrent > 0 {
++		limit = cfg.HLSCache.MaxConcurrent
++	}
++	release, err := mediawork.Shared.Acquire(ctx.Ctx, limit)
++	if err != nil {
++		return nil, err
++	}
++	defer release()
++
+ 	ffmpegPath := ctx.FFmpegPath
+ 	if ffmpegPath == "" {
+ 		var err error
+@@ -64,82 +77,155 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
+ 			continue
+ 		}
+ 
+-		// 检查文件是否存在
+-		if _, err := os.Stat(file.Path); os.IsNotExist(err) {
+-			s.logs += fmt.Sprintf("文件不存在: %s\n", file.Path)
+-			continue
++		sourceInfo, err := os.Stat(file.Path)
++		if os.IsNotExist(err) && s.deleteSource {
++			ext := filepath.Ext(file.Path)
++			target := strings.TrimSuffix(file.Path, ext) + ".mp4"
++			if strings.EqualFold(ext, ".mp4") {
++				target = strings.TrimSuffix(file.Path, ext) + ".prepared.mp4"
++			}
++			manifest, loadErr := playbackasset.Load(target)
++			if loadErr == nil && manifest.SourceName == filepath.Base(file.Path) {
++				if _, err := inspectMP4Media(ctx.Ctx, ffmpegPath, target); err != nil {
++					return nil, err
++				}
++				if err := checkMP4Faststart(target); err != nil {
++					return nil, err
++				}
++				if _, err := playbackasset.RecoverSourceDeletion(target); err != nil {
++					return nil, err
++				}
++				output = append(output, pipeline.FileInfo{Path: target, Type: pipeline.FileTypeVideo, SourcePath: file.Path})
++				continue
++			}
+ 		}
+-
+-		// 如果已经是 MP4 文件，跳过
+-		ext := strings.ToLower(filepath.Ext(file.Path))
+-		if ext == ".mp4" {
+-			s.logs += fmt.Sprintf("文件 %s 已经是 MP4 格式，跳过转换。\n", filepath.Base(file.Path))
+-			output = append(output, file)
+-			continue
++		if err != nil {
++			return nil, fmt.Errorf("读取源文件: %w", err)
+ 		}
+-
+-		// 确定输出文件名
+-		base := strings.TrimSuffix(file.Path, ext)
+-		outputPath := base + ".mp4"
+-
+-		// 临时文件路径
+-		dir := filepath.Dir(outputPath)
+-		baseName := filepath.Base(outputPath)
+-		tempFile := filepath.Join(dir, ".converting_"+baseName)
+-
+-		ctx.Logger.Infof("转换 MP4: %s -> %s", file.Path, outputPath)
+-
+-		// 获取视频时长用于进度计算
+-		duration := s.getVideoDuration(ctx.Ctx, ffmpegPath, file.Path)
+-
+-		// 构建 ffmpeg 命令
+-		args := []string{
+-			"-i", file.Path,
+-			"-c", "copy",
+-			"-movflags", "+faststart",
+-			"-y",
+-			"-progress", "pipe:1",
+-			tempFile,
++		if !sourceInfo.Mode().IsRegular() {
++			return nil, fmt.Errorf("源文件不是普通文件: %s", file.Path)
+ 		}
+-
+-		cmdStr := fmt.Sprintf("%s %s", ffmpegPath, strings.Join(args, " "))
+-		s.commands = append(s.commands, cmdStr)
+-
+-		cmd := exec.CommandContext(ctx.Ctx, ffmpegPath, args...)
+-
+-		stdout, err := cmd.StdoutPipe()
++		sourceMedia, err := inspectMP4Media(ctx.Ctx, ffmpegPath, file.Path)
+ 		if err != nil {
+-			s.logs += fmt.Sprintf("创建输出管道失败: %s\n", err.Error())
+-			return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
++			return nil, fmt.Errorf("检查源媒体: %w", err)
+ 		}
+-
+-		if err := cmd.Start(); err != nil {
+-			s.logs += fmt.Sprintf("启动 ffmpeg 失败: %s\n", err.Error())
+-			return nil, fmt.Errorf("failed to start ffmpeg: %w", err)
++		ext := filepath.Ext(file.Path)
++		outputPath := strings.TrimSuffix(file.Path, ext) + ".mp4"
++		if strings.EqualFold(ext, ".mp4") {
++			if err := checkMP4Faststart(file.Path); err == nil {
++				output = append(output, file)
++				continue
++			}
++			outputPath = strings.TrimSuffix(file.Path, ext) + ".prepared.mp4"
+ 		}
+-
+-		// 解析进度（后台）
+-		bilisentry.GoWithContext(ctx.Ctx, func(goCtx context.Context) {
+-			s.parseProgress(goCtx, stdout, duration)
+-		})
+-
+-		// 等待命令完成
+-		if err := cmd.Wait(); err != nil {
+-			os.Remove(tempFile)
+-			s.logs += fmt.Sprintf("ffmpeg 转换失败: %s - %s\n", file.Path, err.Error())
+-			return nil, fmt.Errorf("ffmpeg conversion failed for %s: %w", file.Path, err)
++		validateOutput := func(path string) error {
++			result, err := inspectMP4Media(ctx.Ctx, ffmpegPath, path)
++			if err != nil {
++				return err
++			}
++			if result.audio != sourceMedia.audio || math.Abs(result.duration-sourceMedia.duration) > math.Max(1, sourceMedia.duration*0.01) {
++				return fmt.Errorf("产物轨道或时长不符")
++			}
++			return checkMP4Faststart(path)
+ 		}
+-
+-		// 检查临时文件
+-		if _, err := os.Stat(tempFile); os.IsNotExist(err) {
+-			s.logs += fmt.Sprintf("临时文件未创建: %s\n", tempFile)
+-			return nil, fmt.Errorf("temp file was not created: %s", tempFile)
++		if _, err := playbackasset.RecoverPublication(file.Path, outputPath, sourceInfo, validateOutput); err != nil {
++			return nil, fmt.Errorf("恢复发布失败: %w", err)
+ 		}
++		reused := false
++		if _, err := os.Lstat(outputPath); err == nil {
++			manifest, loadErr := playbackasset.Load(outputPath)
++			if loadErr != nil || manifest.SourceName != filepath.Base(file.Path) {
++				return nil, fmt.Errorf("目标文件已存在且来源无法确认: %s", outputPath)
++			}
++			result, checkErr := inspectMP4Media(ctx.Ctx, ffmpegPath, outputPath)
++			if checkErr != nil {
++				return nil, checkErr
++			}
++			if result.audio != sourceMedia.audio || math.Abs(result.duration-sourceMedia.duration) > math.Max(1, sourceMedia.duration*0.01) {
++				return nil, fmt.Errorf("已有产物轨道或时长不符")
++			}
++			if err := checkMP4Faststart(outputPath); err != nil {
++				return nil, err
++			}
++			reused = true
++		} else if !os.IsNotExist(err) {
++			return nil, err
++		}
++		if !reused {
++			temp, err := os.CreateTemp(filepath.Dir(outputPath), ".converting-*.mp4")
++			if err != nil {
++				return nil, fmt.Errorf("创建临时文件: %w", err)
++			}
++			tempFile := temp.Name()
++			if err := temp.Close(); err != nil {
++				os.Remove(tempFile)
++				return nil, err
++			}
++			// 只清理本次创建的临时文件，任何失败都保留源文件。
++			err = func() error {
++				defer os.Remove(tempFile)
++				args := []string{"-nostdin", "-v", "error", "-i", file.Path, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", "-y", "-progress", "pipe:1", tempFile}
++				s.commands = append(s.commands, fmt.Sprintf("%s %s", ffmpegPath, strings.Join(args, " ")))
++				cmd := exec.CommandContext(ctx.Ctx, ffmpegPath, args...)
++				stderr := &mp4LimitedBuffer{}
++				cmd.Stderr = stderr
++				stdout, err := cmd.StdoutPipe()
++				if err != nil {
++					return err
++				}
++				if err := cmd.Start(); err != nil {
++					stdout.Close()
++					return err
++				}
++				// 读至 EOF 后再 Wait，避免 Wait 提前关闭管道；取消由 CommandContext 回收。
++				s.parseProgress(ctx.Ctx, stdout, sourceMedia.duration)
++				// 进度行过长导致 scanner 停止时仍排空管道，避免子进程阻塞。
++				_, _ = io.Copy(io.Discard, stdout)
++				if err := cmd.Wait(); err != nil {
++					return fmt.Errorf("ffmpeg 转换失败: %w: %s", err, stderr.String())
++				}
++				if err := ctx.Ctx.Err(); err != nil {
++					return err
++				}
++				result, err := inspectMP4Media(ctx.Ctx, ffmpegPath, tempFile)
++				if err != nil {
++					return fmt.Errorf("产物检查失败: %w", err)
++				}
++				if result.audio != sourceMedia.audio || math.Abs(result.duration-sourceMedia.duration) > math.Max(1, sourceMedia.duration*0.01) {
++					return fmt.Errorf("产物轨道或时长与源文件不符")
++				}
++				if err := checkMP4Faststart(tempFile); err != nil {
++					return err
++				}
++				current, err := os.Stat(file.Path)
++				if err != nil {
++					return err
++				}
++				if !os.SameFile(sourceInfo, current) || sourceInfo.Size() != current.Size() || !sourceInfo.ModTime().Equal(current.ModTime()) {
++					return fmt.Errorf("转换期间源文件发生变化")
++				}
++				ready, err := os.OpenFile(tempFile, os.O_RDWR, 0)
++				if err != nil {
++					return err
++				}
++				syncErr := ready.Sync()
++				closeErr := ready.Close()
++				if syncErr != nil {
++					return syncErr
++				}
++				if closeErr != nil {
++					return closeErr
++				}
++				if err := playbackasset.PublishValidated(file.Path, outputPath, tempFile, sourceInfo); err != nil {
++					return err
++				}
++				return nil
++			}()
++			if err != nil {
++				s.logs += err.Error() + "\n"
++				return nil, err
++			}
+ 
+-		// 重命名临时文件
+-		if err := os.Rename(tempFile, outputPath); err != nil {
+-			os.Remove(tempFile)
+-			return nil, fmt.Errorf("failed to rename temp file: %w", err)
+ 		}
+ 
+ 		// 添加输出文件
+@@ -151,9 +237,10 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
+ 
+ 		// 删除原始文件
+ 		if s.deleteSource && file.Path != outputPath {
+-			if err := os.Remove(file.Path); err != nil {
++			if err := playbackasset.DeleteSourceValidated(file.Path, outputPath, sourceInfo); err != nil {
+ 				logrus.WithError(err).WithField("file", file.Path).Warn("failed to delete original file")
+ 				s.logs += fmt.Sprintf("删除原始文件失败: %s\n", file.Path)
++				return nil, err
+ 			} else {
+ 				s.logs += fmt.Sprintf("已删除原始文件: %s\n", file.Path)
+ 				ctx.Logger.Infof("已删除原始文件: %s", file.Path)
+@@ -172,41 +259,12 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
+ 	return output, nil
+ }
+ 
+-// getVideoDuration 获取视频时长（秒）
+-func (s *ConvertMp4Stage) getVideoDuration(ctx context.Context, ffmpegPath, inputFile string) float64 {
+-	cmd := exec.CommandContext(ctx, ffmpegPath,
+-		"-i", inputFile,
+-		"-hide_banner",
+-	)
+-
+-	output, _ := cmd.CombinedOutput()
+-
+-	// 解析 Duration: HH:MM:SS.ms
+-	re := regexp.MustCompile(`Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})`)
+-	matches := re.FindStringSubmatch(string(output))
+-	if len(matches) < 5 {
+-		return 0
+-	}
+-
+-	hours, _ := strconv.ParseFloat(matches[1], 64)
+-	minutes, _ := strconv.ParseFloat(matches[2], 64)
+-	seconds, _ := strconv.ParseFloat(matches[3], 64)
+-	ms, _ := strconv.ParseFloat(matches[4], 64)
+-
+-	return hours*3600 + minutes*60 + seconds + ms/100
+-}
+-
+ // parseProgress 解析 ffmpeg 进度输出
+ func (s *ConvertMp4Stage) parseProgress(ctx context.Context, stdout io.Reader, totalDuration float64) {
+ 	scanner := bufio.NewScanner(stdout)
+ 	re := regexp.MustCompile(`out_time_us=(\d+)`)
+ 
+ 	for scanner.Scan() {
+-		select {
+-		case <-ctx.Done():
+-			return
+-		default:
+-		}
+ 
+ 		line := scanner.Text()
+ 		matches := re.FindStringSubmatch(line)
+diff --git a/src/pkg/playbackasset/publish.go b/src/pkg/playbackasset/publish.go
+index 6dd84dd..ca6e2a8 100644
+--- a/src/pkg/playbackasset/publish.go
++++ b/src/pkg/playbackasset/publish.go
+@@ -16,15 +16,6 @@ type publicationIntent struct {
+ 	TempName string `json:"temp_name"`
+ }
+ 
+-func syncPublicationDir(path string) error {
+-	dir, err := os.Open(filepath.Dir(path))
+-	if err != nil {
+-		return err
+-	}
+-	defer dir.Close()
+-	return dir.Sync()
+-}
+-
+ func removePublicationFile(path string, expected os.FileInfo) error {
+ 	current, err := os.Lstat(path)
+ 	if os.IsNotExist(err) {
+@@ -117,14 +108,26 @@ func PublishValidated(source, target, temp string, sourceInfo os.FileInfo) error
+ }
+ 
+ func finishPublication(source, target string, targetInfo, sourceInfo os.FileInfo, intentPath string, intentInfo os.FileInfo) error {
++	expected := Manifest{Version: 1, SourceName: filepath.Base(source), TargetName: filepath.Base(target), Source: stamp(sourceInfo), Target: stamp(targetInfo)}
++	current, err := os.Lstat(target)
++	if err != nil {
++		return err
++	}
++	if !os.SameFile(current, targetInfo) || stamp(current) != expected.Target {
++		return fmt.Errorf("发布提交前产物发生变化")
++	}
+ 	if err := Save(source, target, sourceInfo); err != nil {
+-		// 另一恢复流程可能已经提交关联并按策略删除来源。此时产物是
+-		// 已完成的可信提交，不能因本流程再次 Save 失败而回滚它。
+-		if _, loadErr := Load(target); loadErr == nil {
+-			if removeErr := removePublicationFile(intentPath, intentInfo); removeErr != nil {
+-				return fmt.Errorf("并发发布已完成，但清理发布意图失败: %w", removeErr)
++		// 另一恢复流程可能已经提交同一来源、同一产物版本。只有完整
++		// Manifest 精确匹配时才允许幂等收尾，不能仅凭 Load 成功判断。
++		if existing, loadErr := Load(target); loadErr == nil {
++			if existing == expected {
++				if removeErr := removePublicationFile(intentPath, intentInfo); removeErr != nil {
++					return fmt.Errorf("并发发布已完成，但清理发布意图失败: %w", removeErr)
++				}
++				return syncPublicationDir(target)
+ 			}
+-			return syncPublicationDir(target)
++			// 目标已被其他来源可信提交，绝不能把它当作本流程产物回滚。
++			return fmt.Errorf("目标已有不同来源的播放关联")
+ 		}
+ 		// 仅回滚本次创建的文件，不碰同名替换文件，更不删除源文件。
+ 		rollbackErr := removePublicationFile(target, targetInfo)
+diff --git a/src/pkg/playbackasset/publish_test.go b/src/pkg/playbackasset/publish_test.go
+index 3064ddd..70e5cbb 100644
+--- a/src/pkg/playbackasset/publish_test.go
++++ b/src/pkg/playbackasset/publish_test.go
+@@ -79,16 +79,40 @@ func TestPublicationRecoveryDoesNotDeleteReplacement(t *testing.T) {
+ 	require.NoError(t, err)
+ 	require.Equal(t, "other media", string(data))
+ }
+-func TestPublicationRecoveryKeepsConcurrentCommit(t *testing.T) {
++func TestPublicationRecoveryRejectsDifferentCommittedManifest(t *testing.T) {
+ 	source, target, temp, info := publicationFixture(t)
++	otherSource := filepath.Join(filepath.Dir(source), "other.flv")
++	require.NoError(t, os.WriteFile(otherSource, []byte("other source"), 0600))
++	otherInfo, err := os.Stat(otherSource)
++	require.NoError(t, err)
+ 	writePublicationIntent(t, source, target, temp, info)
+ 	require.NoError(t, os.Link(temp, target))
+-	_, _ = RecoverPublication(source, target, info, func(string) error {
+-		require.NoError(t, Save(source, target, info))
++	require.NoError(t, Save(otherSource, target, otherInfo))
++
++	_, err = RecoverPublication(source, target, info, func(string) error { return nil })
++	require.Error(t, err)
++	_, err = os.Stat(source)
++	require.NoError(t, err, "不同来源的已提交关联不得触发删源")
++	manifest, err := Load(target)
++	require.NoError(t, err)
++	require.Equal(t, filepath.Base(otherSource), manifest.SourceName)
++}
++
++func TestPublicationRecoveryKeepsSameConcurrentCommit(t *testing.T) {
++	source, target, temp, info := publicationFixture(t)
++	writePublicationIntent(t, source, target, temp, info)
++	require.NoError(t, os.Link(temp, target))
++	recovered, err := RecoverPublication(source, target, info, func(string) error {
++		if err := Save(source, target, info); err != nil {
++			return err
++		}
+ 		return os.Remove(source)
+ 	})
+-	_, err := os.Stat(target)
+-	require.NoError(t, err, "另一恢复已提交且按策略删源时，不得回滚已提交产物")
+-	_, err = Load(target)
+ 	require.NoError(t, err)
++	require.True(t, recovered)
++	manifest, err := Load(target)
++	require.NoError(t, err)
++	require.Equal(t, filepath.Base(source), manifest.SourceName)
++	_, err = os.Stat(target + IntentSuffix)
++	require.True(t, os.IsNotExist(err))
+ }
+diff --git a/src/recorders/recorder.go b/src/recorders/recorder.go
+index 3594b17..a8ce02d 100644
+--- a/src/recorders/recorder.go
++++ b/src/recorders/recorder.go
+@@ -539,6 +539,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
+ 			return
+ 		}
+ 
++		if inst.RecordingCatalog != nil {
++			inst.RecordingCatalog.Notify()
++		}
+ 		// 获取 PipelineManager
+ 		pipelineManager := pipeline.GetManager(inst)
+ 		if pipelineManager == nil {
+diff --git a/src/servers/auth.go b/src/servers/auth.go
+index deaa406..84b9b78 100644
+--- a/src/servers/auth.go
++++ b/src/servers/auth.go
+@@ -188,7 +188,8 @@ func canUseSignedURL(r *http.Request) bool {
+ 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+ 		return false
+ 	}
+-	return strings.HasPrefix(r.URL.Path, "/api/thumbnail/") ||
++	return strings.HasPrefix(r.URL.Path, "/files/") ||
++		strings.HasPrefix(r.URL.Path, "/api/thumbnail/") ||
+ 		strings.HasPrefix(r.URL.Path, "/api/stream/hls/") ||
+ 		strings.HasPrefix(r.URL.Path, "/api/stream/hls-segment/")
+ }
+diff --git a/src/servers/handler.go b/src/servers/handler.go
+index 39aaf43..9cdf965 100644
+--- a/src/servers/handler.go
++++ b/src/servers/handler.go
+@@ -882,19 +882,24 @@ var videoExtensions = map[string]bool{
+ 
+ // VideoRoomInfo 视频库中的直播间信息
+ type VideoRoomInfo struct {
+-	HostName      string `json:"host_name"`
+-	Platform      string `json:"platform"`
+-	FolderPath    string `json:"folder_path"` // 相对于 output_path 的路径
+-	VideoCount    int    `json:"video_count"`
+-	TotalSize     int64  `json:"total_size"`
+-	LatestVideoAt int64  `json:"latest_video_at"` // Unix 时间戳
+-	LatestVideo   string `json:"latest_video"`    // 最新视频的相对路径（用于缩略图）
+-	Recording     bool   `json:"recording"`       // 是否正在直播
+-	URL           string `json:"url"`             // 直播间原始 URL（仅 recording=true 时有值）
++	HostName            string `json:"host_name"`
++	Platform            string `json:"platform"`
++	FolderPath          string `json:"folder_path"` // 相对于 output_path 的路径
++	VideoCount          int    `json:"video_count"`
++	TotalSize           int64  `json:"total_size"`
++	DerivedSize         int64  `json:"derived_size"`
++	TotalSizeText       string `json:"total_size_text"`
++	StatisticsStatus    string `json:"statistics_status"`
++	StatisticsCheckedAt int64  `json:"statistics_checked_at"`
++	LatestVideoAt       int64  `json:"latest_video_at"` // Unix 时间戳
++	LatestVideo         string `json:"latest_video"`    // 最新视频的相对路径（用于缩略图）
++	Recording           bool   `json:"recording"`       // 是否正在直播
++	URL                 string `json:"url"`             // 直播间原始 URL（仅 recording=true 时有值）
+ }
+ 
+ // getVideoLibrary 返回所有有录播视频的直播间汇总信息
+ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
++	writer.Header().Set("Cache-Control", "no-store")
+ 	inst := instance.GetInstance(r.Context())
+ 	cfg := configs.GetCurrentConfig()
+ 	if cfg == nil {
+@@ -920,97 +925,35 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
+ 	rooms := make([]VideoRoomInfo, 0)
+ 	activeRecordings := currentRecordingRoomIndex(r.Context())
+ 
+-	platformEntries, err := os.ReadDir(rootPath)
++	if inst == nil || inst.RecordingCatalog == nil || !inst.RecordingCatalog.MatchesRoot(rootPath) {
++		writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{ErrNo: 503, ErrMsg: "录播目录尚不可用，请稍后重试"})
++		return
++	}
++	catalogRooms, err := inst.RecordingCatalog.Rooms(r.Context())
+ 	if err != nil {
+-		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+-			ErrNo:  http.StatusInternalServerError,
+-			ErrMsg: "读取输出目录失败: " + err.Error(),
+-		})
++		writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{ErrNo: 503, ErrMsg: "读取录播目录失败: " + err.Error()})
+ 		return
+ 	}
+-
+-	for _, platformEntry := range platformEntries {
+-		if !platformEntry.IsDir() {
+-			continue
+-		}
+-		// 跳过隐藏目录（以 . 开头）和 .appdata 等系统目录
+-		if strings.HasPrefix(platformEntry.Name(), ".") {
+-			continue
+-		}
+-		// 只扫描已配置直播间对应的平台目录；如果没有配置任何直播间，则扫描所有平台目录
+-		if len(knownPlatforms) > 0 && !knownPlatforms[platformEntry.Name()] {
+-			continue
++	if len(catalogRooms) == 0 {
++		status, err := inst.RecordingCatalog.Status(r.Context())
++		if err != nil || status != "verified" {
++			writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{ErrNo: 503, ErrMsg: "录播目录尚未完成核验"})
++			return
+ 		}
+-		platformPath := filepath.Join(rootPath, platformEntry.Name())
+-
+-		hostEntries, err := os.ReadDir(platformPath)
+-		if err != nil {
++	}
++	for _, room := range catalogRooms {
++		if len(knownPlatforms) > 0 && !knownPlatforms[room.Platform] {
+ 			continue
+ 		}
+-
+-		for _, hostEntry := range hostEntries {
+-			if !hostEntry.IsDir() {
+-				continue
+-			}
+-			hostPath := filepath.Join(platformPath, hostEntry.Name())
+-
+-			var videoCount int
+-			var totalSize int64
+-			var latestModTime int64
+-			var latestVideoRelPath string
+-
+-			err := filepath.WalkDir(hostPath, func(path string, d fs.DirEntry, err error) error {
+-				if err != nil || d.IsDir() {
+-					return nil
+-				}
+-				ext := strings.ToLower(filepath.Ext(d.Name()))
+-				if !videoExtensions[ext] {
+-					return nil
+-				}
+-				info, err := d.Info()
+-				if err != nil {
+-					return nil
+-				}
+-				videoCount++
+-				totalSize += info.Size()
+-				modTime := info.ModTime().Unix()
+-				if modTime > latestModTime {
+-					latestModTime = modTime
+-					rel, _ := filepath.Rel(rootPath, path)
+-					latestVideoRelPath = rel
+-				}
+-				return nil
+-			})
+-			if err != nil || videoCount == 0 {
+-				continue
+-			}
+-
+-			folderRel, _ := filepath.Rel(rootPath, hostPath)
+-			hostName := hostEntry.Name()
+-			inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
+-				if l.GetPlatformCNName() == platformEntry.Name() {
+-					if obj, err := inst.Cache.Get(l); err == nil && obj != nil {
+-						info := obj.(*live.Info)
+-						if info.HostName == hostEntry.Name() {
+-							hostName = info.HostName
+-							return false
+-						}
+-					}
+-				}
+-				return true
+-			})
+-
+-			rooms = append(rooms, VideoRoomInfo{
+-				HostName:      hostName,
+-				Platform:      platformEntry.Name(),
+-				FolderPath:    filepath.ToSlash(folderRel),
+-				VideoCount:    videoCount,
+-				TotalSize:     totalSize,
+-				LatestVideoAt: latestModTime,
+-				LatestVideo:   filepath.ToSlash(latestVideoRelPath),
+-				Recording:     activeRecordings[platformEntry.Name()+"/"+hostName],
+-			})
++		text := formatVideoLibrarySize(room.TotalSize)
++		if room.Status == "unavailable" {
++			text = "统计暂不可用"
++		} else if room.Status != "verified" {
++			text = "统计更新中"
+ 		}
++		rooms = append(rooms, VideoRoomInfo{HostName: room.HostName, Platform: room.Platform, FolderPath: room.FolderPath,
++			VideoCount: room.VideoCount, TotalSize: room.TotalSize, DerivedSize: room.DerivedSize, TotalSizeText: text, StatisticsStatus: room.Status,
++			StatisticsCheckedAt: room.CheckedAt, LatestVideoAt: room.LatestAt, LatestVideo: room.LatestVideo, Recording: activeRecordings[room.Platform+"/"+room.HostName]})
+ 	}
+ 
+ 	// 合并 livestate：标记正在直播的房间，并补充尚无录像的直播房间占位卡
+@@ -1042,10 +985,13 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
+ 				} else {
+ 					// 正在直播但还没有录播文件 → 插入占位卡
+ 					rooms = append(rooms, VideoRoomInfo{
+-						HostName:  rr.HostName,
+-						Platform:  rr.Platform,
+-						Recording: true,
+-						URL:       rr.URL,
++						HostName:            rr.HostName,
++						Platform:            rr.Platform,
++						Recording:           true,
++						URL:                 rr.URL,
++						TotalSizeText:       "尚无录播",
++						StatisticsStatus:    "pending",
++						StatisticsCheckedAt: time.Now().Unix(),
+ 					})
+ 				}
+ 			}
+@@ -1147,6 +1093,8 @@ func getThumbnail(writer http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	videoRelPath = preparedThumbnailPath(cfg, videoRelPath)
++
+ 	rootPath := cfg.OutPutPath
+ 	if rootPath == "" {
+ 		rootPath = "./"
+@@ -1276,6 +1224,9 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
+ 			return nil
+ 		}
+ 		ext := strings.ToLower(filepath.Ext(d.Name()))
++		if strings.HasPrefix(d.Name(), ".") {
++			return nil
++		}
+ 		if !videoExtensions[ext] {
+ 			return nil
+ 		}
+@@ -1311,6 +1262,7 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	files = preferPreparedFiles(r, cfg, files)
+ 	// 按修改时间降序
+ 	sort.Slice(files, func(i, j int) bool {
+ 		return files[i].ModTime > files[j].ModTime
+@@ -2669,6 +2621,9 @@ func translateOSError(err error) string {
+ }
+ 
+ func renameFile(writer http.ResponseWriter, r *http.Request) {
++	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
++		defer inst.RecordingCatalog.Notify()
++	}
+ 	vars := mux.Vars(r)
+ 	path := vars["path"]
+ 
+@@ -2681,7 +2636,7 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
+ 	}
+ 
+ 	cfg := configs.GetCurrentConfig()
+-	oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
++	oldAbsPath, err := resolvePlaybackOperationPath(cfg, path)
+ 	if err != nil {
+ 		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效或越权路径"})
+ 		return
+@@ -2720,7 +2675,7 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
+-	if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
++	if err := renamePlaybackFile(cfg, path, oldAbsPath, newAbsPath); err != nil {
+ 		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "重命名失败: " + translateOSError(err)})
+ 		return
+ 	}
+@@ -2729,6 +2684,9 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
+ }
+ 
+ func deleteFile(writer http.ResponseWriter, r *http.Request) {
++	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
++		defer inst.RecordingCatalog.Notify()
++	}
+ 	vars := mux.Vars(r)
+ 	path := vars["path"]
+ 
+@@ -2738,13 +2696,13 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
+ 		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+ 		return
+ 	}
+-	absPath, err := getSafePath(cfg.OutPutPath, path)
++	absPath, err := resolvePlaybackOperationPath(cfg, path)
+ 	if err != nil || absPath == base {
+ 		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "禁止删除根目录或无效/越权路径"})
+ 		return
+ 	}
+ 
+-	if err := os.RemoveAll(absPath); err != nil {
++	if err := deletePlaybackFile(cfg, path, absPath); err != nil {
+ 		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "删除失败: " + translateOSError(err)})
+ 		return
+ 	}
+@@ -2753,6 +2711,9 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
+ }
+ 
+ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
++	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
++		defer inst.RecordingCatalog.Notify()
++	}
+ 	var body struct {
+ 		Paths   []string `json:"paths"`
+ 		Find    string   `json:"find"`
+@@ -2778,7 +2739,7 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
+ 	results := make([]Result, 0, len(body.Paths))
+ 
+ 	for _, path := range body.Paths {
+-		oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
++		oldAbsPath, err := resolvePlaybackOperationPath(cfg, path)
+ 		if err != nil {
+ 			results = append(results, Result{Path: path, Success: false, Message: "无效或越权路径"})
+ 			continue
+@@ -2821,7 +2782,7 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
+ 			continue
+ 		}
+ 
+-		if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
++		if err := renamePlaybackFile(cfg, path, oldAbsPath, newAbsPath); err != nil {
+ 			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
+ 		} else {
+ 			results = append(results, Result{Path: path, Success: true, Message: "成功"})
+@@ -2832,6 +2793,9 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
+ }
+ 
+ func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
++	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
++		defer inst.RecordingCatalog.Notify()
++	}
+ 	var body struct {
+ 		Paths []string `json:"paths"`
+ 	}
+@@ -2855,13 +2819,13 @@ func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
+ 	results := make([]Result, 0, len(body.Paths))
+ 
+ 	for _, path := range body.Paths {
+-		absPath, err := getSafePath(cfg.OutPutPath, path)
++		absPath, err := resolvePlaybackOperationPath(cfg, path)
+ 		if err != nil || absPath == base {
+ 			results = append(results, Result{Path: path, Success: false, Message: "禁止操作根目录或越权路径"})
+ 			continue
+ 		}
+ 
+-		if err := os.RemoveAll(absPath); err != nil {
++		if err := deletePlaybackFile(cfg, path, absPath); err != nil {
+ 			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
+ 		} else {
+ 			results = append(results, Result{Path: path, Success: true, Message: "成功"})
+diff --git a/src/servers/hls_cache_janitor.go b/src/servers/hls_cache_janitor.go
+index e4bb780..05a58cc 100644
+--- a/src/servers/hls_cache_janitor.go
++++ b/src/servers/hls_cache_janitor.go
+@@ -144,8 +144,18 @@ func runHLSCacheJanitor(root string, maxAgeHours int, maxTotalSizeGB float64, no
+ // removeHLSCacheEntryIfUnchanged 避免 janitor 删除正在生成或刚被访问的缓存。
+ // 扫描后的目录 mtime 若已变化，说明该条目已经被使用，本轮跳过并留待下次重算。
+ func removeHLSCacheEntryIfUnchanged(entry hlsCacheEntry) (bool, error) {
+-	// 检查是否有活跃任务
+-	if job := globalHLSJobManager.GetJob(entry.key); job != nil && job.IsActive() {
++	// 作业登记、读租约与删除在同一同步协议内决定。
++	m := globalHLSJobManager
++	m.mutex.Lock()
++	defer m.mutex.Unlock()
++	grace := hlsReadGrace
++	if job := m.jobs[entry.key]; job != nil {
++		grace = job.readGrace()
++	}
++	if m.readers[entry.key] > 0 || time.Since(m.lastRead[entry.key]) < grace {
++		return false, nil
++	}
++	if job := m.jobs[entry.key]; job != nil && job.IsActive() {
+ 		// 任务正在运行，不删除
+ 		return false, nil
+ 	}
+@@ -173,7 +183,8 @@ func removeHLSCacheEntryIfUnchanged(entry hlsCacheEntry) (bool, error) {
+ 	if removeErr == nil {
+ 		deleteHLSCacheLockIfUnused(entry.key)
+ 		// 清理任务管理器中的记录
+-		globalHLSJobManager.RemoveJob(entry.key)
++		delete(m.jobs, entry.key)
++		delete(m.lastRead, entry.key)
+ 	}
+ 	return removeErr == nil, removeErr
+ }
+diff --git a/src/servers/hls_handler.go b/src/servers/hls_handler.go
+index 8a03767..179a134 100644
+--- a/src/servers/hls_handler.go
++++ b/src/servers/hls_handler.go
+@@ -20,7 +20,6 @@ import (
+ 	"github.com/gorilla/mux"
+ 
+ 	"github.com/bililive-go/bililive-go/src/configs"
+-	applog "github.com/bililive-go/bililive-go/src/log"
+ 	securitypkg "github.com/bililive-go/bililive-go/src/pkg/security"
+ 	"github.com/bililive-go/bililive-go/src/pkg/utils"
+ )
+@@ -51,6 +50,16 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
+ 	}
+ 
+ 	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, relPath)
++	var existing *hlsJob
++	if os.IsNotExist(err) {
++		if target, original, ok := preparedPlayback(cfg, relPath); ok && original == relPath {
++			existing = preparedOriginalHLSJob(cfg, original, target)
++			sourcePath, sourceInfo, err = getSafeVideoFile(cfg, target)
++			if err == nil {
++				relPath = target
++			}
++		}
++	}
+ 	if err != nil {
+ 		http.Error(writer, err.Error(), http.StatusBadRequest)
+ 		return
+@@ -63,22 +72,36 @@ func getHLSPlaylist(writer http.ResponseWriter, r *http.Request) {
+ 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
+ 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+ 
+-	lock := acquireHLSCacheLock(cacheKey)
+-	lock.mutex.Lock()
+-	defer func() {
+-		lock.mutex.Unlock()
+-		lock.users.Add(-1)
+-	}()
++	// 使用统一的任务管理器（A1-1：统一入口）
++	job := existing
++	if job == nil {
++		job = globalHLSJobManager.EnsureJob(cfg, cacheKey, sourcePath, cacheDir, playlistPath)
++	} else {
++		cacheKey, cacheDir, playlistPath = job.key, job.cacheDir, job.playlistPath
++	}
+ 
+-	// JIT HLS: 只要有分片就可以返回播放列表，不必等待完整
+-	if !isPlaylistReady(playlistPath) {
+-		if err := buildHLSCache(cfg, sourcePath, cacheDir, playlistPath); err != nil {
+-			http.Error(writer, err.Error(), http.StatusServiceUnavailable)
+-			return
+-		}
++	// 等待任务变为可播放或完成
++	ctx := r.Context()
++	snapshot, err := globalHLSJobManager.WaitPlayable(ctx, job)
++	if err != nil {
++		http.Error(writer, fmt.Sprintf("HLS 转换失败: %v", err), http.StatusServiceUnavailable)
++		return
++	}
++
++	// 检查任务状态
++	if snapshot.status == hlsJobFailed || snapshot.status == hlsJobPartial {
++		http.Error(writer, fmt.Sprintf("HLS 转换失败: %s", snapshot.errMsg), http.StatusServiceUnavailable)
++		return
+ 	}
+ 
+-	content, err := os.ReadFile(playlistPath)
++	// 读租约与回收互斥，但不阻塞后台生成。
++	release, ok := globalHLSJobManager.acquireRead(cacheKey, job)
++	if !ok {
++		http.Error(writer, "缓存已失效，请重试", http.StatusServiceUnavailable)
++		return
++	}
++	defer release()
++	content, err := readHLSPlaylist(playlistPath, false)
+ 	if err != nil {
+ 		http.Error(writer, "读取 HLS 播放列表失败", http.StatusInternalServerError)
+ 		return
+@@ -117,6 +140,12 @@ func getHLSSegment(writer http.ResponseWriter, r *http.Request) {
+ 	}
+ 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
+ 	segmentPath := filepath.Join(cacheDir, segment)
++	release, ok := globalHLSJobManager.acquireRead(cacheKey, nil)
++	if !ok {
++		http.Error(writer, "缓存尚未就绪或已失效", http.StatusServiceUnavailable)
++		return
++	}
++	defer release()
+ 	touchHLSCacheDir(cacheDir)
+ 	writer.Header().Set("Content-Type", "video/MP2T")
+ 	writer.Header().Set("Cache-Control", "public, max-age=86400")
+@@ -128,16 +157,6 @@ func isPlaylistComplete(path string) bool {
+ 	return err == nil && bytes.Contains(content, []byte("#EXT-X-ENDLIST"))
+ }
+ 
+-// isPlaylistReady 检查播放列表是否至少有一个分片可播放（JIT HLS）
+-func isPlaylistReady(path string) bool {
+-	content, err := os.ReadFile(path)
+-	if err != nil {
+-		return false
+-	}
+-	// 检查是否有至少一个 EXTINF 条目（表示有分片）
+-	return bytes.Contains(content, []byte("#EXTINF"))
+-}
+-
+ func isCurrentRecordingFile(ctx context.Context, rootPath, sourcePath string) bool {
+ 	if strings.TrimSpace(rootPath) == "" {
+ 		rootPath = "./"
+@@ -172,95 +191,6 @@ func getSafeVideoFile(cfg *configs.Config, relPath string) (string, os.FileInfo,
+ 	return absPath, info, nil
+ }
+ 
+-func buildHLSCache(cfg *configs.Config, sourcePath, cacheDir, playlistPath string) error {
+-	conversionCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+-	defer cancel()
+-
+-	ffmpegPath, err := findFFmpegPath(conversionCtx, cfg)
+-	if err != nil {
+-		return err
+-	}
+-	if err := os.RemoveAll(cacheDir); err != nil {
+-		return fmt.Errorf("清理 HLS 缓存失败: %w", err)
+-	}
+-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+-		return fmt.Errorf("创建 HLS 缓存目录失败: %w", err)
+-	}
+-	segmentPattern := filepath.Join(cacheDir, "seg_%05d.ts")
+-	args := []string{
+-		"-hide_banner",
+-		"-loglevel", "error",
+-		"-y",
+-		"-probesize", "1000000",      // 限制探测只读取 1MB
+-		"-analyzeduration", "1000000", // 限制分析时长为 1 秒（单位：微秒）
+-		"-i", sourcePath,
+-		"-c", "copy",
+-		"-avoid_negative_ts", "make_zero",
+-		"-f", "hls",
+-		"-hls_time", "6",
+-		"-hls_playlist_type", "event", // 改用 event 类型，支持可增长播放列表
+-		"-hls_flags", "independent_segments+temp_file", // temp_file 确保分片原子写入
+-		"-hls_segment_filename", segmentPattern,
+-		playlistPath,
+-	}
+-	if ffprobePath, probeErr := findFFprobePath(conversionCtx, cfg); probeErr == nil {
+-		if probe, probeErr := probeMedia(conversionCtx, ffprobePath, sourcePath); probeErr == nil {
+-			if hlsEncodeModeForProbe(probe) == hlsEncodeTranscode {
+-				applog.GetLogger().WithFields(map[string]interface{}{
+-					"source": filepath.Base(sourcePath),
+-					"format": probe.Format.FormatName,
+-				}).Info("媒体不满足跨平台 HLS 直封装条件，改用 H.264/AAC 转码")
+-				args = hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath)
+-			}
+-		} else {
+-			applog.GetLogger().WithError(probeErr).WithField("source", filepath.Base(sourcePath)).Warn("媒体探测失败，回退到 HLS 直封装")
+-		}
+-	} else {
+-		applog.GetLogger().WithError(probeErr).WithField("source", filepath.Base(sourcePath)).Warn("ffprobe 不可用，回退到 HLS 直封装")
+-	}
+-	cmd := exec.CommandContext(conversionCtx, ffmpegPath, args...)
+-
+-	// 启动 ffmpeg 后立即返回，不阻塞等待完成
+-	// ffmpeg 会边切边写，播放列表和分片会逐步出现在 cacheDir
+-	if err := cmd.Start(); err != nil {
+-		return fmt.Errorf("启动 ffmpeg 失败: %w", err)
+-	}
+-
+-	// 后台等待 ffmpeg 完成，完成时追加 ENDLIST（如果 event 没有自动添加）
+-	go func() {
+-		defer func() {
+-			if r := recover(); r != nil {
+-				applog.GetLogger().WithField("panic", r).Error("HLS 构建 goroutine panic")
+-			}
+-		}()
+-
+-		err := cmd.Wait()
+-		if err == nil || isPlaylistReady(playlistPath) {
+-			// 转换成功或虽然出错但已有可用分片
+-			// event 类型在结束时 ffmpeg 会自动添加 ENDLIST，但为保险起见检查一下
+-			if content, readErr := os.ReadFile(playlistPath); readErr == nil {
+-				if !bytes.Contains(content, []byte("#EXT-X-ENDLIST")) {
+-					// 手动追加 ENDLIST 标记播放列表完整
+-					f, appendErr := os.OpenFile(playlistPath, os.O_APPEND|os.O_WRONLY, 0644)
+-					if appendErr == nil {
+-						_, _ = f.WriteString("#EXT-X-ENDLIST\n")
+-						_ = f.Close()
+-					}
+-				}
+-			}
+-			if err != nil {
+-				applog.GetLogger().WithError(err).WithField("source", filepath.Base(sourcePath)).Warn("ffmpeg 非零退出但播放列表可用")
+-			}
+-			return
+-		}
+-
+-		// 转换失败且无可用内容
+-		applog.GetLogger().WithError(err).WithField("source", filepath.Base(sourcePath)).Error("HLS 转换失败")
+-	}()
+-
+-	return nil
+-}
+-
+ func findFFmpegPath(ctx context.Context, cfg *configs.Config) (string, error) {
+ 	if cfg != nil && strings.TrimSpace(cfg.FfmpegPath) != "" {
+ 		if _, err := os.Stat(cfg.FfmpegPath); err == nil {
+diff --git a/src/servers/hls_handler_test.go b/src/servers/hls_handler_test.go
+index 896d120..79a521c 100644
+--- a/src/servers/hls_handler_test.go
++++ b/src/servers/hls_handler_test.go
+@@ -2,12 +2,10 @@ package servers
+ 
+ import (
+ 	"context"
+-	"fmt"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"os"
+ 	"path/filepath"
+-	"runtime"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -91,58 +89,6 @@ func TestIsPlaylistComplete(t *testing.T) {
+ 	assert.False(t, isPlaylistComplete(filepath.Join(dir, "missing.m3u8")))
+ }
+ 
+-func writeHLSFFmpegHelper(t *testing.T, complete bool) string {
+-	t.Helper()
+-	if runtime.GOOS == "windows" {
+-		t.Skip("shell helper is not portable on Windows")
+-	}
+-	helper := filepath.Join(t.TempDir(), "fake-ffmpeg.sh")
+-	playlist := "#EXTM3U\\n#EXT-X-VERSION:3\\n#EXTINF:6.0,\\nseg_00000.ts\\n"
+-	if complete {
+-		playlist += "#EXT-X-ENDLIST\\n"
+-	}
+-	script := fmt.Sprintf(`#!/bin/sh
+-set -eu
+-segment_pattern=''
+-prev=''
+-for arg in "$@"; do
+-  if [ "$prev" = "-hls_segment_filename" ]; then segment_pattern="$arg"; fi
+-  playlist="$arg"
+-  prev="$arg"
+-done
+-segment=$(printf '%%s' "$segment_pattern" | sed 's/%%05d/00000/')
+-printf '%%s' 'valid segment' > "$segment"
+-printf '%%b' '%s' > "$playlist"
+-exit 183
+-`, playlist)
+-	require.NoError(t, os.WriteFile(helper, []byte(script), 0o755))
+-	return helper
+-}
+-
+-func TestBuildHLSCacheAcceptsCompletePlaylistAfterFFmpegError(t *testing.T) {
+-	cacheDir := t.TempDir()
+-	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+-	helper := writeHLSFFmpegHelper(t, true)
+-
+-	err := buildHLSCache(&configs.Config{FfmpegPath: helper}, filepath.Join(cacheDir, "source.flv"), cacheDir, playlistPath)
+-
+-	require.NoError(t, err)
+-	assert.True(t, isPlaylistComplete(playlistPath))
+-	assert.FileExists(t, filepath.Join(cacheDir, "seg_00000.ts"))
+-}
+-
+-func TestBuildHLSCacheRejectsIncompletePlaylistAfterFFmpegError(t *testing.T) {
+-	cacheDir := t.TempDir()
+-	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+-	helper := writeHLSFFmpegHelper(t, false)
+-
+-	err := buildHLSCache(&configs.Config{FfmpegPath: helper}, filepath.Join(cacheDir, "source.flv"), cacheDir, playlistPath)
+-
+-	require.Error(t, err)
+-	assert.Contains(t, err.Error(), "HLS 转封装失败")
+-	assert.False(t, isPlaylistComplete(playlistPath))
+-}
+-
+ func TestGetHLSPlaylistRejectsCurrentRecording(t *testing.T) {
+ 	root := t.TempDir()
+ 	videoPath := filepath.Join(root, "recording.flv")
+diff --git a/src/servers/hls_job_manager.go b/src/servers/hls_job_manager.go
+index d75bded..d02483a 100644
+--- a/src/servers/hls_job_manager.go
++++ b/src/servers/hls_job_manager.go
+@@ -6,394 +6,540 @@ import (
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
++	"strconv"
++	"strings"
+ 	"sync"
+ 	"time"
+ 
+ 	"github.com/bililive-go/bililive-go/src/configs"
+ 	applog "github.com/bililive-go/bililive-go/src/log"
++	"github.com/bililive-go/bililive-go/src/pkg/mediawork"
++	"github.com/shirou/gopsutil/v3/disk"
+ )
+ 
+-// HLS 任务状态
+ type hlsJobStatus string
+ 
+ const (
+-	hlsJobQueued    hlsJobStatus = "queued"    // 等待资源
+-	hlsJobStarting  hlsJobStatus = "starting"  // 探测或启动中，暂无首片
+-	hlsJobPlayable  hlsJobStatus = "playable"  // 已有首批分片，任务仍在运行
+-	hlsJobCompleted hlsJobStatus = "completed" // 正常结束，完整产物验证通过
+-	hlsJobFailed    hlsJobStatus = "failed"    // 失败且无可用内容
+-	hlsJobPartial   hlsJobStatus = "partial"   // 仅有部分可用内容
++	hlsJobQueued    hlsJobStatus = "queued"
++	hlsJobStarting  hlsJobStatus = "starting"
++	hlsJobPlayable  hlsJobStatus = "playable"
++	hlsJobCompleted hlsJobStatus = "completed"
++	hlsJobFailed    hlsJobStatus = "failed"
++	hlsJobPartial   hlsJobStatus = "partial"
+ )
++const hlsRetryDelay = 5 * time.Second
++const hlsReadGrace = time.Minute
+ 
+-// hlsJob 代表一个后台 HLS 转换任务
+ type hlsJob struct {
+-	key         string
+-	sourcePath  string
+-	cacheDir    string
+-	playlistPath string
+-
+-	ctx         context.Context
+-	cancel      context.CancelFunc
+-	cmd         *exec.Cmd
+-
+-	status      hlsJobStatus
+-	err         string
+-	startedAt   time.Time
+-
+-	mutex       sync.Mutex
++	key, sourcePath, cacheDir, playlistPath     string
++	cfg                                         *configs.Config
++	ctx                                         context.Context
++	cancel                                      context.CancelFunc
++	status                                      hlsJobStatus
++	err                                         string
++	queuedAt, startedAt, playableAt, finishedAt time.Time
++	executionAt                                 time.Time
++	resourceWait                                time.Duration
++	firstPlayable, done                         chan struct{}
++	mutex                                       sync.Mutex
++}
++type jobSnapshot struct {
++	status hlsJobStatus
++	errMsg string
+ }
+ 
+-// hlsJobManager 管理所有 HLS 转换任务
++// 锁顺序固定为 manager.mutex → job.mutex。运行进程、等待和 HTTP 传输不持管理器锁。
+ type hlsJobManager struct {
+-	jobs    map[string]*hlsJob
+-	mutex   sync.RWMutex
+-
+-	maxConcurrent int
+-	running       int
++	mutex                             sync.RWMutex
++	jobs                              map[string]*hlsJob
++	queue                             []*hlsJob
++	maxConcurrent, maxQueued, running int
++	closed                            bool
++	workers                           sync.WaitGroup
++	readers                           map[string]int
++	lastRead                          map[string]time.Time
+ }
+ 
+-var globalHLSJobManager = &hlsJobManager{
+-	jobs:          make(map[string]*hlsJob),
+-	maxConcurrent: 3, // 默认最多 3 个并发转码任务
++var globalHLSJobManager = &hlsJobManager{jobs: make(map[string]*hlsJob), maxConcurrent: 3}
++
++func newHLSJob(cfg *configs.Config, key, source, dir, playlist string) *hlsJob {
++	ctx, cancel := context.WithCancel(context.Background())
++	return &hlsJob{key: key, sourcePath: source, cacheDir: dir, playlistPath: playlist, cfg: cfg, ctx: ctx, cancel: cancel, status: hlsJobQueued, queuedAt: time.Now(), firstPlayable: make(chan struct{}), done: make(chan struct{})}
+ }
+ 
+-// GetOrCreateJob 获取或创建 HLS 转换任务
+-func (m *hlsJobManager) GetOrCreateJob(cfg *configs.Config, cacheKey, sourcePath, cacheDir, playlistPath string) (*hlsJob, bool) {
++// EnsureJob 原子登记和调度；仅在退避结束、没有读者时替换失败尝试。
++func (m *hlsJobManager) EnsureJob(cfg *configs.Config, key, source, dir, playlist string) *hlsJob {
+ 	m.mutex.Lock()
+ 	defer m.mutex.Unlock()
+-
+-	// 已存在的任务
+-	if job, exists := m.jobs[cacheKey]; exists {
+-		return job, false
++	if m.jobs == nil {
++		m.jobs = make(map[string]*hlsJob)
+ 	}
+-
+-	// 创建新任务
+-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+-	job := &hlsJob{
+-		key:          cacheKey,
+-		sourcePath:   sourcePath,
+-		cacheDir:     cacheDir,
+-		playlistPath: playlistPath,
+-		ctx:          ctx,
+-		cancel:       cancel,
+-		status:       hlsJobQueued,
+-		startedAt:    time.Now(),
++	if cfg != nil && cfg.HLSCache.MaxConcurrent > 0 {
++		m.maxConcurrent = cfg.HLSCache.MaxConcurrent
+ 	}
+-
+-	m.jobs[cacheKey] = job
+-	return job, true
++	if cfg != nil && cfg.HLSCache.MaxQueued > 0 {
++		m.maxQueued = cfg.HLSCache.MaxQueued
++	}
++	if m.maxQueued <= 0 {
++		m.maxQueued = 64
++	}
++	if m.maxConcurrent <= 0 {
++		m.maxConcurrent = 3
++	}
++	now := time.Now()
++	if m.closed {
++		j := newHLSJob(cfg, key, source, dir, playlist)
++		j.finish(hlsJobFailed, "服务正在关闭")
++		return j
++	}
++	if j := m.jobs[key]; j != nil {
++		j.mutex.Lock()
++		retry := (j.status == hlsJobFailed || j.status == hlsJobPartial) && !j.finishedAt.IsZero() && now.Sub(j.finishedAt) >= hlsRetryDelay && m.readers[key] == 0 && now.Sub(m.lastRead[key]) >= j.readGrace()
++		j.mutex.Unlock()
++		if !retry {
++			return j
++		}
++		// 失败尝试不能通过其尾部 ENDLIST 在下一次请求中被重新认作完整缓存。
++		delete(m.jobs, key)
++		j.cancel()
++		next := newHLSJob(cfg, key, source, dir, playlist)
++		return m.enqueueLocked(next)
++	}
++	// 无目录的失败记录也会过期；元数据总量有界。
++	for k, j := range m.jobs {
++		j.mutex.Lock()
++		expired := (j.status == hlsJobFailed || j.status == hlsJobPartial) && !j.finishedAt.IsZero() && now.Sub(j.finishedAt) > time.Hour && m.readers[k] == 0 && now.Sub(m.lastRead[k]) >= j.readGrace()
++		j.mutex.Unlock()
++		if expired {
++			delete(m.jobs, k)
++			delete(m.lastRead, k)
++		}
++	}
++	j := newHLSJob(cfg, key, source, dir, playlist)
++	if len(m.jobs) >= 1024 {
++		j.finish(hlsJobFailed, "HLS 任务记录已满，请稍后重试")
++		return j
++	}
++	if isCompleteCache(playlist) {
++		j.finish(hlsJobCompleted, "")
++		m.jobs[key] = j
++		return j
++	}
++	return m.enqueueLocked(j)
+ }
+-
+-// GetJob 获取已存在的任务
+-func (m *hlsJobManager) GetJob(cacheKey string) *hlsJob {
++func (m *hlsJobManager) enqueueLocked(j *hlsJob) *hlsJob {
++	if len(m.queue) >= m.maxQueued {
++		j.finish(hlsJobFailed, "HLS 等待队列已满，请稍后重试")
++		return j
++	}
++	m.jobs[j.key] = j
++	m.queue = append(m.queue, j)
++	m.dispatchLocked()
++	return j
++}
++func (m *hlsJobManager) dispatchLocked() {
++	for !m.closed && m.running < m.maxConcurrent && len(m.queue) > 0 {
++		j := m.queue[0]
++		m.queue[0] = nil
++		m.queue = m.queue[1:]
++		if j.ctx.Err() != nil {
++			j.finish(hlsJobFailed, "排队任务已取消")
++			continue
++		}
++		m.running++
++		j.setStatus(hlsJobStarting, "")
++		m.workers.Add(1)
++		go m.run(j)
++	}
++}
++func (m *hlsJobManager) run(j *hlsJob) {
++	defer func() {
++		if r := recover(); r != nil {
++			j.finish(hlsJobFailed, fmt.Sprintf("HLS 任务异常: %v", r))
++		}
++		m.mutex.Lock()
++		m.running--
++		m.dispatchLocked()
++		m.mutex.Unlock()
++		m.workers.Done()
++	}()
++	err := j.executeConversion(j.cfg)
++	if err != nil {
++		status := hlsJobFailed
++		if _, e := readHLSPlaylist(j.playlistPath, false); e == nil {
++			status = hlsJobPartial
++		}
++		// 标记不可信缓存，避免记录过期后把失败产物重新当成成功。
++		_ = os.WriteFile(filepath.Join(j.cacheDir, ".failed"), []byte("incomplete"), 0600)
++		j.finish(status, err.Error())
++		applog.GetLogger().WithError(err).WithField("job", j.key).Warn("HLS 作业失败")
++		return
++	}
++	if _, err = readHLSPlaylist(j.playlistPath, true); err != nil {
++		j.finish(hlsJobFailed, err.Error())
++		return
++	}
++	j.finish(hlsJobCompleted, "")
++}
++func (m *hlsJobManager) Snapshot(j *hlsJob) jobSnapshot {
++	s, e := j.GetStatus()
++	return jobSnapshot{s, e}
++}
++func (m *hlsJobManager) WaitPlayable(ctx context.Context, j *hlsJob) (jobSnapshot, error) {
++	timer := time.NewTimer(12 * time.Second)
++	defer timer.Stop()
++	select {
++	case <-j.firstPlayable:
++		return m.Snapshot(j), nil
++	case <-j.done:
++		return m.Snapshot(j), nil
++	case <-ctx.Done():
++		return jobSnapshot{}, ctx.Err()
++	case <-timer.C:
++		return m.Snapshot(j), fmt.Errorf("HLS 正在准备，请稍后重试")
++	}
++}
++func (m *hlsJobManager) GetJob(key string) *hlsJob {
+ 	m.mutex.RLock()
+ 	defer m.mutex.RUnlock()
+-	return m.jobs[cacheKey]
++	return m.jobs[key]
+ }
+ 
+-// RemoveJob 移除任务
+-func (m *hlsJobManager) RemoveJob(cacheKey string) {
++// acquireRead 与回收在同一把管理器锁下决定，保护整个 HTTP 读操作。
++func (m *hlsJobManager) acquireRead(key string, j *hlsJob) (func(), bool) {
+ 	m.mutex.Lock()
+-	defer m.mutex.Unlock()
+-
+-	if job, exists := m.jobs[cacheKey]; exists {
+-		job.cancel()
+-		delete(m.jobs, cacheKey)
++	current := m.jobs[key]
++	if m.closed || current == nil || (j != nil && current != j) {
++		m.mutex.Unlock()
++		return nil, false
+ 	}
+-}
+-
+-// StartJob 启动任务
+-func (m *hlsJobManager) StartJob(cfg *configs.Config, job *hlsJob) error {
+-	m.mutex.Lock()
+-	// 检查并发限制
+-	if m.running >= m.maxConcurrent {
++	status, _ := current.GetStatus()
++	if status == hlsJobQueued || status == hlsJobStarting {
+ 		m.mutex.Unlock()
+-		job.setStatus(hlsJobQueued, "")
+-		return fmt.Errorf("达到最大并发转码限制")
++		return nil, false
++	}
++	if m.readers == nil {
++		m.readers = make(map[string]int)
++		m.lastRead = make(map[string]time.Time)
+ 	}
+-	m.running++
++	m.readers[key]++
++	m.lastRead[key] = time.Now()
+ 	m.mutex.Unlock()
+-
+-	// 标记为启动中
+-	job.setStatus(hlsJobStarting, "")
+-
+-	// 后台执行任务
+-	go func() {
+-		defer func() {
+-			m.mutex.Lock()
+-			m.running--
+-			m.mutex.Unlock()
+-
+-			job.cancel()
+-
+-			if r := recover(); r != nil {
+-				applog.GetLogger().WithField("panic", r).Error("HLS 任务 goroutine panic")
+-				job.setStatus(hlsJobFailed, fmt.Sprintf("panic: %v", r))
+-			}
+-		}()
+-
+-		// 执行转换
+-		err := job.executeConversion(cfg)
+-
+-		if err != nil {
+-			// 检查是否有部分可用内容
+-			if isPlaylistReady(job.playlistPath) {
+-				job.setStatus(hlsJobPartial, err.Error())
+-				applog.GetLogger().WithError(err).WithField("source", filepath.Base(job.sourcePath)).Warn("HLS 转换未完成但有部分可用内容")
+-			} else {
+-				job.setStatus(hlsJobFailed, err.Error())
+-				applog.GetLogger().WithError(err).WithField("source", filepath.Base(job.sourcePath)).Error("HLS 转换失败")
+-			}
+-			return
++	return func() {
++		m.mutex.Lock()
++		m.readers[key]--
++		if m.readers[key] == 0 {
++			delete(m.readers, key)
+ 		}
+-
+-		// 验证完整性
+-		if err := job.verifyCompletion(); err != nil {
+-			job.setStatus(hlsJobPartial, err.Error())
+-			applog.GetLogger().WithError(err).WithField("source", filepath.Base(job.sourcePath)).Warn("HLS 转换完成但验证失败")
+-			return
+-		}
+-
+-		job.setStatus(hlsJobCompleted, "")
+-		applog.GetLogger().WithField("source", filepath.Base(job.sourcePath)).Info("HLS 转换完成")
+-	}()
+-
+-	return nil
++		m.lastRead[key] = time.Now()
++		m.mutex.Unlock()
++	}, true
+ }
+-
+-// executeConversion 执行 ffmpeg 转换
+-func (job *hlsJob) executeConversion(cfg *configs.Config) error {
+-	lock := acquireHLSCacheLock(job.key)
+-	lock.mutex.Lock()
+-	defer lock.mutex.Unlock()
+-	defer lock.users.Add(-1)
+-
+-	// 清理旧缓存
+-	if err := os.RemoveAll(job.cacheDir); err != nil {
+-		return fmt.Errorf("清理 HLS 缓存失败: %w", err)
++func (m *hlsJobManager) Close() {
++	m.mutex.Lock()
++	m.closed = true
++	for _, j := range m.jobs {
++		j.cancel()
+ 	}
+-	if err := os.MkdirAll(job.cacheDir, 0755); err != nil {
+-		return fmt.Errorf("创建 HLS 缓存目录失败: %w", err)
++	for _, j := range m.queue {
++		j.finish(hlsJobFailed, "服务关闭，排队任务已取消")
+ 	}
+-
+-	// 查找 ffmpeg
+-	ffmpegPath, err := findFFmpegPath(job.ctx, cfg)
+-	if err != nil {
+-		return err
++	m.queue = nil
++	m.mutex.Unlock()
++	m.workers.Wait()
++}
++func (j *hlsJob) setStatus(s hlsJobStatus, e string) {
++	j.mutex.Lock()
++	defer j.mutex.Unlock()
++	j.status = s
++	j.err = e
++	if s == hlsJobStarting && j.startedAt.IsZero() {
++		j.startedAt = time.Now()
+ 	}
+-
+-	// 构建命令参数
+-	segmentPattern := filepath.Join(job.cacheDir, "seg_%05d.ts")
+-	args := []string{
+-		"-hide_banner",
+-		"-loglevel", "error",
+-		"-y",
+-		"-probesize", "1000000",
+-		"-analyzeduration", "1000000",
+-		"-i", job.sourcePath,
+-		"-c", "copy",
+-		"-avoid_negative_ts", "make_zero",
+-		"-f", "hls",
+-		"-hls_time", "6",
+-		"-hls_playlist_type", "event",
+-		"-hls_flags", "independent_segments+temp_file",
+-		"-hls_segment_filename", segmentPattern,
+-		job.playlistPath,
++}
++func (j *hlsJob) playable() {
++	j.mutex.Lock()
++	defer j.mutex.Unlock()
++	j.status = hlsJobPlayable
++	if j.playableAt.IsZero() {
++		j.playableAt = time.Now()
+ 	}
+-
+-	// 探测媒体并决定转码模式
+-	if ffprobePath, probeErr := findFFprobePath(job.ctx, cfg); probeErr == nil {
+-		if probe, probeErr := probeMedia(job.ctx, ffprobePath, job.sourcePath); probeErr == nil {
+-			if hlsEncodeModeForProbe(probe) == hlsEncodeTranscode {
+-				applog.GetLogger().WithFields(map[string]interface{}{
+-					"source": filepath.Base(job.sourcePath),
+-					"format": probe.Format.FormatName,
+-				}).Info("媒体不满足跨平台 HLS 直封装条件，改用 H.264/AAC 转码")
+-				args = hlsTranscodeArgs(job.sourcePath, segmentPattern, job.playlistPath)
+-			}
+-		} else {
+-			applog.GetLogger().WithError(probeErr).WithField("source", filepath.Base(job.sourcePath)).Warn("媒体探测失败，回退到 HLS 直封装")
++	select {
++	case <-j.firstPlayable:
++	default:
++		close(j.firstPlayable)
++	}
++}
++func (j *hlsJob) finish(s hlsJobStatus, e string) {
++	j.mutex.Lock()
++	defer j.mutex.Unlock()
++	select {
++	case <-j.done:
++		return
++	default:
++	}
++	j.status = s
++	j.err = e
++	j.finishedAt = time.Now()
++	j.cancel()
++	if s == hlsJobCompleted {
++		if j.playableAt.IsZero() {
++			j.playableAt = j.finishedAt
++		}
++		select {
++		case <-j.firstPlayable:
++		default:
++			close(j.firstPlayable)
+ 		}
+ 	}
+-
+-	// 启动 ffmpeg
+-	job.mutex.Lock()
+-	job.cmd = exec.CommandContext(job.ctx, ffmpegPath, args...)
+-	job.mutex.Unlock()
+-
+-	if err := job.cmd.Start(); err != nil {
+-		return fmt.Errorf("启动 ffmpeg 失败: %w", err)
++	fields := map[string]any{"job": j.key, "status": s, "queued_at": j.queuedAt, "started_at": j.startedAt, "playable_at": j.playableAt, "finished_at": j.finishedAt, "total_ms": j.finishedAt.Sub(j.queuedAt).Milliseconds()}
++	if !j.startedAt.IsZero() {
++		fields["queue_ms"] = j.startedAt.Sub(j.queuedAt).Milliseconds()
++		fields["resource_wait_ms"] = j.resourceWait.Milliseconds()
+ 	}
+-
+-	// 等待首批分片生成
+-	if err := job.waitForFirstSegments(); err != nil {
+-		_ = job.cmd.Process.Kill()
+-		_ = job.cmd.Wait()
+-		return fmt.Errorf("等待首批分片超时: %w", err)
++	if !j.executionAt.IsZero() {
++		fields["conversion_ms"] = j.finishedAt.Sub(j.executionAt).Milliseconds()
+ 	}
+-
+-	// 标记为可播放
+-	job.setStatus(hlsJobPlayable, "")
+-
+-	// 等待 ffmpeg 完成
+-	err = job.cmd.Wait()
+-
+-	// 检查是否需要手动添加 ENDLIST
+-	if err == nil {
+-		job.ensureEndList()
++	if !j.playableAt.IsZero() {
++		fields["first_playable_ms"] = j.playableAt.Sub(j.queuedAt).Milliseconds()
+ 	}
+-
+-	return err
++	applog.GetLogger().WithFields(fields).Info("HLS 作业结束")
++	close(j.done)
++}
++func (j *hlsJob) GetStatus() (hlsJobStatus, string) {
++	j.mutex.Lock()
++	defer j.mutex.Unlock()
++	return j.status, j.err
++}
++func (j *hlsJob) IsActive() bool {
++	s, _ := j.GetStatus()
++	return s == hlsJobQueued || s == hlsJobStarting || s == hlsJobPlayable
+ }
+ 
+-// waitForFirstSegments 等待首批分片生成
+-func (job *hlsJob) waitForFirstSegments() error {
+-	timeout := time.After(30 * time.Second)
+-	ticker := time.NewTicker(500 * time.Millisecond)
+-	defer ticker.Stop()
+-
+-	for {
+-		select {
+-		case <-timeout:
+-			return fmt.Errorf("等待首批分片超时")
+-		case <-job.ctx.Done():
+-			return job.ctx.Err()
+-		case <-ticker.C:
+-			// 检查清单文件是否存在且可解析
+-			if !isPlaylistReadable(job.playlistPath) {
+-				continue
+-			}
+-
+-			// 检查是否有至少 2 个分片可访问
+-			if hasMinimumSegments(job.cacheDir, 2) {
+-				return nil
+-			}
++// 日志只保留尾部，避免长时间运行的错误输出耗尽内存。Wait 后才读取。
++type hlsErrorTail struct{ data []byte }
++
++func (b *hlsErrorTail) Write(p []byte) (int, error) {
++	n := len(p)
++	if n >= 8192 {
++		b.data = append(b.data[:0], p[n-8192:]...)
++	} else {
++		b.data = append(b.data, p...)
++		if len(b.data) > 8192 {
++			b.data = append([]byte(nil), b.data[len(b.data)-8192:]...)
+ 		}
+ 	}
++	return n, nil
+ }
+ 
+-// ensureEndList 确保播放列表有 ENDLIST 标记
+-func (job *hlsJob) ensureEndList() {
+-	content, err := os.ReadFile(job.playlistPath)
+-	if err != nil {
+-		return
++func (j *hlsJob) readGrace() time.Duration {
++	if j.cfg == nil {
++		return hlsReadGrace
+ 	}
++	return time.Duration(j.cfg.HLSCache.ReadGraceSeconds) * time.Second
++}
+ 
+-	// 已有 ENDLIST，无需添加
+-	if contains(content, []byte("#EXT-X-ENDLIST")) {
+-		return
++// 使用缓存所在文件系统的可用空间；零值禁用检查，查询失败时停止写入。
++func (j *hlsJob) checkFreeSpace(ctx context.Context) error {
++	if j.cfg == nil || j.cfg.HLSCache.MinFreeSpaceGB <= 0 {
++		return nil
+ 	}
+-
+-	// 手动追加 ENDLIST
+-	f, err := os.OpenFile(job.playlistPath, os.O_APPEND|os.O_WRONLY, 0644)
++	usage, err := disk.UsageWithContext(ctx, j.cacheDir)
+ 	if err != nil {
+-		applog.GetLogger().WithError(err).Warn("无法打开播放列表添加 ENDLIST")
+-		return
++		return fmt.Errorf("检查 HLS 剩余磁盘空间失败: %w", err)
+ 	}
+-	defer f.Close()
+-
+-	_, _ = f.WriteString("#EXT-X-ENDLIST\n")
++	availableGB := float64(usage.Free) / float64(uint64(1)<<30)
++	if availableGB < j.cfg.HLSCache.MinFreeSpaceGB {
++		return fmt.Errorf("HLS 剩余磁盘空间不足: 可用 %.2f GB，需要至少 %.2f GB", availableGB, j.cfg.HLSCache.MinFreeSpaceGB)
++	}
++	return nil
+ }
+ 
+-// verifyCompletion 验证转换完整性
+-func (job *hlsJob) verifyCompletion() error {
+-	// 检查播放列表是否有 ENDLIST
+-	content, err := os.ReadFile(job.playlistPath)
++func (j *hlsJob) executeConversion(cfg *configs.Config) error {
++	limit := 0
++	if cfg != nil {
++		limit = cfg.HLSCache.MaxConcurrent
++	}
++	budgetStart := time.Now()
++	release, err := mediawork.Shared.Acquire(j.ctx, limit)
++	j.mutex.Lock()
++	j.resourceWait = time.Since(budgetStart)
++	if err == nil {
++		j.executionAt = time.Now()
++	}
++	j.mutex.Unlock()
+ 	if err != nil {
+-		return fmt.Errorf("无法读取播放列表: %w", err)
++		return err
+ 	}
++	defer release()
+ 
+-	if !contains(content, []byte("#EXT-X-ENDLIST")) {
+-		return fmt.Errorf("播放列表缺少 ENDLIST 标记")
++	// 排队不消耗执行时限；取消仍由管理器传播。长任务使用进度超时而非固定三十分钟。
++	ctx, cancel := context.WithCancel(j.ctx)
++	defer cancel()
++	if ctx.Err() != nil {
++		return ctx.Err()
+ 	}
+-
+-	// 检查是否有足够的分片
+-	if !hasMinimumSegments(job.cacheDir, 1) {
+-		return fmt.Errorf("没有可用的分片文件")
++	if err := os.RemoveAll(j.cacheDir); err != nil {
++		return err
+ 	}
+-
+-	return nil
+-}
+-
+-// setStatus 设置任务状态
+-func (job *hlsJob) setStatus(status hlsJobStatus, errMsg string) {
+-	job.mutex.Lock()
+-	defer job.mutex.Unlock()
+-	job.status = status
+-	job.err = errMsg
+-}
+-
+-// GetStatus 获取任务状态
+-func (job *hlsJob) GetStatus() (hlsJobStatus, string) {
+-	job.mutex.Lock()
+-	defer job.mutex.Unlock()
+-	return job.status, job.err
+-}
+-
+-// IsActive 任务是否活跃（正在运行或队列中）
+-func (job *hlsJob) IsActive() bool {
+-	job.mutex.Lock()
+-	defer job.mutex.Unlock()
+-	return job.status == hlsJobQueued || job.status == hlsJobStarting || job.status == hlsJobPlayable
+-}
+-
+-// 辅助函数
+-
+-func isPlaylistReadable(path string) bool {
+-	content, err := os.ReadFile(path)
++	if err := os.MkdirAll(j.cacheDir, 0755); err != nil {
++		return err
++	}
++	if err := j.checkFreeSpace(ctx); err != nil {
++		return err
++	}
++	ffmpeg, err := findFFmpegPath(ctx, cfg)
+ 	if err != nil {
+-		return false
++		return err
+ 	}
+-	// 检查是否是有效的 M3U8
+-	return contains(content, []byte("#EXTM3U"))
+-}
+-
+-func hasMinimumSegments(cacheDir string, minCount int) bool {
+-	entries, err := os.ReadDir(cacheDir)
++	probeCtx, probeCancel := context.WithTimeout(ctx, 15*time.Second)
++	ffprobe, err := findFFprobePath(probeCtx, cfg)
+ 	if err != nil {
+-		return false
++		probeCancel()
++		return err
+ 	}
+-
+-	count := 0
+-	for _, entry := range entries {
+-		if entry.IsDir() {
+-			continue
++	probeStart := time.Now()
++	probe, err := probeMediaCached(probeCtx, ffprobe, j.sourcePath, filepath.Join(filepath.Dir(hlsCacheRoot(cfg)), "media-probe"))
++	probeCancel()
++	applog.GetLogger().WithFields(map[string]any{"job": j.key, "probe_ms": time.Since(probeStart).Milliseconds(), "success": err == nil}).Info("HLS 媒体探测结束")
++	if err != nil {
++		return fmt.Errorf("媒体探测失败: %w", err)
++	}
++	args := hlsCopyArgs(j.sourcePath, filepath.Join(j.cacheDir, "seg_%05d.ts"), j.playlistPath)
++	if hlsEncodeModeForProbe(probe) == hlsEncodeTranscode {
++		args = hlsTranscodeArgs(j.sourcePath, filepath.Join(j.cacheDir, "seg_%05d.ts"), j.playlistPath)
++	}
++	cmd := exec.CommandContext(ctx, ffmpeg, args...)
++	tail := &hlsErrorTail{}
++	cmd.Stderr = tail
++	if err := j.checkFreeSpace(ctx); err != nil {
++		return err
++	}
++	if err = cmd.Start(); err != nil {
++		return err
++	}
++	exit := make(chan error, 1)
++	go func() { exit <- cmd.Wait() }()
++	reaped := false
++	defer func() {
++		if !reaped {
++			cancel()
++			<-exit
+ 		}
+-		name := entry.Name()
+-		if filepath.Ext(name) == ".ts" {
+-			// 检查文件大小，避免空文件
+-			info, err := entry.Info()
+-			if err != nil || info.Size() < 1024 {
+-				continue
++	}()
++	spaceTicker := time.NewTicker(time.Second)
++	defer spaceTicker.Stop()
++	ticker := time.NewTicker(100 * time.Millisecond)
++	defer ticker.Stop()
++	first := time.NewTimer(30 * time.Second)
++	defer first.Stop()
++	firstC := first.C
++	progress := time.NewTimer(2 * time.Minute)
++	defer progress.Stop()
++	var previousSize int64 = -1
++	for {
++		select {
++		case err = <-exit:
++			reaped = true
++			if err != nil {
++				return fmt.Errorf("ffmpeg 退出失败: %w: %s", err, strings.TrimSpace(string(tail.data)))
++			}
++			_, err = readHLSPlaylist(j.playlistPath, true)
++			return err
++		case <-ctx.Done():
++			return ctx.Err()
++		case <-spaceTicker.C:
++			if err := j.checkFreeSpace(ctx); err != nil {
++				return err
++			}
++		case <-firstC:
++			return fmt.Errorf("等待首批分片超时")
++		case <-progress.C:
++			return fmt.Errorf("HLS 两分钟未产生新清单进度")
++		case <-ticker.C:
++			if info, e := os.Stat(j.playlistPath); e == nil && info.Size() != previousSize {
++				previousSize = info.Size()
++				if !progress.Stop() {
++					select {
++					case <-progress.C:
++					default:
++					}
++				}
++				progress.Reset(2 * time.Minute)
+ 			}
+-			count++
+-			if count >= minCount {
+-				return true
++			if firstC != nil {
++				if _, e := readHLSPlaylist(j.playlistPath, false); e == nil {
++					first.Stop()
++					firstC = nil
++					j.playable()
++				}
+ 			}
+ 		}
+ 	}
+-
+-	return false
+ }
+ 
+-func contains(data []byte, pattern []byte) bool {
+-	if len(pattern) == 0 {
+-		return true
++// 校验清单实际引用；运行中验证首片，完成时校验全部引用。
++func readHLSPlaylist(path string, complete bool) ([]byte, error) {
++	data, err := os.ReadFile(path)
++	if err != nil {
++		return nil, err
+ 	}
+-	if len(data) < len(pattern) {
+-		return false
++	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
++	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "#EXTM3U" {
++		return nil, fmt.Errorf("无效 HLS 清单头")
+ 	}
+-	for i := 0; i <= len(data)-len(pattern); i++ {
+-		match := true
+-		for j := 0; j < len(pattern); j++ {
+-			if data[i+j] != pattern[j] {
+-				match = false
+-				break
++	pending := false
++	count := 0
++	ended := false
++	for _, raw := range lines[1:] {
++		line := strings.TrimSpace(raw)
++		if line == "" {
++			continue
++		}
++		if strings.HasPrefix(line, "#EXTINF:") {
++			if pending {
++				return nil, fmt.Errorf("分片时长缺少对应 URI")
++			}
++			value := strings.SplitN(strings.TrimPrefix(line, "#EXTINF:"), ",", 2)[0]
++			duration, e := strconv.ParseFloat(value, 64)
++			if e != nil || !(duration > 0) {
++				return nil, fmt.Errorf("无效分片时长")
+ 			}
++			pending = true
++			continue
+ 		}
+-		if match {
+-			return true
++		if line == "#EXT-X-ENDLIST" {
++			ended = true
++			continue
+ 		}
++		if strings.HasPrefix(line, "#") {
++			continue
++		}
++		if !pending || ended || !hlsSegmentPattern.MatchString(line) || filepath.Base(line) != line || strings.ContainsAny(line, "/\\") {
++			return nil, fmt.Errorf("无效分片引用")
++		}
++		info, e := os.Lstat(filepath.Join(filepath.Dir(path), line))
++		if e != nil {
++			return nil, e
++		}
++		if !info.Mode().IsRegular() || info.Size() == 0 {
++			return nil, fmt.Errorf("分片缺失或为空")
++		}
++		count++
++		pending = false
++		if !complete {
++			return data, nil
++		}
++	}
++	if count == 0 || pending || !ended {
++		return nil, fmt.Errorf("HLS 清单未完整发布")
++	}
++	return data, nil
++}
++func isCompleteCache(path string) bool {
++	if _, err := os.Stat(filepath.Join(filepath.Dir(path), ".failed")); err == nil {
++		return false
+ 	}
+-	return false
++	_, err := readHLSPlaylist(path, true)
++	return err == nil
+ }
+diff --git a/src/servers/media_probe.go b/src/servers/media_probe.go
+index 4864e54..a75afed 100644
+--- a/src/servers/media_probe.go
++++ b/src/servers/media_probe.go
+@@ -107,8 +107,8 @@ func hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath string) []string
+ 		"-hide_banner",
+ 		"-loglevel", "error",
+ 		"-y",
+-		"-probesize", "1000000",      // 限制探测只读取 1MB
+-		"-analyzeduration", "1000000", // 限制分析时长为 1 秒
++		"-probesize", "1000000", // 流信息探测预算，不是输入总读取上限
++		"-analyzeduration", "1000000", // 分析媒体时间预算，不是墙钟超时
+ 		"-fflags", "+genpts",
+ 		"-i", sourcePath,
+ 		"-map", "0:v:0",
+@@ -129,3 +129,12 @@ func hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath string) []string
+ 		playlistPath,
+ 	}
+ }
++
++// hlsCopyArgs 与转码路径使用相同的轨道选择，避免探测和实际输出不一致。
++func hlsCopyArgs(source, segments, playlist string) []string {
++	return []string{"-hide_banner", "-loglevel", "error", "-y",
++		"-probesize", "1000000", "-analyzeduration", "1000000", "-i", source,
++		"-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero",
++		"-f", "hls", "-hls_time", "6", "-hls_playlist_type", "event",
++		"-hls_flags", "temp_file", "-hls_segment_filename", segments, playlist}
++}
+diff --git a/src/servers/playback_resolver.go b/src/servers/playback_resolver.go
+index 2ce9d9f..02c060c 100644
+--- a/src/servers/playback_resolver.go
++++ b/src/servers/playback_resolver.go
+@@ -6,12 +6,11 @@ import (
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
+-	"sync"
+ 
+ 	"github.com/gorilla/mux"
+ 
+ 	"github.com/bililive-go/bililive-go/src/configs"
+-	applog "github.com/bililive-go/bililive-go/src/log"
++	"github.com/bililive-go/bililive-go/src/instance"
+ )
+ 
+ type playbackResolveResponse struct {
+@@ -36,7 +35,26 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
+-	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, relPath)
++	// 保持原录播 relPath 身份，同时把播放地址指向已准备的产物。
++	if target, original, ok := preparedPlayback(cfg, relPath); ok {
++		originalPath, _ := getSafePath(cfg.OutPutPath, filepath.FromSlash(original))
++		if !isCurrentRecordingFile(r.Context(), cfg.OutPutPath, originalPath) {
++			urlValue := signedURLForAsset(r, "file", target, cfg)
++			if urlValue == "" {
++				urlValue = joinEscapedURLPath("/files", target)
++			}
++			writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "ready", Protocol: "file", MimeType: "video/mp4", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue)}})
++			return
++		}
++	}
++	// 改名/可信替换后的旧入口保持原请求身份，媒体地址使用目录核验的现存路径。
++	resolvedPath := relPath
++	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil && inst.RecordingCatalog.MatchesRoot(cfg.OutPutPath) {
++		if target, err := inst.RecordingCatalog.ResolveAlias(r.Context(), relPath); err == nil {
++			resolvedPath = target
++		}
++	}
++	sourcePath, sourceInfo, err := getSafeVideoFile(cfg, resolvedPath)
+ 	if err != nil {
+ 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{ErrNo: http.StatusNotFound, ErrMsg: err.Error()})
+ 		return
+@@ -48,9 +66,9 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
+ 
+ 	ext := strings.ToLower(filepath.Ext(sourceInfo.Name()))
+ 	if ext != ".flv" && ext != ".ts" && ext != ".mkv" {
+-		urlValue := signedURLForAsset(r, "file", relPath, cfg)
++		urlValue := signedURLForAsset(r, "file", resolvedPath, cfg)
+ 		if urlValue == "" {
+-			urlValue = joinEscapedURLPath("/files", relPath)
++			urlValue = joinEscapedURLPath("/files", resolvedPath)
+ 		}
+ 		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
+ 			Status: "ready", Protocol: "file", MimeType: mimeTypeForVideoExtension(ext), URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
+@@ -58,40 +76,31 @@ func resolvePlayback(writer http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
+-	cacheKey := hlsCacheKey(relPath, sourceInfo)
++	cacheKey := hlsCacheKey(resolvedPath, sourceInfo)
+ 	cacheDir := filepath.Join(hlsCacheRoot(cfg), cacheKey)
+ 	playlistPath := filepath.Join(cacheDir, "index.m3u8")
+ 
+-	// 使用新的任务管理器
+-	job, created := globalHLSJobManager.GetOrCreateJob(cfg, cacheKey, sourcePath, cacheDir, playlistPath)
+-
+-	if created {
+-		// 新创建的任务，启动它
+-		if err := globalHLSJobManager.StartJob(cfg, job); err != nil {
+-			applog.GetLogger().WithError(err).WithField("path", relPath).Warn("启动 HLS 任务失败")
+-		}
+-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "processing", RetryAfter: 2}})
+-		return
+-	}
++	// 使用统一的任务管理器（A1-1：统一入口）
++	job := globalHLSJobManager.EnsureJob(cfg, cacheKey, sourcePath, cacheDir, playlistPath)
+ 
+-	// 已存在的任务，检查状态
++	// 检查当前状态
+ 	status, errMsg := job.GetStatus()
+ 
+ 	switch status {
+-	case hlsJobCompleted, hlsJobPlayable, hlsJobPartial:
++	case hlsJobCompleted, hlsJobPlayable:
+ 		// 可以播放
+-		urlValue := signedHLSURLForVideoFile(r, ext, relPath, cfg)
++		urlValue := signedHLSURLForVideoFile(r, ext, resolvedPath, cfg)
+ 		if urlValue == "" {
+-			urlValue = joinEscapedURLPath("/api/stream/hls", relPath) + "/playlist.m3u8"
++			urlValue = joinEscapedURLPath("/api/stream/hls", resolvedPath) + "/playlist.m3u8"
+ 		}
+ 		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{
+ 			Status: "ready", Protocol: "hls", MimeType: "application/vnd.apple.mpegurl", URL: urlValue, ExpiresAt: playbackURLExpiresAt(urlValue),
+ 		}})
+ 		return
+ 
+-	case hlsJobFailed:
++	case hlsJobFailed, hlsJobPartial:
+ 		// 失败
+-		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "failed", Error: errMsg, RetryAfter: 5}})
++		writeJSON(writer, commonResp{ErrNo: 0, Data: playbackResolveResponse{Status: "failed", Error: errMsg, RetryAfter: globalHLSJobManager.RetryAfter(job)}})
+ 		return
+ 
+ 	case hlsJobQueued, hlsJobStarting:
+diff --git a/src/servers/server.go b/src/servers/server.go
+index e7c37c6..795f6d3 100644
+--- a/src/servers/server.go
++++ b/src/servers/server.go
+@@ -310,6 +310,7 @@ func (s *Server) Start(ctx context.Context) error {
+ func (s *Server) Close(ctx context.Context) {
+ 	inst := instance.GetInstance(ctx)
+ 	inst.WaitGroup.Done()
++	globalHLSJobManager.Close()
+ 	// 先关闭所有 SSE 连接，避免 Shutdown 时等待
+ 	GetSSEHub().Close()
+ 	ctx2, cancel := context.WithCancel(ctx)
+diff --git a/src/webapp/src/utils/generated-api.ts b/src/webapp/src/utils/generated-api.ts
+index 9585b96..bd54dff 100644
+--- a/src/webapp/src/utils/generated-api.ts
++++ b/src/webapp/src/utils/generated-api.ts
+@@ -75,6 +75,7 @@ export const apiEndpoints = {
+   putRawConfig_put: { method: 'PUT', path: '/api/raw-config', handler: 'putRawConfig', params: [] },
+   removeLive_delete: { method: 'DELETE', path: '/api/lives/{id}', handler: 'removeLive', params: ['id'] },
+   renameFile_put: { method: 'PUT', path: '/api/file/{path:.*}', handler: 'renameFile', params: ['path'] },
++  resolvePlayback_get: { method: 'GET', path: '/api/playback/resolve/{path:.*}', handler: 'resolvePlayback', params: ['path'] },
+   resolveUrl_get: { method: 'GET', path: '/api/resolve-url', handler: 'resolveUrl', params: [] },
+   restoreBackup_post: { method: 'POST', path: '/api/backups/restore', handler: 'restoreBackup', params: [] },
+   setUpdateChannel_put: { method: 'PUT', path: '/api/update/channel', handler: 'setUpdateChannel', params: [] },
+diff --git a/src/webapp/yarn.lock b/src/webapp/yarn.lock
+index de59b3c..f69eede 100644
+--- a/src/webapp/yarn.lock
++++ b/src/webapp/yarn.lock
+@@ -94,7 +94,7 @@
+   resolved "https://registry.npmjs.org/@babel/compat-data/-/compat-data-7.28.4.tgz"
+   integrity sha512-YsmSKC29MJwf0gF8Rjjrg5LQCmyh+j/nD8/eP7f+BeoQTKYqs9RoWbjGOdy0+1Ekr68RJZMUOPVQaQisnIo4Rw==
+ 
+-"@babel/core@^7.0.0", "@babel/core@^7.0.0 || ^8.0.0-0", "@babel/core@^7.0.0-0", "@babel/core@^7.0.0-0 || ^8.0.0-0 <8.0.0", "@babel/core@^7.1.0", "@babel/core@^7.11.0", "@babel/core@^7.11.1", "@babel/core@^7.12.0", "@babel/core@^7.12.3", "@babel/core@^7.13.0", "@babel/core@^7.16.0", "@babel/core@^7.4.0 || ^8.0.0-0 <8.0.0", "@babel/core@^7.7.2", "@babel/core@^7.8.0":
++"@babel/core@^7.1.0", "@babel/core@^7.11.1", "@babel/core@^7.12.3", "@babel/core@^7.16.0", "@babel/core@^7.7.2", "@babel/core@^7.8.0":
+   version "7.28.4"
+   resolved "https://registry.npmjs.org/@babel/core/-/core-7.28.4.tgz"
+   integrity sha512-2BCOP7TN8M+gVDj7/ht3hsaO/B/n5oDbiAyyvnRlNOs+u1o+JWNYTQrmpuNp1/Wq2gcFrI01JAW+paEKDMx/CA==
+@@ -382,6 +382,11 @@
+     "@babel/helper-create-class-features-plugin" "^7.18.6"
+     "@babel/helper-plugin-utils" "^7.18.6"
+ 
++"@babel/plugin-proposal-private-property-in-object@7.21.0-placeholder-for-preset-env.2":
++  version "7.21.0-placeholder-for-preset-env.2"
++  resolved "https://registry.npmjs.org/@babel/plugin-proposal-private-property-in-object/-/plugin-proposal-private-property-in-object-7.21.0-placeholder-for-preset-env.2.tgz"
++  integrity sha512-SOSkfJDddaM7mak6cPEpswyTRnuRltl429hMraQEglW+OkovnCzsiszTmsrlY//qLFjCpQDFRvjdm2wA5pPm9w==
++
+ "@babel/plugin-proposal-private-property-in-object@^7.16.7":
+   version "7.21.11"
+   resolved "https://registry.npmjs.org/@babel/plugin-proposal-private-property-in-object/-/plugin-proposal-private-property-in-object-7.21.11.tgz"
+@@ -392,11 +397,6 @@
+     "@babel/helper-plugin-utils" "^7.20.2"
+     "@babel/plugin-syntax-private-property-in-object" "^7.14.5"
+ 
+-"@babel/plugin-proposal-private-property-in-object@7.21.0-placeholder-for-preset-env.2":
+-  version "7.21.0-placeholder-for-preset-env.2"
+-  resolved "https://registry.npmjs.org/@babel/plugin-proposal-private-property-in-object/-/plugin-proposal-private-property-in-object-7.21.0-placeholder-for-preset-env.2.tgz"
+-  integrity sha512-SOSkfJDddaM7mak6cPEpswyTRnuRltl429hMraQEglW+OkovnCzsiszTmsrlY//qLFjCpQDFRvjdm2wA5pPm9w==
+-
+ "@babel/plugin-syntax-async-generators@^7.8.4":
+   version "7.8.4"
+   resolved "https://registry.npmjs.org/@babel/plugin-syntax-async-generators/-/plugin-syntax-async-generators-7.8.4.tgz"
+@@ -432,7 +432,7 @@
+   dependencies:
+     "@babel/helper-plugin-utils" "^7.27.1"
+ 
+-"@babel/plugin-syntax-flow@^7.14.5", "@babel/plugin-syntax-flow@^7.27.1":
++"@babel/plugin-syntax-flow@^7.27.1":
+   version "7.27.1"
+   resolved "https://registry.npmjs.org/@babel/plugin-syntax-flow/-/plugin-syntax-flow-7.27.1.tgz"
+   integrity sha512-p9OkPbZ5G7UT1MofwYFigGebnrzGJacoBSQM0/6bi/PUMVE+qlWDD/OalvQKbwgQzU6dl0xAv6r4X7Jme0RYxA==
+@@ -882,7 +882,7 @@
+   dependencies:
+     "@babel/plugin-transform-react-jsx" "^7.27.1"
+ 
+-"@babel/plugin-transform-react-jsx@^7.14.9", "@babel/plugin-transform-react-jsx@^7.27.1":
++"@babel/plugin-transform-react-jsx@^7.27.1":
+   version "7.27.1"
+   resolved "https://registry.npmjs.org/@babel/plugin-transform-react-jsx/-/plugin-transform-react-jsx-7.27.1.tgz"
+   integrity sha512-2KH4LWGSrJIkVf5tSiBFYuXDAoWRq2MMwgivCf+93dd0GQi8RXLjKA/0EvRnVV5G0hrHczsquXuD01L8s6dmBw==
+@@ -1518,13 +1518,6 @@
+     terminal-link "^2.0.0"
+     v8-to-istanbul "^8.1.0"
+ 
+-"@jest/schemas@^28.1.3":
+-  version "28.1.3"
+-  resolved "https://registry.npmjs.org/@jest/schemas/-/schemas-28.1.3.tgz"
+-  integrity sha512-/l/VWsdt/aBXgjshLWOFyFt3IVdYypu5y2Wn2rOO1un6nkqIn8SLXzgIMYXFyYsRWDyF5EthmKJMIdJvk08grg==
+-  dependencies:
+-    "@sinclair/typebox" "^0.24.1"
+-
+ "@jest/schemas@30.0.5":
+   version "30.0.5"
+   resolved "https://registry.npmjs.org/@jest/schemas/-/schemas-30.0.5.tgz"
+@@ -1532,6 +1525,13 @@
+   dependencies:
+     "@sinclair/typebox" "^0.34.0"
+ 
++"@jest/schemas@^28.1.3":
++  version "28.1.3"
++  resolved "https://registry.npmjs.org/@jest/schemas/-/schemas-28.1.3.tgz"
++  integrity sha512-/l/VWsdt/aBXgjshLWOFyFt3IVdYypu5y2Wn2rOO1un6nkqIn8SLXzgIMYXFyYsRWDyF5EthmKJMIdJvk08grg==
++  dependencies:
++    "@sinclair/typebox" "^0.24.1"
++
+ "@jest/source-map@^27.5.1":
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/@jest/source-map/-/source-map-27.5.1.tgz"
+@@ -1592,6 +1592,19 @@
+     source-map "^0.6.1"
+     write-file-atomic "^3.0.0"
+ 
++"@jest/types@30.0.5":
++  version "30.0.5"
++  resolved "https://registry.npmjs.org/@jest/types/-/types-30.0.5.tgz"
++  integrity sha512-aREYa3aku9SSnea4aX6bhKn4bgv3AXkgijoQgbYV3yvbiGt6z+MQ85+6mIhx9DsKW2BuB/cLR/A+tcMThx+KLQ==
++  dependencies:
++    "@jest/pattern" "30.0.1"
++    "@jest/schemas" "30.0.5"
++    "@types/istanbul-lib-coverage" "^2.0.6"
++    "@types/istanbul-reports" "^3.0.4"
++    "@types/node" "*"
++    "@types/yargs" "^17.0.33"
++    chalk "^4.1.2"
++
+ "@jest/types@^24.9.0":
+   version "24.9.0"
+   resolved "https://registry.npmjs.org/@jest/types/-/types-24.9.0.tgz"
+@@ -1634,19 +1647,6 @@
+     "@types/yargs" "^17.0.8"
+     chalk "^4.0.0"
+ 
+-"@jest/types@30.0.5":
+-  version "30.0.5"
+-  resolved "https://registry.npmjs.org/@jest/types/-/types-30.0.5.tgz"
+-  integrity sha512-aREYa3aku9SSnea4aX6bhKn4bgv3AXkgijoQgbYV3yvbiGt6z+MQ85+6mIhx9DsKW2BuB/cLR/A+tcMThx+KLQ==
+-  dependencies:
+-    "@jest/pattern" "30.0.1"
+-    "@jest/schemas" "30.0.5"
+-    "@types/istanbul-lib-coverage" "^2.0.6"
+-    "@types/istanbul-reports" "^3.0.4"
+-    "@types/node" "*"
+-    "@types/yargs" "^17.0.33"
+-    chalk "^4.1.2"
+-
+ "@jridgewell/gen-mapping@^0.3.12", "@jridgewell/gen-mapping@^0.3.2", "@jridgewell/gen-mapping@^0.3.5":
+   version "0.3.13"
+   resolved "https://registry.npmjs.org/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz"
+@@ -1709,7 +1709,7 @@
+     "@nodelib/fs.stat" "2.0.5"
+     run-parallel "^1.1.9"
+ 
+-"@nodelib/fs.stat@^2.0.2", "@nodelib/fs.stat@2.0.5":
++"@nodelib/fs.stat@2.0.5", "@nodelib/fs.stat@^2.0.2":
+   version "2.0.5"
+   resolved "https://registry.npmjs.org/@nodelib/fs.stat/-/fs.stat-2.0.5.tgz"
+   integrity sha512-RkhPPp2zrqDAQA/2jNhnztcPAlv64XdhIp7a7454A5ovI7Bukxgt7MX7udwAu3zg1DcpPU0rz3VV1SeaqvY4+A==
+@@ -2369,7 +2369,7 @@
+     picocolors "1.1.1"
+     pretty-format "^27.0.2"
+ 
+-"@testing-library/dom@^6.15.0", "@testing-library/dom@>=5":
++"@testing-library/dom@^6.15.0":
+   version "6.16.0"
+   resolved "https://registry.npmjs.org/@testing-library/dom/-/dom-6.16.0.tgz"
+   integrity sha512-lBD88ssxqEfz0wFL6MeUyyWZfV/2cjEZZV3YRpb2IoJRej/4f1jB0TzqIOznTpfR1r34CNesrubxwIlAQ8zgPA==
+@@ -2426,7 +2426,7 @@
+   resolved "https://registry.npmjs.org/@types/aria-query/-/aria-query-5.0.4.tgz"
+   integrity sha512-rfT93uj5s0PRL7EzccGMs3brplhcrghnDoV26NqKhCAS1hVo+WdNsPvE/yb6ilfr5hi2MEk6d5EWJTKdxg8jVw==
+ 
+-"@types/babel__core@^7.0.0", "@types/babel__core@^7.1.14", "@types/babel__core@^7.1.9":
++"@types/babel__core@^7.0.0", "@types/babel__core@^7.1.14":
+   version "7.20.5"
+   resolved "https://registry.npmjs.org/@types/babel__core/-/babel__core-7.20.5.tgz"
+   integrity sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==
+@@ -2767,7 +2767,7 @@
+   dependencies:
+     "@types/react" "*"
+ 
+-"@types/react@*":
++"@types/react@*", "@types/react@^16":
+   version "16.14.0"
+   resolved "https://registry.npmjs.org/@types/react/-/react-16.14.0.tgz"
+   integrity sha512-jJjHo1uOe+NENRIBvF46tJimUvPnmbQ41Ax0pEm7pRvhPg+wuj8VMOHHiMvaGmZRzRrCtm7KnL5OOE/6kHPK8w==
+@@ -2775,15 +2775,7 @@
+     "@types/prop-types" "*"
+     csstype "^3.0.2"
+ 
+-"@types/react@^16":
+-  version "16.14.0"
+-  resolved "https://registry.npmjs.org/@types/react/-/react-16.14.0.tgz"
+-  integrity sha512-jJjHo1uOe+NENRIBvF46tJimUvPnmbQ41Ax0pEm7pRvhPg+wuj8VMOHHiMvaGmZRzRrCtm7KnL5OOE/6kHPK8w==
+-  dependencies:
+-    "@types/prop-types" "*"
+-    csstype "^3.0.2"
+-
+-"@types/react@^18.2.25 || ^19", "@types/react@18.2.0":
++"@types/react@18.2.0":
+   version "18.2.0"
+   resolved "https://registry.npmjs.org/@types/react/-/react-18.2.0.tgz"
+   integrity sha512-0FLj93y5USLHdnhIhABk83rm8XEGA7kH3cr+YUlvxoUGp1xNt/DINUMvqPxLyOQMzLmZe8i4RTHbvb8MC7NmrA==
+@@ -2930,7 +2922,7 @@
+   dependencies:
+     "@types/yargs-parser" "*"
+ 
+-"@typescript-eslint/eslint-plugin@^4.0.0 || ^5.0.0", "@typescript-eslint/eslint-plugin@^5.5.0":
++"@typescript-eslint/eslint-plugin@^5.5.0":
+   version "5.62.0"
+   resolved "https://registry.npmjs.org/@typescript-eslint/eslint-plugin/-/eslint-plugin-5.62.0.tgz"
+   integrity sha512-TiZzBSJja/LbhNPvk6yc0JrX9XqhQ0hdh6M2svYfsHGejaKFIAGd9MQ+ERIMzLGlN/kZoYIgdxFV0PuljTKXag==
+@@ -2953,7 +2945,7 @@
+   dependencies:
+     "@typescript-eslint/utils" "5.62.0"
+ 
+-"@typescript-eslint/parser@^5.0.0", "@typescript-eslint/parser@^5.5.0":
++"@typescript-eslint/parser@^5.5.0":
+   version "5.62.0"
+   resolved "https://registry.npmjs.org/@typescript-eslint/parser/-/parser-5.62.0.tgz"
+   integrity sha512-VlJEV0fOQ7BExOsHYAGrgbEiZoi8D+Bl2+f6V2RrXerRSylnp+ZBHmPvaIa8cz0Ajx7WO7Z5RqfgYg7ED1nRhA==
+@@ -2999,7 +2991,7 @@
+     semver "^7.3.7"
+     tsutils "^3.21.0"
+ 
+-"@typescript-eslint/utils@^5.58.0", "@typescript-eslint/utils@5.62.0":
++"@typescript-eslint/utils@5.62.0", "@typescript-eslint/utils@^5.58.0":
+   version "5.62.0"
+   resolved "https://registry.npmjs.org/@typescript-eslint/utils/-/utils-5.62.0.tgz"
+   integrity sha512-n8oxjeb5aIbPFEtmQxQYOLI0i9n5ySBEY/ZEHHZqKQSFnxio1rv6dthascc9dLuwrL0RC5mPCxB7vnAVGAYWAQ==
+@@ -3026,7 +3018,7 @@
+   resolved "https://registry.npmjs.org/@ungap/structured-clone/-/structured-clone-1.3.0.tgz"
+   integrity sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==
+ 
+-"@webassemblyjs/ast@^1.14.1", "@webassemblyjs/ast@1.14.1":
++"@webassemblyjs/ast@1.14.1", "@webassemblyjs/ast@^1.14.1":
+   version "1.14.1"
+   resolved "https://registry.npmjs.org/@webassemblyjs/ast/-/ast-1.14.1.tgz"
+   integrity sha512-nuBEDgQfm1ccRp/8bCQrx1frohyufl4JlbMMZ4P1wpeOfDhF6FQkxZJ1b/e+PLwr6X1Nhw6OLme5usuBWYBvuQ==
+@@ -3127,7 +3119,7 @@
+     "@webassemblyjs/wasm-gen" "1.14.1"
+     "@webassemblyjs/wasm-parser" "1.14.1"
+ 
+-"@webassemblyjs/wasm-parser@^1.14.1", "@webassemblyjs/wasm-parser@1.14.1":
++"@webassemblyjs/wasm-parser@1.14.1", "@webassemblyjs/wasm-parser@^1.14.1":
+   version "1.14.1"
+   resolved "https://registry.npmjs.org/@webassemblyjs/wasm-parser/-/wasm-parser-1.14.1.tgz"
+   integrity sha512-JLBl+KZ0R5qB7mCnud/yyX08jWFw5MsoalJ1pQ4EdFlgj9VdXKGuENGsiCIjegI1W7p91rUlcB/LB5yRJKNTcQ==
+@@ -3193,16 +3185,16 @@ acorn-walk@^7.1.1:
+   resolved "https://registry.npmjs.org/acorn-walk/-/acorn-walk-7.2.0.tgz"
+   integrity sha512-OPdCF6GsMIP+Az+aWfAAOEt2/+iVDKE7oy6lJ098aoe59oAmK76qV6Gw60SbZ8jHuG2wH058GF4pLFbYamYrVA==
+ 
+-"acorn@^6.0.0 || ^7.0.0 || ^8.0.0", acorn@^8.14.0, acorn@^8.15.0, acorn@^8.2.4, acorn@^8.9.0:
+-  version "8.15.0"
+-  resolved "https://registry.npmjs.org/acorn/-/acorn-8.15.0.tgz"
+-  integrity sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==
+-
+ acorn@^7.1.1:
+   version "7.4.1"
+   resolved "https://registry.npmjs.org/acorn/-/acorn-7.4.1.tgz"
+   integrity sha512-nQyp0o1/mNdbTO1PO6kHkwSrmgZ0MT/jCCpNiwbUjGoRN4dlBhqJtoQuCnEOKzgTVwg0ZWiCoQy6SxMebQVh8A==
+ 
++acorn@^8.15.0, acorn@^8.2.4, acorn@^8.9.0:
++  version "8.15.0"
++  resolved "https://registry.npmjs.org/acorn/-/acorn-8.15.0.tgz"
++  integrity sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==
++
+ address@^1.0.1, address@^1.1.2:
+   version "1.2.2"
+   resolved "https://registry.npmjs.org/address/-/address-1.2.2.tgz"
+@@ -3242,7 +3234,7 @@ ajv-keywords@^5.1.0:
+   dependencies:
+     fast-deep-equal "^3.1.3"
+ 
+-ajv@^6.12.2, ajv@^6.12.4, ajv@^6.12.5, ajv@^6.9.1:
++ajv@^6.12.2, ajv@^6.12.4, ajv@^6.12.5:
+   version "6.12.6"
+   resolved "https://registry.npmjs.org/ajv/-/ajv-6.12.6.tgz"
+   integrity sha512-j3fVLgvTo527anyYyJOGTYJbG+vnnQYvE0m5mmkc1TK+nxAppkCLMIL0aZ4dblVCNoGShhm+kzE4ZUykBoMg4g==
+@@ -3252,17 +3244,7 @@ ajv@^6.12.2, ajv@^6.12.4, ajv@^6.12.5, ajv@^6.9.1:
+     json-schema-traverse "^0.4.1"
+     uri-js "^4.2.2"
+ 
+-ajv@^8.0.0, ajv@^8.8.2, ajv@^8.9.0:
+-  version "8.17.1"
+-  resolved "https://registry.npmjs.org/ajv/-/ajv-8.17.1.tgz"
+-  integrity sha512-B/gBuNg5SiMTrPkC+A2+cW0RszwxYmn6VYxB/inlBStS5nx6xHIt/ehKRhIMhqusl7a8LjQoZnjCs5vhwxOQ1g==
+-  dependencies:
+-    fast-deep-equal "^3.1.3"
+-    fast-uri "^3.0.1"
+-    json-schema-traverse "^1.0.0"
+-    require-from-string "^2.0.2"
+-
+-ajv@^8.6.0, ajv@>=8:
++ajv@^8.0.0, ajv@^8.6.0, ajv@^8.9.0:
+   version "8.17.1"
+   resolved "https://registry.npmjs.org/ajv/-/ajv-8.17.1.tgz"
+   integrity sha512-B/gBuNg5SiMTrPkC+A2+cW0RszwxYmn6VYxB/inlBStS5nx6xHIt/ehKRhIMhqusl7a8LjQoZnjCs5vhwxOQ1g==
+@@ -3318,12 +3300,7 @@ ansi-styles@^4.0.0, ansi-styles@^4.1.0:
+   dependencies:
+     color-convert "^2.0.1"
+ 
+-ansi-styles@^5.0.0:
+-  version "5.2.0"
+-  resolved "https://registry.npmjs.org/ansi-styles/-/ansi-styles-5.2.0.tgz"
+-  integrity sha512-Cxwpt2SfTzTtXcfOlzGEee8O+c+MmUgGrNiBcXnuWxuFJHe6a5Hz7qwhwe5OgaSYI0IJvkLqWX1ASG+cJOkEiA==
+-
+-ansi-styles@^5.2.0:
++ansi-styles@^5.0.0, ansi-styles@^5.2.0:
+   version "5.2.0"
+   resolved "https://registry.npmjs.org/ansi-styles/-/ansi-styles-5.2.0.tgz"
+   integrity sha512-Cxwpt2SfTzTtXcfOlzGEee8O+c+MmUgGrNiBcXnuWxuFJHe6a5Hz7qwhwe5OgaSYI0IJvkLqWX1ASG+cJOkEiA==
+@@ -3417,6 +3394,13 @@ argparse@^2.0.1:
+   resolved "https://registry.npmjs.org/argparse/-/argparse-2.0.1.tgz"
+   integrity sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==
+ 
++aria-query@5.3.0:
++  version "5.3.0"
++  resolved "https://registry.npmjs.org/aria-query/-/aria-query-5.3.0.tgz"
++  integrity sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A==
++  dependencies:
++    dequal "^2.0.3"
++
+ aria-query@^4.0.2:
+   version "4.2.2"
+   resolved "https://registry.npmjs.org/aria-query/-/aria-query-4.2.2.tgz"
+@@ -3430,13 +3414,6 @@ aria-query@^5.0.0, aria-query@^5.3.2:
+   resolved "https://registry.npmjs.org/aria-query/-/aria-query-5.3.2.tgz"
+   integrity sha512-COROpnaoap1E2F000S62r6A60uHZnmlvomhfyT2DlTcrY1OrBKn2UhH7qn5wTC9zMvD0AY7csdPSNwKP+7WiQw==
+ 
+-aria-query@5.3.0:
+-  version "5.3.0"
+-  resolved "https://registry.npmjs.org/aria-query/-/aria-query-5.3.0.tgz"
+-  integrity sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A==
+-  dependencies:
+-    dequal "^2.0.3"
+-
+ array-buffer-byte-length@^1.0.1, array-buffer-byte-length@^1.0.2:
+   version "1.0.2"
+   resolved "https://registry.npmjs.org/array-buffer-byte-length/-/array-buffer-byte-length-1.0.2.tgz"
+@@ -3857,7 +3834,7 @@ browser-process-hrtime@^1.0.0:
+   resolved "https://registry.npmjs.org/browser-process-hrtime/-/browser-process-hrtime-1.0.0.tgz"
+   integrity sha512-9o5UecI3GhkpM6DrXr69PblIuWxPKk9Y0jHBRhdocZ2y7YECBFCsHm79Pr3OyR2AvjhDkabFJaDJMYRazHgsow==
+ 
+-browserslist@^4.0.0, browserslist@^4.18.1, browserslist@^4.21.4, browserslist@^4.24.0, browserslist@^4.24.4, browserslist@^4.25.3, "browserslist@>= 4", "browserslist@>= 4.21.0", browserslist@>=4:
++browserslist@^4.0.0, browserslist@^4.18.1, browserslist@^4.21.4, browserslist@^4.24.0, browserslist@^4.24.4, browserslist@^4.25.3:
+   version "4.26.2"
+   resolved "https://registry.npmjs.org/browserslist/-/browserslist-4.26.2.tgz"
+   integrity sha512-ECFzp6uFOSB+dcZ5BK/IBaGWssbSYBHvuMeMt3MMFyhI0Z8SqGgEkBLARgpRH3hutIgPVsALcMwbDrJqPxQ65A==
+@@ -3964,16 +3941,7 @@ case-sensitive-paths-webpack-plugin@^2.4.0:
+   resolved "https://registry.npmjs.org/case-sensitive-paths-webpack-plugin/-/case-sensitive-paths-webpack-plugin-2.4.0.tgz"
+   integrity sha512-roIFONhcxog0JSSWbvVAh3OocukmSgpqOH6YpMkCvav/ySIV3JKg4Dc8vYtQjYi/UxpNE36r/9v+VqTQqgkYmw==
+ 
+-chalk@^2.0.1:
+-  version "2.4.2"
+-  resolved "https://registry.npmjs.org/chalk/-/chalk-2.4.2.tgz"
+-  integrity sha512-Mti+f9lpJNcwF4tWV8/OrTTtF1gZi+f8FqlyAdouralcFWFQWF2+NgCHShjkCb+IFBLq9buZwE1xckQU4peSuQ==
+-  dependencies:
+-    ansi-styles "^3.2.1"
+-    escape-string-regexp "^1.0.5"
+-    supports-color "^5.3.0"
+-
+-chalk@^2.4.1:
++chalk@^2.0.1, chalk@^2.4.1:
+   version "2.4.2"
+   resolved "https://registry.npmjs.org/chalk/-/chalk-2.4.2.tgz"
+   integrity sha512-Mti+f9lpJNcwF4tWV8/OrTTtF1gZi+f8FqlyAdouralcFWFQWF2+NgCHShjkCb+IFBLq9buZwE1xckQU4peSuQ==
+@@ -4102,16 +4070,16 @@ color-convert@^2.0.1:
+   dependencies:
+     color-name "~1.1.4"
+ 
+-color-name@~1.1.4:
+-  version "1.1.4"
+-  resolved "https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz"
+-  integrity sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==
+-
+ color-name@1.1.3:
+   version "1.1.3"
+   resolved "https://registry.npmjs.org/color-name/-/color-name-1.1.3.tgz"
+   integrity sha512-72fSenhMw2HZMTVHeCA9KCmpEIbzWiQsjN+BHcBbS9vr1mtt+vJjPdksIBNUmKAW8TFUDPJK5SUU3QhE9NEXDw==
+ 
++color-name@~1.1.4:
++  version "1.1.4"
++  resolved "https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz"
++  integrity sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==
++
+ colord@^2.9.1:
+   version "2.9.3"
+   resolved "https://registry.npmjs.org/colord/-/colord-2.9.3.tgz"
+@@ -4380,14 +4348,6 @@ css-select@^4.1.3:
+     domutils "^2.8.0"
+     nth-check "^2.0.1"
+ 
+-css-tree@^1.1.2, css-tree@^1.1.3:
+-  version "1.1.3"
+-  resolved "https://registry.npmjs.org/css-tree/-/css-tree-1.1.3.tgz"
+-  integrity sha512-tRpdppF7TRazZrjJ6v3stzv93qxRcSsFmW6cX0Zm2NVKpxE1WV1HblnghVv9TreireHkqI/VDEsfolRF1p6y7Q==
+-  dependencies:
+-    mdn-data "2.0.14"
+-    source-map "^0.6.1"
+-
+ css-tree@1.0.0-alpha.37:
+   version "1.0.0-alpha.37"
+   resolved "https://registry.npmjs.org/css-tree/-/css-tree-1.0.0-alpha.37.tgz"
+@@ -4396,6 +4356,14 @@ css-tree@1.0.0-alpha.37:
+     mdn-data "2.0.4"
+     source-map "^0.6.1"
+ 
++css-tree@^1.1.2, css-tree@^1.1.3:
++  version "1.1.3"
++  resolved "https://registry.npmjs.org/css-tree/-/css-tree-1.1.3.tgz"
++  integrity sha512-tRpdppF7TRazZrjJ6v3stzv93qxRcSsFmW6cX0Zm2NVKpxE1WV1HblnghVv9TreireHkqI/VDEsfolRF1p6y7Q==
++  dependencies:
++    mdn-data "2.0.14"
++    source-map "^0.6.1"
++
+ css-what@^3.2.1:
+   version "3.4.2"
+   resolved "https://registry.npmjs.org/css-what/-/css-what-3.4.2.tgz"
+@@ -4504,7 +4472,7 @@ csstype@^3.1.3:
+   resolved "https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz"
+   integrity sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==
+ 
+-d3-array@^3.1.6, "d3-array@2 - 3", "d3-array@2.10.0 - 3":
++"d3-array@2 - 3", "d3-array@2.10.0 - 3", d3-array@^3.1.6:
+   version "3.2.4"
+   resolved "https://registry.npmjs.org/d3-array/-/d3-array-3.2.4.tgz"
+   integrity sha512-tdQAmyA18i4J7wprpYq8ClcxZy3SC31QMeByyCFyRt7BVHdREQZ5lpzoe5mFEYZUWe+oq8HBvk9JjpibyEV4Jg==
+@@ -4526,7 +4494,7 @@ d3-ease@^3.0.1:
+   resolved "https://registry.npmjs.org/d3-format/-/d3-format-3.1.0.tgz"
+   integrity sha512-YyUI6AEuY/Wpt8KWLgZHsIU86atmikuoOmCfommt0LYHiQSPjvX2AcFc38PX0CBpr2RCyZhjex+NS/LPOv6YqA==
+ 
+-d3-interpolate@^3.0.1, "d3-interpolate@1.2.0 - 3":
++"d3-interpolate@1.2.0 - 3", d3-interpolate@^3.0.1:
+   version "3.0.1"
+   resolved "https://registry.npmjs.org/d3-interpolate/-/d3-interpolate-3.0.1.tgz"
+   integrity sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g==
+@@ -4563,7 +4531,7 @@ d3-shape@^3.1.0:
+   dependencies:
+     d3-time "1 - 3"
+ 
+-d3-time@^3.0.0, "d3-time@1 - 3", "d3-time@2.1.1 - 3":
++"d3-time@1 - 3", "d3-time@2.1.1 - 3", d3-time@^3.0.0:
+   version "3.1.0"
+   resolved "https://registry.npmjs.org/d3-time/-/d3-time-3.1.0.tgz"
+   integrity sha512-VqKjzBLejbSMT4IgbmVgDjpkYrNWUYJnbCGo874u7MMKIWsILRX+OpX/gTk8MqjpT1A/c6HY2dCA77ZN0lkQ2Q==
+@@ -4616,38 +4584,31 @@ data-view-byte-offset@^1.0.1:
+     es-errors "^1.3.0"
+     is-data-view "^1.0.1"
+ 
+-dayjs@^1.11.11, "dayjs@>= 1.x":
++dayjs@^1.11.11:
+   version "1.11.19"
+   resolved "https://registry.npmjs.org/dayjs/-/dayjs-1.11.19.tgz"
+   integrity sha512-t5EcLVS6QPBNqM2z8fakk/NKel+Xzshgt8FFKAn+qwlD1pzZWxh0nVCrvFK7ZDb6XucZeF9z8C7CBWTRIVApAw==
+ 
+-debug@^2.6.0:
++debug@2.6.9, debug@^2.6.0:
+   version "2.6.9"
+   resolved "https://registry.npmjs.org/debug/-/debug-2.6.9.tgz"
+   integrity sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==
+   dependencies:
+     ms "2.0.0"
+ 
+-debug@^3.2.7:
+-  version "3.2.7"
+-  resolved "https://registry.npmjs.org/debug/-/debug-3.2.7.tgz"
+-  integrity sha512-CFjzYYAi4ThfiQvizrFQevTTXHtnCqWfe7x1AhgEscTz6ZbLbfoLRLPugTQyBth6f8ZERVUSyWHFD/7Wu4t1XQ==
+-  dependencies:
+-    ms "^2.1.1"
+-
+-debug@^4.1.0, debug@^4.1.1, debug@^4.3.1, debug@^4.3.2, debug@^4.3.4, debug@^4.4.1, debug@4:
++debug@4, debug@^4.1.0, debug@^4.1.1, debug@^4.3.1, debug@^4.3.2, debug@^4.3.4, debug@^4.4.1:
+   version "4.4.3"
+   resolved "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz"
+   integrity sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==
+   dependencies:
+     ms "^2.1.3"
+ 
+-debug@2.6.9:
+-  version "2.6.9"
+-  resolved "https://registry.npmjs.org/debug/-/debug-2.6.9.tgz"
+-  integrity sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==
++debug@^3.2.7:
++  version "3.2.7"
++  resolved "https://registry.npmjs.org/debug/-/debug-3.2.7.tgz"
++  integrity sha512-CFjzYYAi4ThfiQvizrFQevTTXHtnCqWfe7x1AhgEscTz6ZbLbfoLRLPugTQyBth6f8ZERVUSyWHFD/7Wu4t1XQ==
+   dependencies:
+-    ms "2.0.0"
++    ms "^2.1.1"
+ 
+ decimal.js-light@^2.5.1:
+   version "2.5.1"
+@@ -4709,16 +4670,16 @@ delayed-stream@~1.0.0:
+   resolved "https://registry.npmjs.org/delayed-stream/-/delayed-stream-1.0.0.tgz"
+   integrity sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==
+ 
+-depd@~1.1.2:
+-  version "1.1.2"
+-  resolved "https://registry.npmjs.org/depd/-/depd-1.1.2.tgz"
+-  integrity sha512-7emPTl6Dpo6JRXOXjLRxck+FlLRX5847cLKEn00PLAgc3g2hTZZgr+e4c2v6QpSmLeFP3n5yUo7ft6avBK/5jQ==
+-
+ depd@2.0.0:
+   version "2.0.0"
+   resolved "https://registry.npmjs.org/depd/-/depd-2.0.0.tgz"
+   integrity sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==
+ 
++depd@~1.1.2:
++  version "1.1.2"
++  resolved "https://registry.npmjs.org/depd/-/depd-1.1.2.tgz"
++  integrity sha512-7emPTl6Dpo6JRXOXjLRxck+FlLRX5847cLKEn00PLAgc3g2hTZZgr+e4c2v6QpSmLeFP3n5yUo7ft6avBK/5jQ==
++
+ dequal@^2.0.3:
+   version "2.0.3"
+   resolved "https://registry.npmjs.org/dequal/-/dequal-2.0.3.tgz"
+@@ -4812,6 +4773,14 @@ dom-converter@^0.2.0:
+   dependencies:
+     utila "~0.4"
+ 
++dom-serializer@0:
++  version "0.2.2"
++  resolved "https://registry.npmjs.org/dom-serializer/-/dom-serializer-0.2.2.tgz"
++  integrity sha512-2/xPb3ORsQ42nHYiSunXkDjPLBaEj/xTwUO4B7XCZQTRk7EBtTOPaygh10YAAh2OI1Qrp6NWfpAhzswj0ydt9g==
++  dependencies:
++    domelementtype "^2.0.1"
++    entities "^2.0.0"
++
+ dom-serializer@^1.0.1:
+   version "1.4.1"
+   resolved "https://registry.npmjs.org/dom-serializer/-/dom-serializer-1.4.1.tgz"
+@@ -4821,24 +4790,16 @@ dom-serializer@^1.0.1:
+     domhandler "^4.2.0"
+     entities "^2.0.0"
+ 
+-dom-serializer@0:
+-  version "0.2.2"
+-  resolved "https://registry.npmjs.org/dom-serializer/-/dom-serializer-0.2.2.tgz"
+-  integrity sha512-2/xPb3ORsQ42nHYiSunXkDjPLBaEj/xTwUO4B7XCZQTRk7EBtTOPaygh10YAAh2OI1Qrp6NWfpAhzswj0ydt9g==
+-  dependencies:
+-    domelementtype "^2.0.1"
+-    entities "^2.0.0"
++domelementtype@1:
++  version "1.3.1"
++  resolved "https://registry.npmjs.org/domelementtype/-/domelementtype-1.3.1.tgz"
++  integrity sha512-BSKB+TSpMpFI/HOxCNr1O8aMOTZ8hT3pM3GQ0w/mWRmkhEDSFJkkyzz4XQsBV44BChwGkrDfMyjVD0eA2aFV3w==
+ 
+ domelementtype@^2.0.1, domelementtype@^2.2.0:
+   version "2.3.0"
+   resolved "https://registry.npmjs.org/domelementtype/-/domelementtype-2.3.0.tgz"
+   integrity sha512-OLETBj6w0OsagBwdXnPdN0cnMfF9opN69co+7ZrbfPGrdpPVNBUj02spi6B1N7wChLQiPn4CSH/zJvXw56gmHw==
+ 
+-domelementtype@1:
+-  version "1.3.1"
+-  resolved "https://registry.npmjs.org/domelementtype/-/domelementtype-1.3.1.tgz"
+-  integrity sha512-BSKB+TSpMpFI/HOxCNr1O8aMOTZ8hT3pM3GQ0w/mWRmkhEDSFJkkyzz4XQsBV44BChwGkrDfMyjVD0eA2aFV3w==
+-
+ domexception@^2.0.1:
+   version "2.0.1"
+   resolved "https://registry.npmjs.org/domexception/-/domexception-2.0.1.tgz"
+@@ -5312,7 +5273,7 @@ eslint-plugin-testing-library@^5.0.1:
+   dependencies:
+     "@typescript-eslint/utils" "^5.58.0"
+ 
+-eslint-scope@^5.1.1, eslint-scope@5.1.1:
++eslint-scope@5.1.1, eslint-scope@^5.1.1:
+   version "5.1.1"
+   resolved "https://registry.npmjs.org/eslint-scope/-/eslint-scope-5.1.1.tgz"
+   integrity sha512-2NxwbF/hZ0KpepYN0cNbo+FN6XoK7GaHlQhgx/hIZl6Va0bF45RQOOwhLIy8lQDbuCiadSLCBnH2CFYquit5bw==
+@@ -5349,7 +5310,7 @@ eslint-webpack-plugin@^3.1.1:
+     normalize-path "^3.0.0"
+     schema-utils "^4.0.0"
+ 
+-eslint@*, "eslint@^2 || ^3 || ^4 || ^5 || ^6 || ^7.2.0 || ^8 || ^9", "eslint@^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9", "eslint@^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9.7", "eslint@^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0-0", "eslint@^6.0.0 || ^7.0.0 || ^8.0.0", "eslint@^6.0.0 || ^7.0.0 || >=8.0.0", "eslint@^7.0.0 || ^8.0.0", "eslint@^7.5.0 || ^8.0.0", "eslint@^7.5.0 || ^8.0.0 || ^9.0.0", eslint@^8.0.0, eslint@^8.1.0, eslint@^8.3.0, "eslint@>= 6":
++eslint@^8.3.0:
+   version "8.57.1"
+   resolved "https://registry.npmjs.org/eslint/-/eslint-8.57.1.tgz"
+   integrity sha512-ypowyDxpVSYpkXr9WPv2PAZCtNip1Mv5KTW0SCurXv/9iOpcrH9PaqUElksqEB6pChqHGDRCFTyrZlGhnLNGiA==
+@@ -5402,16 +5363,16 @@ espree@^9.6.0, espree@^9.6.1:
+     acorn-jsx "^5.3.2"
+     eslint-visitor-keys "^3.4.1"
+ 
+-esprima@^4.0.0, esprima@^4.0.1:
+-  version "4.0.1"
+-  resolved "https://registry.npmjs.org/esprima/-/esprima-4.0.1.tgz"
+-  integrity sha512-eGuFFw7Upda+g4p+QHvnW0RyTX/SVeJBDM/gCtMARO0cLuT2HcEKnTPvhjV6aGeqrCB/sbNop0Kszm0jsaWU4A==
+-
+ esprima@1.2.2:
+   version "1.2.2"
+   resolved "https://registry.npmjs.org/esprima/-/esprima-1.2.2.tgz"
+   integrity sha512-+JpPZam9w5DuJ3Q67SqsMGtiHKENSMRVoxvArfJZK01/BfLEObtZ6orJa/MtoGNR/rfMgp5837T41PAmTwAv/A==
+ 
++esprima@^4.0.0, esprima@^4.0.1:
++  version "4.0.1"
++  resolved "https://registry.npmjs.org/esprima/-/esprima-4.0.1.tgz"
++  integrity sha512-eGuFFw7Upda+g4p+QHvnW0RyTX/SVeJBDM/gCtMARO0cLuT2HcEKnTPvhjV6aGeqrCB/sbNop0Kszm0jsaWU4A==
++
+ esquery@^1.4.2:
+   version "1.6.0"
+   resolved "https://registry.npmjs.org/esquery/-/esquery-1.6.0.tgz"
+@@ -5426,12 +5387,7 @@ esrecurse@^4.3.0:
+   dependencies:
+     estraverse "^5.2.0"
+ 
+-estraverse@^4.1.1:
+-  version "4.3.0"
+-  resolved "https://registry.npmjs.org/estraverse/-/estraverse-4.3.0.tgz"
+-  integrity sha512-39nnKffWz8xN1BU/2c79n9nB9HDzo0niYUqx6xyqUnyoAnQyyWpOTdZEeiCch8BBu515t4wp9ZmgVfVhn9EBpw==
+-
+-estraverse@^4.2.0:
++estraverse@^4.1.1, estraverse@^4.2.0:
+   version "4.3.0"
+   resolved "https://registry.npmjs.org/estraverse/-/estraverse-4.3.0.tgz"
+   integrity sha512-39nnKffWz8xN1BU/2c79n9nB9HDzo0niYUqx6xyqUnyoAnQyyWpOTdZEeiCch8BBu515t4wp9ZmgVfVhn9EBpw==
+@@ -6116,16 +6072,6 @@ http-deceiver@^1.2.7:
+   resolved "https://registry.npmjs.org/http-deceiver/-/http-deceiver-1.2.7.tgz"
+   integrity sha512-LmpOGxTfbpgtGVxJrj5k7asXHCgNZp5nLfp+hWc8QQRqtb7fUy6kRY3BO1h9ddF6yIPYUARgxGOwB42DnxIaNw==
+ 
+-http-errors@~1.6.2:
+-  version "1.6.3"
+-  resolved "https://registry.npmjs.org/http-errors/-/http-errors-1.6.3.tgz"
+-  integrity sha512-lks+lVC8dgGyh97jxvxeYTWQFvh4uw4yC12gVl63Cg30sjPX4wuGcdkICVXDAESr6OJGjqGA8Iz5mkeN6zlD7A==
+-  dependencies:
+-    depd "~1.1.2"
+-    inherits "2.0.3"
+-    setprototypeof "1.1.0"
+-    statuses ">= 1.4.0 < 2"
+-
+ http-errors@2.0.0:
+   version "2.0.0"
+   resolved "https://registry.npmjs.org/http-errors/-/http-errors-2.0.0.tgz"
+@@ -6137,6 +6083,16 @@ http-errors@2.0.0:
+     statuses "2.0.1"
+     toidentifier "1.0.1"
+ 
++http-errors@~1.6.2:
++  version "1.6.3"
++  resolved "https://registry.npmjs.org/http-errors/-/http-errors-1.6.3.tgz"
++  integrity sha512-lks+lVC8dgGyh97jxvxeYTWQFvh4uw4yC12gVl63Cg30sjPX4wuGcdkICVXDAESr6OJGjqGA8Iz5mkeN6zlD7A==
++  dependencies:
++    depd "~1.1.2"
++    inherits "2.0.3"
++    setprototypeof "1.1.0"
++    statuses ">= 1.4.0 < 2"
++
+ http-parser-js@>=0.5.1:
+   version "0.5.10"
+   resolved "https://registry.npmjs.org/http-parser-js/-/http-parser-js-0.5.10.tgz"
+@@ -6184,13 +6140,6 @@ human-signals@^2.1.0:
+   resolved "https://registry.npmjs.org/human-signals/-/human-signals-2.1.0.tgz"
+   integrity sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==
+ 
+-iconv-lite@^0.6.3:
+-  version "0.6.3"
+-  resolved "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz"
+-  integrity sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==
+-  dependencies:
+-    safer-buffer ">= 2.1.2 < 3.0.0"
+-
+ iconv-lite@0.4.24:
+   version "0.4.24"
+   resolved "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.4.24.tgz"
+@@ -6198,6 +6147,13 @@ iconv-lite@0.4.24:
+   dependencies:
+     safer-buffer ">= 2.1.2 < 3"
+ 
++iconv-lite@^0.6.3:
++  version "0.6.3"
++  resolved "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz"
++  integrity sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==
++  dependencies:
++    safer-buffer ">= 2.1.2 < 3.0.0"
++
+ icss-utils@^5.0.0, icss-utils@^5.1.0:
+   version "5.1.0"
+   resolved "https://registry.npmjs.org/icss-utils/-/icss-utils-5.1.0.tgz"
+@@ -6269,7 +6225,7 @@ inflight@^1.0.4:
+     once "^1.3.0"
+     wrappy "1"
+ 
+-inherits@^2.0.1, inherits@^2.0.3, inherits@~2.0.3, inherits@2, inherits@2.0.4:
++inherits@2, inherits@2.0.4, inherits@^2.0.1, inherits@^2.0.3, inherits@~2.0.3:
+   version "2.0.4"
+   resolved "https://registry.npmjs.org/inherits/-/inherits-2.0.4.tgz"
+   integrity sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==
+@@ -6298,16 +6254,16 @@ internal-slot@^1.1.0:
+   resolved "https://registry.npmjs.org/internmap/-/internmap-2.0.3.tgz"
+   integrity sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==
+ 
+-ipaddr.js@^2.0.1:
+-  version "2.2.0"
+-  resolved "https://registry.npmjs.org/ipaddr.js/-/ipaddr.js-2.2.0.tgz"
+-  integrity sha512-Ag3wB2o37wslZS19hZqorUnrnzSkpOVy+IiiDEiTqNubEYpYuHWIf6K4psgN2ZWKExS4xhVCrRVfb/wfW8fWJA==
+-
+ ipaddr.js@1.9.1:
+   version "1.9.1"
+   resolved "https://registry.npmjs.org/ipaddr.js/-/ipaddr.js-1.9.1.tgz"
+   integrity sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==
+ 
++ipaddr.js@^2.0.1:
++  version "2.2.0"
++  resolved "https://registry.npmjs.org/ipaddr.js/-/ipaddr.js-2.2.0.tgz"
++  integrity sha512-Ag3wB2o37wslZS19hZqorUnrnzSkpOVy+IiiDEiTqNubEYpYuHWIf6K4psgN2ZWKExS4xhVCrRVfb/wfW8fWJA==
++
+ is-array-buffer@^3.0.4, is-array-buffer@^3.0.5:
+   version "3.0.5"
+   resolved "https://registry.npmjs.org/is-array-buffer/-/is-array-buffer-3.0.5.tgz"
+@@ -6743,6 +6699,16 @@ jest-config@^27.5.1:
+     slash "^3.0.0"
+     strip-json-comments "^3.1.1"
+ 
++jest-diff@30.1.2:
++  version "30.1.2"
++  resolved "https://registry.npmjs.org/jest-diff/-/jest-diff-30.1.2.tgz"
++  integrity sha512-4+prq+9J61mOVXCa4Qp8ZjavdxzrWQXrI80GNxP8f4tkI2syPuPrJgdRPZRrfUTRvIoUwcmNLbqEJy9W800+NQ==
++  dependencies:
++    "@jest/diff-sequences" "30.0.1"
++    "@jest/get-type" "30.1.0"
++    chalk "^4.1.2"
++    pretty-format "30.0.5"
++
+ jest-diff@^24.3.0:
+   version "24.9.0"
+   resolved "https://registry.npmjs.org/jest-diff/-/jest-diff-24.9.0.tgz"
+@@ -6763,16 +6729,6 @@ jest-diff@^27.5.1:
+     jest-get-type "^27.5.1"
+     pretty-format "^27.5.1"
+ 
+-jest-diff@30.1.2:
+-  version "30.1.2"
+-  resolved "https://registry.npmjs.org/jest-diff/-/jest-diff-30.1.2.tgz"
+-  integrity sha512-4+prq+9J61mOVXCa4Qp8ZjavdxzrWQXrI80GNxP8f4tkI2syPuPrJgdRPZRrfUTRvIoUwcmNLbqEJy9W800+NQ==
+-  dependencies:
+-    "@jest/diff-sequences" "30.0.1"
+-    "@jest/get-type" "30.1.0"
+-    chalk "^4.1.2"
+-    pretty-format "30.0.5"
+-
+ jest-docblock@^27.5.1:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest-docblock/-/jest-docblock-27.5.1.tgz"
+@@ -6877,6 +6833,16 @@ jest-leak-detector@^27.5.1:
+     jest-get-type "^27.5.1"
+     pretty-format "^27.5.1"
+ 
++jest-matcher-utils@30.1.2:
++  version "30.1.2"
++  resolved "https://registry.npmjs.org/jest-matcher-utils/-/jest-matcher-utils-30.1.2.tgz"
++  integrity sha512-7ai16hy4rSbDjvPTuUhuV8nyPBd6EX34HkBsBcBX2lENCuAQ0qKCPb/+lt8OSWUa9WWmGYLy41PrEzkwRwoGZQ==
++  dependencies:
++    "@jest/get-type" "30.1.0"
++    chalk "^4.1.2"
++    jest-diff "30.1.2"
++    pretty-format "30.0.5"
++
+ jest-matcher-utils@^27.5.1:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest-matcher-utils/-/jest-matcher-utils-27.5.1.tgz"
+@@ -6887,15 +6853,20 @@ jest-matcher-utils@^27.5.1:
+     jest-get-type "^27.5.1"
+     pretty-format "^27.5.1"
+ 
+-jest-matcher-utils@30.1.2:
+-  version "30.1.2"
+-  resolved "https://registry.npmjs.org/jest-matcher-utils/-/jest-matcher-utils-30.1.2.tgz"
+-  integrity sha512-7ai16hy4rSbDjvPTuUhuV8nyPBd6EX34HkBsBcBX2lENCuAQ0qKCPb/+lt8OSWUa9WWmGYLy41PrEzkwRwoGZQ==
++jest-message-util@30.1.0:
++  version "30.1.0"
++  resolved "https://registry.npmjs.org/jest-message-util/-/jest-message-util-30.1.0.tgz"
++  integrity sha512-HizKDGG98cYkWmaLUHChq4iN+oCENohQLb7Z5guBPumYs+/etonmNFlg1Ps6yN9LTPyZn+M+b/9BbnHx3WTMDg==
+   dependencies:
+-    "@jest/get-type" "30.1.0"
++    "@babel/code-frame" "^7.27.1"
++    "@jest/types" "30.0.5"
++    "@types/stack-utils" "^2.0.3"
+     chalk "^4.1.2"
+-    jest-diff "30.1.2"
++    graceful-fs "^4.2.11"
++    micromatch "^4.0.8"
+     pretty-format "30.0.5"
++    slash "^3.0.0"
++    stack-utils "^2.0.6"
+ 
+ jest-message-util@^27.5.1:
+   version "27.5.1"
+@@ -6927,20 +6898,14 @@ jest-message-util@^28.1.3:
+     slash "^3.0.0"
+     stack-utils "^2.0.3"
+ 
+-jest-message-util@30.1.0:
+-  version "30.1.0"
+-  resolved "https://registry.npmjs.org/jest-message-util/-/jest-message-util-30.1.0.tgz"
+-  integrity sha512-HizKDGG98cYkWmaLUHChq4iN+oCENohQLb7Z5guBPumYs+/etonmNFlg1Ps6yN9LTPyZn+M+b/9BbnHx3WTMDg==
++jest-mock@30.0.5:
++  version "30.0.5"
++  resolved "https://registry.npmjs.org/jest-mock/-/jest-mock-30.0.5.tgz"
++  integrity sha512-Od7TyasAAQX/6S+QCbN6vZoWOMwlTtzzGuxJku1GhGanAjz9y+QsQkpScDmETvdc9aSXyJ/Op4rhpMYBWW91wQ==
+   dependencies:
+-    "@babel/code-frame" "^7.27.1"
+     "@jest/types" "30.0.5"
+-    "@types/stack-utils" "^2.0.3"
+-    chalk "^4.1.2"
+-    graceful-fs "^4.2.11"
+-    micromatch "^4.0.8"
+-    pretty-format "30.0.5"
+-    slash "^3.0.0"
+-    stack-utils "^2.0.6"
++    "@types/node" "*"
++    jest-util "30.0.5"
+ 
+ jest-mock@^27.5.1:
+   version "27.5.1"
+@@ -6950,20 +6915,16 @@ jest-mock@^27.5.1:
+     "@jest/types" "^27.5.1"
+     "@types/node" "*"
+ 
+-jest-mock@30.0.5:
+-  version "30.0.5"
+-  resolved "https://registry.npmjs.org/jest-mock/-/jest-mock-30.0.5.tgz"
+-  integrity sha512-Od7TyasAAQX/6S+QCbN6vZoWOMwlTtzzGuxJku1GhGanAjz9y+QsQkpScDmETvdc9aSXyJ/Op4rhpMYBWW91wQ==
+-  dependencies:
+-    "@jest/types" "30.0.5"
+-    "@types/node" "*"
+-    jest-util "30.0.5"
+-
+ jest-pnp-resolver@^1.2.2:
+   version "1.2.3"
+   resolved "https://registry.npmjs.org/jest-pnp-resolver/-/jest-pnp-resolver-1.2.3.tgz"
+   integrity sha512-+3NpwQEnRoIBtx4fyhblQDPgJI0H1IEIkX7ShLUjPGA7TtUTvI1oiKi3SR4oBR0hQhQR80l4WAe5RrXBwWMA8w==
+ 
++jest-regex-util@30.0.1:
++  version "30.0.1"
++  resolved "https://registry.npmjs.org/jest-regex-util/-/jest-regex-util-30.0.1.tgz"
++  integrity sha512-jHEQgBXAgc+Gh4g0p3bCevgRCVRkB4VB70zhoAE48gxeSr1hfUOsM/C2WoJgVL7Eyg//hudYENbm3Ne+/dRVVA==
++
+ jest-regex-util@^27.5.1:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest-regex-util/-/jest-regex-util-27.5.1.tgz"
+@@ -6974,11 +6935,6 @@ jest-regex-util@^28.0.0:
+   resolved "https://registry.npmjs.org/jest-regex-util/-/jest-regex-util-28.0.2.tgz"
+   integrity sha512-4s0IgyNIy0y9FK+cjoVYoxamT7Zeo7MhzqRGx7YDYmaQn1wucY9rotiGkBzzcMXTtjrCAP/f7f+E0F7+fxPNdw==
+ 
+-jest-regex-util@30.0.1:
+-  version "30.0.1"
+-  resolved "https://registry.npmjs.org/jest-regex-util/-/jest-regex-util-30.0.1.tgz"
+-  integrity sha512-jHEQgBXAgc+Gh4g0p3bCevgRCVRkB4VB70zhoAE48gxeSr1hfUOsM/C2WoJgVL7Eyg//hudYENbm3Ne+/dRVVA==
+-
+ jest-resolve-dependencies@^27.5.1:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest-resolve-dependencies/-/jest-resolve-dependencies-27.5.1.tgz"
+@@ -6988,7 +6944,7 @@ jest-resolve-dependencies@^27.5.1:
+     jest-regex-util "^27.5.1"
+     jest-snapshot "^27.5.1"
+ 
+-jest-resolve@*, jest-resolve@^27.4.2, jest-resolve@^27.5.1:
++jest-resolve@^27.4.2, jest-resolve@^27.5.1:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest-resolve/-/jest-resolve-27.5.1.tgz"
+   integrity sha512-FFDy8/9E6CV83IMbDpcjOhumAQPDyETnU2KZ1O98DwTnz8AOBsW/Xv3GySr1mOZdItLR+zDZ7I/UdTFbgSOVCw==
+@@ -7095,6 +7051,18 @@ jest-snapshot@^27.5.1:
+     pretty-format "^27.5.1"
+     semver "^7.3.2"
+ 
++jest-util@30.0.5:
++  version "30.0.5"
++  resolved "https://registry.npmjs.org/jest-util/-/jest-util-30.0.5.tgz"
++  integrity sha512-pvyPWssDZR0FlfMxCBoc0tvM8iUEskaRFALUtGQYzVEAqisAztmy+R8LnU14KT4XA0H/a5HMVTXat1jLne010g==
++  dependencies:
++    "@jest/types" "30.0.5"
++    "@types/node" "*"
++    chalk "^4.1.2"
++    ci-info "^4.2.0"
++    graceful-fs "^4.2.11"
++    picomatch "^4.0.2"
++
+ jest-util@^27.5.1:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest-util/-/jest-util-27.5.1.tgz"
+@@ -7119,18 +7087,6 @@ jest-util@^28.1.3:
+     graceful-fs "^4.2.9"
+     picomatch "^2.2.3"
+ 
+-jest-util@30.0.5:
+-  version "30.0.5"
+-  resolved "https://registry.npmjs.org/jest-util/-/jest-util-30.0.5.tgz"
+-  integrity sha512-pvyPWssDZR0FlfMxCBoc0tvM8iUEskaRFALUtGQYzVEAqisAztmy+R8LnU14KT4XA0H/a5HMVTXat1jLne010g==
+-  dependencies:
+-    "@jest/types" "30.0.5"
+-    "@types/node" "*"
+-    chalk "^4.1.2"
+-    ci-info "^4.2.0"
+-    graceful-fs "^4.2.11"
+-    picomatch "^4.0.2"
+-
+ jest-validate@^27.5.1:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest-validate/-/jest-validate-27.5.1.tgz"
+@@ -7210,7 +7166,7 @@ jest-worker@^28.0.2:
+     merge-stream "^2.0.0"
+     supports-color "^8.0.0"
+ 
+-"jest@^27.0.0 || ^28.0.0", jest@^27.4.3:
++jest@^27.4.3:
+   version "27.5.1"
+   resolved "https://registry.npmjs.org/jest/-/jest-27.5.1.tgz"
+   integrity sha512-Yn0mADZB89zTtjkPJEXwrac3LHudkQMR+Paqa8uxJHCBr9agxztUifWCyiYrjhMPBoUVBjyny0I7XH6ozDr7QQ==
+@@ -7627,16 +7583,16 @@ micromatch@^4.0.2, micromatch@^4.0.4, micromatch@^4.0.5, micromatch@^4.0.8:
+     braces "^3.0.3"
+     picomatch "^2.3.1"
+ 
+-"mime-db@>= 1.43.0 < 2":
+-  version "1.54.0"
+-  resolved "https://registry.npmjs.org/mime-db/-/mime-db-1.54.0.tgz"
+-  integrity sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ==
+-
+ mime-db@1.52.0:
+   version "1.52.0"
+   resolved "https://registry.npmjs.org/mime-db/-/mime-db-1.52.0.tgz"
+   integrity sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==
+ 
++"mime-db@>= 1.43.0 < 2":
++  version "1.54.0"
++  resolved "https://registry.npmjs.org/mime-db/-/mime-db-1.54.0.tgz"
++  integrity sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ==
++
+ mime-types@^2.1.27, mime-types@^2.1.31, mime-types@^2.1.35, mime-types@~2.1.17, mime-types@~2.1.24, mime-types@~2.1.34:
+   version "2.1.35"
+   resolved "https://registry.npmjs.org/mime-types/-/mime-types-2.1.35.tgz"
+@@ -7718,16 +7674,16 @@ mpegts.js@^1.7.3:
+     es6-promise "^4.2.5"
+     webworkify-webpack xqq/webworkify-webpack
+ 
+-ms@^2.1.1, ms@^2.1.3, ms@2.1.3:
+-  version "2.1.3"
+-  resolved "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz"
+-  integrity sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==
+-
+ ms@2.0.0:
+   version "2.0.0"
+   resolved "https://registry.npmjs.org/ms/-/ms-2.0.0.tgz"
+   integrity sha512-Tpp60P6IUJDTuOq/5Z8cdskzJujfwqfOTkrwIwj7IRISpnkJnT6SyJ4PCPnGMoFjC9ddhal5KVIYtAt97ix05A==
+ 
++ms@2.1.3, ms@^2.1.1, ms@^2.1.3:
++  version "2.1.3"
++  resolved "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz"
++  integrity sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==
++
+ multicast-dns@^7.2.5:
+   version "7.2.5"
+   resolved "https://registry.npmjs.org/multicast-dns/-/multicast-dns-7.2.5.tgz"
+@@ -7760,16 +7716,16 @@ natural-compare@^1.4.0:
+   resolved "https://registry.npmjs.org/natural-compare/-/natural-compare-1.4.0.tgz"
+   integrity sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==
+ 
+-negotiator@~0.6.4:
+-  version "0.6.4"
+-  resolved "https://registry.npmjs.org/negotiator/-/negotiator-0.6.4.tgz"
+-  integrity sha512-myRT3DiWPHqho5PrJaIRyaMv2kgYf0mUVgBNOYMuCH5Ki1yEiQaf/ZJuQ62nvpc44wL5WDbTX7yGJi1Neevw8w==
+-
+ negotiator@0.6.3:
+   version "0.6.3"
+   resolved "https://registry.npmjs.org/negotiator/-/negotiator-0.6.3.tgz"
+   integrity sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==
+ 
++negotiator@~0.6.4:
++  version "0.6.4"
++  resolved "https://registry.npmjs.org/negotiator/-/negotiator-0.6.4.tgz"
++  integrity sha512-myRT3DiWPHqho5PrJaIRyaMv2kgYf0mUVgBNOYMuCH5Ki1yEiQaf/ZJuQ62nvpc44wL5WDbTX7yGJi1Neevw8w==
++
+ neo-async@^2.6.2:
+   version "2.6.2"
+   resolved "https://registry.npmjs.org/neo-async/-/neo-async-2.6.2.tgz"
+@@ -8147,16 +8103,16 @@ performance-now@^2.1.0:
+   resolved "https://registry.npmjs.org/performance-now/-/performance-now-2.1.0.tgz"
+   integrity sha512-7EAHlyLHI56VEIdK57uwHdHKIaAGbnXPiw0yWbarQZOKaKpvUIgW0jWRVLiatnM+XXlSwsanIBH/hzGMJulMow==
+ 
++picocolors@1.1.1, picocolors@^1.0.0, picocolors@^1.1.1:
++  version "1.1.1"
++  resolved "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz"
++  integrity sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==
++
+ picocolors@^0.2.1:
+   version "0.2.1"
+   resolved "https://registry.npmjs.org/picocolors/-/picocolors-0.2.1.tgz"
+   integrity sha512-cMlDqaLEqfSaW8Z7N5Jw+lyIW869EzT73/F5lhtY9cLGoVxSXznfgfXMO0Z5K0o0Q2TkTXq+0KFsdnSe3jDViA==
+ 
+-picocolors@^1.0.0, picocolors@^1.1.1, picocolors@1.1.1:
+-  version "1.1.1"
+-  resolved "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz"
+-  integrity sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==
+-
+ picomatch@^2.0.4, picomatch@^2.2.1, picomatch@^2.2.2, picomatch@^2.2.3, picomatch@^2.3.1:
+   version "2.3.1"
+   resolved "https://registry.npmjs.org/picomatch/-/picomatch-2.3.1.tgz"
+@@ -8739,15 +8695,6 @@ postcss-value-parser@^4.0.0, postcss-value-parser@^4.1.0, postcss-value-parser@^
+   resolved "https://registry.npmjs.org/postcss-value-parser/-/postcss-value-parser-4.2.0.tgz"
+   integrity sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==
+ 
+-"postcss@^7.0.0 || ^8.0.1", postcss@^8, postcss@^8.0.0, postcss@^8.0.3, postcss@^8.0.9, postcss@^8.1.0, postcss@^8.1.4, postcss@^8.2, postcss@^8.2.14, postcss@^8.2.15, postcss@^8.2.2, postcss@^8.3, postcss@^8.3.5, postcss@^8.4, postcss@^8.4.21, postcss@^8.4.33, postcss@^8.4.4, postcss@^8.4.47, postcss@^8.4.6, "postcss@>= 8", postcss@>=8, postcss@>=8.0.9:
+-  version "8.5.6"
+-  resolved "https://registry.npmjs.org/postcss/-/postcss-8.5.6.tgz"
+-  integrity sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==
+-  dependencies:
+-    nanoid "^3.3.11"
+-    picocolors "^1.1.1"
+-    source-map-js "^1.2.1"
+-
+ postcss@^7.0.35:
+   version "7.0.39"
+   resolved "https://registry.npmjs.org/postcss/-/postcss-7.0.39.tgz"
+@@ -8756,6 +8703,15 @@ postcss@^7.0.35:
+     picocolors "^0.2.1"
+     source-map "^0.6.1"
+ 
++postcss@^8.3.5, postcss@^8.4.33, postcss@^8.4.4, postcss@^8.4.47:
++  version "8.5.6"
++  resolved "https://registry.npmjs.org/postcss/-/postcss-8.5.6.tgz"
++  integrity sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==
++  dependencies:
++    nanoid "^3.3.11"
++    picocolors "^1.1.1"
++    source-map-js "^1.2.1"
++
+ prelude-ls@^1.2.1:
+   version "1.2.1"
+   resolved "https://registry.npmjs.org/prelude-ls/-/prelude-ls-1.2.1.tgz"
+@@ -8779,17 +8735,16 @@ pretty-error@^4.0.0:
+     lodash "^4.17.20"
+     renderkid "^3.0.0"
+ 
+-pretty-format@^24.3.0:
+-  version "24.9.0"
+-  resolved "https://registry.npmjs.org/pretty-format/-/pretty-format-24.9.0.tgz"
+-  integrity sha512-00ZMZUiHaJrNfk33guavqgvfJS30sLYf0f8+Srklv0AMPodGGHcoHgksZ3OThYnIvOd+8yMCn0YiEOogjlgsnA==
++pretty-format@30.0.5, pretty-format@^30.0.0:
++  version "30.0.5"
++  resolved "https://registry.npmjs.org/pretty-format/-/pretty-format-30.0.5.tgz"
++  integrity sha512-D1tKtYvByrBkFLe2wHJl2bwMJIiT8rW+XA+TiataH79/FszLQMrpGEvzUVkzPau7OCO0Qnrhpe87PqtOAIB8Yw==
+   dependencies:
+-    "@jest/types" "^24.9.0"
+-    ansi-regex "^4.0.0"
+-    ansi-styles "^3.2.0"
+-    react-is "^16.8.4"
++    "@jest/schemas" "30.0.5"
++    ansi-styles "^5.2.0"
++    react-is "^18.3.1"
+ 
+-pretty-format@^24.9.0:
++pretty-format@^24.3.0, pretty-format@^24.9.0:
+   version "24.9.0"
+   resolved "https://registry.npmjs.org/pretty-format/-/pretty-format-24.9.0.tgz"
+   integrity sha512-00ZMZUiHaJrNfk33guavqgvfJS30sLYf0f8+Srklv0AMPodGGHcoHgksZ3OThYnIvOd+8yMCn0YiEOogjlgsnA==
+@@ -8828,15 +8783,6 @@ pretty-format@^28.1.3:
+     ansi-styles "^5.0.0"
+     react-is "^18.0.0"
+ 
+-pretty-format@^30.0.0, pretty-format@30.0.5:
+-  version "30.0.5"
+-  resolved "https://registry.npmjs.org/pretty-format/-/pretty-format-30.0.5.tgz"
+-  integrity sha512-D1tKtYvByrBkFLe2wHJl2bwMJIiT8rW+XA+TiataH79/FszLQMrpGEvzUVkzPau7OCO0Qnrhpe87PqtOAIB8Yw==
+-  dependencies:
+-    "@jest/schemas" "30.0.5"
+-    ansi-styles "^5.2.0"
+-    react-is "^18.3.1"
+-
+ prismjs@^1.29.0:
+   version "1.30.0"
+   resolved "https://registry.npmjs.org/prismjs/-/prismjs-1.30.0.tgz"
+@@ -8984,7 +8930,7 @@ react-dev-utils@^12.0.1:
+     strip-ansi "^6.0.1"
+     text-table "^0.2.0"
+ 
+-react-dom@*, "react-dom@^0.14.0 || ^15.0.1 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom@^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", react-dom@>=16.0.0, react-dom@>=16.11.0, react-dom@>=16.8, react-dom@>=16.9.0, react-dom@>=18, react-dom@>=18.0.0, react-dom@18.2.0:
++react-dom@18.2.0:
+   version "18.2.0"
+   resolved "https://registry.npmjs.org/react-dom/-/react-dom-18.2.0.tgz"
+   integrity sha512-6IMTriUmvsjHUjNtEDudZfuDQUoWXVxKHhlEGSk81n4YFS+r/Kl99wXiwlVXtPBtJenozv2P+hxDsw9eA7Xo6g==
+@@ -8997,7 +8943,7 @@ react-error-overlay@^6.0.11:
+   resolved "https://registry.npmjs.org/react-error-overlay/-/react-error-overlay-6.1.0.tgz"
+   integrity sha512-SN/U6Ytxf1QGkw/9ve5Y+NxBbZM6Ht95tuXNMKs8EJyFa/Vy/+Co3stop3KBHARfn/giv+Lj1uUnTfOJ3moFEQ==
+ 
+-react-is@^16.12.0, react-is@^16.13.1, "react-is@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", react-is@^16.8.4:
++react-is@^16.12.0, react-is@^16.13.1, react-is@^16.8.4:
+   version "16.13.1"
+   resolved "https://registry.npmjs.org/react-is/-/react-is-16.13.1.tgz"
+   integrity sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==
+@@ -9007,22 +8953,12 @@ react-is@^17.0.1:
+   resolved "https://registry.npmjs.org/react-is/-/react-is-17.0.2.tgz"
+   integrity sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==
+ 
+-react-is@^18.0.0:
+-  version "18.3.1"
+-  resolved "https://registry.npmjs.org/react-is/-/react-is-18.3.1.tgz"
+-  integrity sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==
+-
+-react-is@^18.2.0:
+-  version "18.3.1"
+-  resolved "https://registry.npmjs.org/react-is/-/react-is-18.3.1.tgz"
+-  integrity sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==
+-
+-react-is@^18.3.1:
++react-is@^18.0.0, react-is@^18.2.0, react-is@^18.3.1:
+   version "18.3.1"
+   resolved "https://registry.npmjs.org/react-is/-/react-is-18.3.1.tgz"
+   integrity sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==
+ 
+-"react-redux@^7.2.1 || ^8.1.3 || ^9.0.0", "react-redux@8.x.x || 9.x.x":
++"react-redux@8.x.x || 9.x.x":
+   version "9.2.0"
+   resolved "https://registry.npmjs.org/react-redux/-/react-redux-9.2.0.tgz"
+   integrity sha512-ROY9fvHhwOD9ySfrF0wmvu//bKCQ6AeZZq1nJNtbDC+kk5DuSuNX/n6YWYF/SYy7bSba4D4FSz8DJeKY/S/r+g==
+@@ -9030,7 +8966,7 @@ react-is@^18.3.1:
+     "@types/use-sync-external-store" "^0.0.6"
+     use-sync-external-store "^1.4.0"
+ 
+-react-refresh@^0.11.0, "react-refresh@>=0.10.0 <1.0.0":
++react-refresh@^0.11.0:
+   version "0.11.0"
+   resolved "https://registry.npmjs.org/react-refresh/-/react-refresh-0.11.0.tgz"
+   integrity sha512-F27qZr8uUqwhWZboondsPx8tnC3Ct3SxZA3V5WyEvujRyyNv0VYPhoBg1gZ8/MV5tubQp76Trw8lTv9hzRBa+A==
+@@ -9110,7 +9046,7 @@ react-simple-code-editor@^0.13.1:
+   resolved "https://registry.npmjs.org/react-simple-code-editor/-/react-simple-code-editor-0.13.1.tgz"
+   integrity sha512-XYeVwRZwgyKtjNIYcAEgg2FaQcCZwhbarnkJIV20U2wkCU9q/CPFBo8nRXrK4GXUz3AvbqZFsZRrpUTkqqEYyQ==
+ 
+-react@*, "react@^0.14.0 || ^15.0.1 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react@^16.9.0 || ^17.0.0 || ^18 || ^19", "react@^18.0 || ^19", react@^18.2.0, "react@>= 16", react@>=16.0.0, react@>=16.11.0, react@>=16.8, react@>=16.9.0, react@>=18, react@>=18.0.0, react@18.2.0:
++react@18.2.0:
+   version "18.2.0"
+   resolved "https://registry.npmjs.org/react/-/react-18.2.0.tgz"
+   integrity sha512-/3IjMdb2L9QbBdWiW5e3P2/npwMBaU9mHCSCUzNln0ZCYbcfTsGbTJrU/kGemdH2IWmB2ioZ+zkxtmq6g09fGQ==
+@@ -9190,7 +9126,7 @@ redux-thunk@^3.1.0:
+   resolved "https://registry.npmjs.org/redux-thunk/-/redux-thunk-3.1.0.tgz"
+   integrity sha512-NW2r5T6ksUKXCabzhL9z+h206HQw/NJkcLm1GPImRQ8IzfXwRGqjVhKJGauHirT0DAuyy6hjdnMZaRoAcy0Klw==
+ 
+-redux@^5.0.0, redux@^5.0.1:
++redux@^5.0.1:
+   version "5.0.1"
+   resolved "https://registry.npmjs.org/redux/-/redux-5.0.1.tgz"
+   integrity sha512-M9/ELqF6fy8FwmkpnF0S3YKOqMyoWJ4+CS5Efg2ct3oY9daQvd/Pc71FpGZsVsbl3Cpb+IIcjBDUnnyBdQbq4w==
+@@ -9298,7 +9234,7 @@ requires-port@^1.0.0:
+   resolved "https://registry.npmjs.org/requires-port/-/requires-port-1.0.0.tgz"
+   integrity sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==
+ 
+-reselect@^5.1.0, reselect@5.1.1:
++reselect@5.1.1, reselect@^5.1.0:
+   version "5.1.1"
+   resolved "https://registry.npmjs.org/reselect/-/reselect-5.1.1.tgz"
+   integrity sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w==
+@@ -9381,7 +9317,7 @@ rollup-plugin-terser@^7.0.0:
+     serialize-javascript "^4.0.0"
+     terser "^5.0.0"
+ 
+-"rollup@^1.20.0 || ^2.0.0", rollup@^1.20.0||^2.0.0, rollup@^2.0.0, rollup@^2.43.1:
++rollup@^2.43.1:
+   version "2.79.2"
+   resolved "https://registry.npmjs.org/rollup/-/rollup-2.79.2.tgz"
+   integrity sha512-fS6iqSPZDs3dr/y7Od6y5nha8dW1YnbgtsyotCVvoFGKbERG++CVRFv1meyGDE1SNItQA8BrnCw7ScdAhRJ3XQ==
+@@ -9406,7 +9342,7 @@ safe-array-concat@^1.1.2, safe-array-concat@^1.1.3:
+     has-symbols "^1.1.0"
+     isarray "^2.0.5"
+ 
+-safe-buffer@^5.1.0, safe-buffer@>=5.1.0, safe-buffer@~5.2.0, safe-buffer@5.2.1:
++safe-buffer@5.2.1, safe-buffer@>=5.1.0, safe-buffer@^5.1.0, safe-buffer@~5.2.0:
+   version "5.2.1"
+   resolved "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz"
+   integrity sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==
+@@ -9470,6 +9406,15 @@ scheduler@^0.23.0:
+   dependencies:
+     loose-envify "^1.1.0"
+ 
++schema-utils@2.7.0:
++  version "2.7.0"
++  resolved "https://registry.npmjs.org/schema-utils/-/schema-utils-2.7.0.tgz"
++  integrity sha512-0ilKFI6QQF5nxDZLFn2dMjvc4hjg/Wkg7rHd3jK6/A4a1Hl9VFdQWvgB1UMGoU94pad1P/8N7fMcEnLnSiju8A==
++  dependencies:
++    "@types/json-schema" "^7.0.4"
++    ajv "^6.12.2"
++    ajv-keywords "^3.4.1"
++
+ schema-utils@^2.6.5:
+   version "2.7.1"
+   resolved "https://registry.npmjs.org/schema-utils/-/schema-utils-2.7.1.tgz"
+@@ -9498,15 +9443,6 @@ schema-utils@^4.0.0, schema-utils@^4.2.0, schema-utils@^4.3.0, schema-utils@^4.3
+     ajv-formats "^2.1.1"
+     ajv-keywords "^5.1.0"
+ 
+-schema-utils@2.7.0:
+-  version "2.7.0"
+-  resolved "https://registry.npmjs.org/schema-utils/-/schema-utils-2.7.0.tgz"
+-  integrity sha512-0ilKFI6QQF5nxDZLFn2dMjvc4hjg/Wkg7rHd3jK6/A4a1Hl9VFdQWvgB1UMGoU94pad1P/8N7fMcEnLnSiju8A==
+-  dependencies:
+-    "@types/json-schema" "^7.0.4"
+-    ajv "^6.12.2"
+-    ajv-keywords "^3.4.1"
+-
+ scroll-into-view-if-needed@^3.1.0:
+   version "3.1.0"
+   resolved "https://registry.npmjs.org/scroll-into-view-if-needed/-/scroll-into-view-if-needed-3.1.0.tgz"
+@@ -9532,27 +9468,7 @@ semver@^6.0.0, semver@^6.3.0, semver@^6.3.1:
+   resolved "https://registry.npmjs.org/semver/-/semver-6.3.1.tgz"
+   integrity sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==
+ 
+-semver@^7.3.2:
+-  version "7.7.2"
+-  resolved "https://registry.npmjs.org/semver/-/semver-7.7.2.tgz"
+-  integrity sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==
+-
+-semver@^7.3.5:
+-  version "7.7.2"
+-  resolved "https://registry.npmjs.org/semver/-/semver-7.7.2.tgz"
+-  integrity sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==
+-
+-semver@^7.3.7:
+-  version "7.7.2"
+-  resolved "https://registry.npmjs.org/semver/-/semver-7.7.2.tgz"
+-  integrity sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==
+-
+-semver@^7.5.3:
+-  version "7.7.2"
+-  resolved "https://registry.npmjs.org/semver/-/semver-7.7.2.tgz"
+-  integrity sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==
+-
+-semver@^7.5.4:
++semver@^7.3.2, semver@^7.3.5, semver@^7.3.7, semver@^7.5.3, semver@^7.5.4:
+   version "7.7.2"
+   resolved "https://registry.npmjs.org/semver/-/semver-7.7.2.tgz"
+   integrity sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==
+@@ -9772,7 +9688,7 @@ source-map-support@^0.5.6, source-map-support@~0.5.20:
+     buffer-from "^1.0.0"
+     source-map "^0.6.0"
+ 
+-source-map@^0.6.0, source-map@^0.6.1, source-map@~0.6.0, source-map@~0.6.1, source-map@0.6.1:
++source-map@0.6.1, source-map@^0.6.0, source-map@^0.6.1, source-map@~0.6.0, source-map@~0.6.1:
+   version "0.6.1"
+   resolved "https://registry.npmjs.org/source-map/-/source-map-0.6.1.tgz"
+   integrity sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==
+@@ -9846,16 +9762,16 @@ static-eval@2.0.2:
+   dependencies:
+     escodegen "^1.8.1"
+ 
+-"statuses@>= 1.4.0 < 2":
+-  version "1.5.0"
+-  resolved "https://registry.npmjs.org/statuses/-/statuses-1.5.0.tgz"
+-  integrity sha512-OpZ3zP+jT1PI7I8nemJX4AKmAX070ZkYPVWV/AaKTJl+tXCTGyVdC1a4SL8RUQYEwk/f34ZX8UTykN68FwrqAA==
+-
+ statuses@2.0.1:
+   version "2.0.1"
+   resolved "https://registry.npmjs.org/statuses/-/statuses-2.0.1.tgz"
+   integrity sha512-RwNA9Z/7PrK06rYLIzFMlaF+l73iwpzsqRIFgbMLbTcLD6cOao82TaWefPXQvB2fOC4AjuYSEndS7N/mTCbkdQ==
+ 
++"statuses@>= 1.4.0 < 2":
++  version "1.5.0"
++  resolved "https://registry.npmjs.org/statuses/-/statuses-1.5.0.tgz"
++  integrity sha512-OpZ3zP+jT1PI7I8nemJX4AKmAX070ZkYPVWV/AaKTJl+tXCTGyVdC1a4SL8RUQYEwk/f34ZX8UTykN68FwrqAA==
++
+ stop-iteration-iterator@^1.1.0:
+   version "1.1.0"
+   resolved "https://registry.npmjs.org/stop-iteration-iterator/-/stop-iteration-iterator-1.1.0.tgz"
+@@ -9864,20 +9780,6 @@ stop-iteration-iterator@^1.1.0:
+     es-errors "^1.3.0"
+     internal-slot "^1.1.0"
+ 
+-string_decoder@^1.1.1:
+-  version "1.3.0"
+-  resolved "https://registry.npmjs.org/string_decoder/-/string_decoder-1.3.0.tgz"
+-  integrity sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==
+-  dependencies:
+-    safe-buffer "~5.2.0"
+-
+-string_decoder@~1.1.1:
+-  version "1.1.1"
+-  resolved "https://registry.npmjs.org/string_decoder/-/string_decoder-1.1.1.tgz"
+-  integrity sha512-n/ShnvDi6FHbbVfviro+WojiFzv+s8MPMHBczVePfUpDJLwoLT0ht1l4YwBCbi8pJAveEEdnkHyPyTP/mzRfwg==
+-  dependencies:
+-    safe-buffer "~5.1.0"
+-
+ string-convert@^0.2.0:
+   version "0.2.1"
+   resolved "https://registry.npmjs.org/string-convert/-/string-convert-0.2.1.tgz"
+@@ -9999,6 +9901,20 @@ string.prototype.trimstart@^1.0.8:
+     define-properties "^1.2.1"
+     es-object-atoms "^1.0.0"
+ 
++string_decoder@^1.1.1:
++  version "1.3.0"
++  resolved "https://registry.npmjs.org/string_decoder/-/string_decoder-1.3.0.tgz"
++  integrity sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==
++  dependencies:
++    safe-buffer "~5.2.0"
++
++string_decoder@~1.1.1:
++  version "1.1.1"
++  resolved "https://registry.npmjs.org/string_decoder/-/string_decoder-1.1.1.tgz"
++  integrity sha512-n/ShnvDi6FHbbVfviro+WojiFzv+s8MPMHBczVePfUpDJLwoLT0ht1l4YwBCbi8pJAveEEdnkHyPyTP/mzRfwg==
++  dependencies:
++    safe-buffer "~5.1.0"
++
+ stringify-object@^3.3.0:
+   version "3.3.0"
+   resolved "https://registry.npmjs.org/stringify-object/-/stringify-object-3.3.0.tgz"
+@@ -10381,7 +10297,7 @@ tsutils@^3.21.0:
+   dependencies:
+     tslib "^1.8.1"
+ 
+-type-check@^0.4.0:
++type-check@^0.4.0, type-check@~0.4.0:
+   version "0.4.0"
+   resolved "https://registry.npmjs.org/type-check/-/type-check-0.4.0.tgz"
+   integrity sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==
+@@ -10395,13 +10311,6 @@ type-check@~0.3.2:
+   dependencies:
+     prelude-ls "~1.1.2"
+ 
+-type-check@~0.4.0:
+-  version "0.4.0"
+-  resolved "https://registry.npmjs.org/type-check/-/type-check-0.4.0.tgz"
+-  integrity sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==
+-  dependencies:
+-    prelude-ls "^1.2.1"
+-
+ type-detect@4.0.8:
+   version "4.0.8"
+   resolved "https://registry.npmjs.org/type-detect/-/type-detect-4.0.8.tgz"
+@@ -10412,7 +10321,7 @@ type-fest@^0.16.0:
+   resolved "https://registry.npmjs.org/type-fest/-/type-fest-0.16.0.tgz"
+   integrity sha512-eaBzG6MxNzEn9kiwvtre90cXaNLkmadMWa1zQMs3XORCXNbsH/OewwbxC5ia9dCxIxnTAsSxXJaa/p5y8DlvJg==
+ 
+-type-fest@^0.20.2, "type-fest@>=0.17.0 <5.0.0":
++type-fest@^0.20.2:
+   version "0.20.2"
+   resolved "https://registry.npmjs.org/type-fest/-/type-fest-0.20.2.tgz"
+   integrity sha512-Ne+eE4r0/iWnpAxD852z3A+N0Bt5RN//NjJwRd2VFHEmrywxf5vsZlh4R6lixl6B+wz/8d+maTSAkN1FIkI3LQ==
+@@ -10482,7 +10391,7 @@ typedarray-to-buffer@^3.1.5:
+   dependencies:
+     is-typedarray "^1.0.0"
+ 
+-"typescript@^3.2.1 || ^4", "typescript@>= 2.7", "typescript@>=2.8.0 || >= 3.2.0-dev || >= 3.3.0-dev || >= 3.4.0-dev || >= 3.5.0-dev || >= 3.6.0-dev || >= 3.6.0-beta || >= 3.7.0-dev || >= 3.7.0-beta", typescript@4.9.5:
++typescript@4.9.5:
+   version "4.9.5"
+   resolved "https://registry.npmjs.org/typescript/-/typescript-4.9.5.tgz"
+   integrity sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==
+@@ -10547,7 +10456,7 @@ universalify@^2.0.0:
+   resolved "https://registry.npmjs.org/universalify/-/universalify-2.0.1.tgz"
+   integrity sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==
+ 
+-unpipe@~1.0.0, unpipe@1.0.0:
++unpipe@1.0.0, unpipe@~1.0.0:
+   version "1.0.0"
+   resolved "https://registry.npmjs.org/unpipe/-/unpipe-1.0.0.tgz"
+   integrity sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==
+@@ -10721,7 +10630,7 @@ webpack-dev-middleware@^5.3.4:
+     range-parser "^1.2.1"
+     schema-utils "^4.0.0"
+ 
+-webpack-dev-server@^4.6.0, "webpack-dev-server@3.x || 4.x || 5.x":
++webpack-dev-server@^4.6.0:
+   version "4.15.2"
+   resolved "https://registry.npmjs.org/webpack-dev-server/-/webpack-dev-server-4.15.2.tgz"
+   integrity sha512-0XavAZbNJ5sDrCbkpWL8mia0o5WPOd2YGtxrEiZkBK9FjLppIUK2TgxK6qGD2P3hUXTJNNPVibrerKcx5WkR1g==
+@@ -10786,7 +10695,7 @@ webpack-sources@^3.3.3:
+   resolved "https://registry.npmjs.org/webpack-sources/-/webpack-sources-3.3.3.tgz"
+   integrity sha512-yd1RBzSGanHkitROoPFd6qsrxt+oFhg/129YzheDGqeustzX0vTZJZsSsQjVQC4yzBQ56K55XU8gaNCtIzOnTg==
+ 
+-"webpack@^4.0.0 || ^5.0.0", "webpack@^4.37.0 || ^5.0.0", "webpack@^4.4.0 || ^5.9.0", "webpack@^4.44.2 || ^5.47.0", webpack@^5.0.0, webpack@^5.1.0, webpack@^5.20.0, webpack@^5.64.4, "webpack@>= 4", webpack@>=2, "webpack@>=4.43.0 <6.0.0":
++webpack@^5.64.4:
+   version "5.101.3"
+   resolved "https://registry.npmjs.org/webpack/-/webpack-5.101.3.tgz"
+   integrity sha512-7b0dTKR3Ed//AD/6kkx/o7duS8H3f1a4w3BYpIriX4BzIhjkn4teo05cptsxvLesHFKK5KObnadmCHBwGc+51A==
+@@ -10817,7 +10726,7 @@ webpack-sources@^3.3.3:
+     watchpack "^2.4.1"
+     webpack-sources "^3.3.3"
+ 
+-websocket-driver@^0.7.4, websocket-driver@>=0.5.1:
++websocket-driver@>=0.5.1, websocket-driver@^0.7.4:
+   version "0.7.4"
+   resolved "https://registry.npmjs.org/websocket-driver/-/websocket-driver-0.7.4.tgz"
+   integrity sha512-b17KeDIQVjvb0ssuSDF2cYXSg2iztliJ4B9WdsuB6J952qCPKmnVq4DyW5motImXHDC1cBT/1UezrJVsKw5zjg==

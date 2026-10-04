@@ -25,6 +25,10 @@ func DecorateConfigNode(node *yaml.Node) {
 	setFieldHeadComment(root, "hls_cache", "# HLS 播放缓存生命周期配置")
 	hlsCacheNode := findNode(root, "hls_cache")
 	if hlsCacheNode != nil {
+		setFieldComment(hlsCacheNode, "max_concurrent", "# HLS 最大并发转封装任务数，默认 3，范围 1 到 32", "")
+		setFieldComment(hlsCacheNode, "max_queued", "# HLS 最大排队任务数，默认 64，范围 1 到 1024", "")
+		setFieldComment(hlsCacheNode, "min_free_space_gb", "# 启动 HLS 转封装所需最小剩余磁盘空间（GB），默认 1，0 表示禁用检查", "")
+		setFieldComment(hlsCacheNode, "read_grace_seconds", "# HLS 文件读取后暂缓缓存回收的保护时长（秒），默认 60，0 表示禁用保护", "")
 		setFieldComment(hlsCacheNode, "max_age_hours",
 			"# HLS 播放缓存单个目录最大保留时长（小时），0 表示不按时间清理", "")
 		setFieldComment(hlsCacheNode, "max_total_size_gb",
@@ -60,6 +64,7 @@ func DecorateConfigNode(node *yaml.Node) {
 
 	finishNode := findNode(root, "on_record_finished")
 	if finishNode != nil {
+		setFieldComment(finishNode, "prepare_playback", "# 显式启用新录播自动准备；默认关闭。替代 fix_flv_at_first/convert_to_mp4，保留来源并禁止上传后删除。不能与 custom_commandline 同用。", "")
 		setFieldComment(finishNode, "custom_commandline",
 			`#  当 custom_commandline 的值 不为空时，convert_to_mp4 的值会被无视，
 #  而是在录制结束后直接执行 custom_commandline 中的命令。

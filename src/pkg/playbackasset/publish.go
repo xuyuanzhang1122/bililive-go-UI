@@ -16,15 +16,6 @@ type publicationIntent struct {
 	TempName string `json:"temp_name"`
 }
 
-func syncPublicationDir(path string) error {
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
-}
-
 func removePublicationFile(path string, expected os.FileInfo) error {
 	current, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -42,6 +33,15 @@ func removePublicationFile(path string, expected os.FileInfo) error {
 // PublishValidated 仅接受调用方已经验证并同步到磁盘的唯一临时文件。
 // 来源和产物版本先写入不可覆盖的发布意图，再发布媒体与关联。
 func PublishValidated(source, target, temp string, sourceInfo os.FileInfo) error {
+	return publishValidated(source, target, temp, sourceInfo, false)
+}
+
+// PublishDerivedValidated 复用持久发布意图及不可覆盖发布，派生关联禁止删源。
+func PublishDerivedValidated(source, target, temp string, sourceInfo os.FileInfo) error {
+	return publishValidated(source, target, temp, sourceInfo, true)
+}
+
+func publishValidated(source, target, temp string, sourceInfo os.FileInfo, derived bool) error {
 	source, err := filepath.Abs(source)
 	if err != nil {
 		return err
@@ -54,7 +54,7 @@ func PublishValidated(source, target, temp string, sourceInfo os.FileInfo) error
 	if err != nil {
 		return err
 	}
-	if sourceInfo == nil || filepath.Dir(source) != filepath.Dir(target) || filepath.Dir(temp) != filepath.Dir(target) || source == target || temp == target || temp == source || !strings.HasPrefix(filepath.Base(temp), ".converting-") {
+	if sourceInfo == nil || (!derived && filepath.Dir(source) != filepath.Dir(target)) || filepath.Dir(temp) != filepath.Dir(target) || source == target || temp == target || temp == source || !strings.HasPrefix(filepath.Base(temp), ".converting-") {
 		return fmt.Errorf("无效的播放产物发布路径")
 	}
 	current, err := os.Lstat(source)
@@ -71,7 +71,7 @@ func PublishValidated(source, target, temp string, sourceInfo os.FileInfo) error
 	if !tempInfo.Mode().IsRegular() || tempInfo.Size() == 0 {
 		return fmt.Errorf("发布临时文件无效")
 	}
-	intent := publicationIntent{Manifest: Manifest{1, filepath.Base(source), filepath.Base(target), stamp(sourceInfo), stamp(tempInfo)}, TempName: filepath.Base(temp)}
+	intent := publicationIntent{Manifest: makeManifest(source, target, sourceInfo, tempInfo, derived), TempName: filepath.Base(temp)}
 	data, err := json.Marshal(intent)
 	if err != nil {
 		return err
@@ -113,18 +113,30 @@ func PublishValidated(source, target, temp string, sourceInfo os.FileInfo) error
 			return fmt.Errorf("原子发布失败: %w", err)
 		}
 	}
-	return finishPublication(source, target, tempInfo, sourceInfo, intentPath, info)
+	return finishPublication(source, target, tempInfo, sourceInfo, intentPath, info, derived)
 }
 
-func finishPublication(source, target string, targetInfo, sourceInfo os.FileInfo, intentPath string, intentInfo os.FileInfo) error {
-	if err := Save(source, target, sourceInfo); err != nil {
-		// 另一恢复流程可能已经提交关联并按策略删除来源。此时产物是
-		// 已完成的可信提交，不能因本流程再次 Save 失败而回滚它。
-		if _, loadErr := Load(target); loadErr == nil {
-			if removeErr := removePublicationFile(intentPath, intentInfo); removeErr != nil {
-				return fmt.Errorf("并发发布已完成，但清理发布意图失败: %w", removeErr)
+func finishPublication(source, target string, targetInfo, sourceInfo os.FileInfo, intentPath string, intentInfo os.FileInfo, derived bool) error {
+	expected := makeManifest(source, target, sourceInfo, targetInfo, derived)
+	current, err := os.Lstat(target)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(current, targetInfo) || stamp(current) != expected.Target {
+		return fmt.Errorf("发布提交前产物发生变化")
+	}
+	if err := saveManifest(source, target, sourceInfo, derived); err != nil {
+		// 另一恢复流程可能已经提交同一来源、同一产物版本。只有完整
+		// Manifest 精确匹配时才允许幂等收尾，不能仅凭 Load 成功判断。
+		if existing, loadErr := Load(target); loadErr == nil {
+			if existing == expected {
+				if removeErr := removePublicationFile(intentPath, intentInfo); removeErr != nil {
+					return fmt.Errorf("并发发布已完成，但清理发布意图失败: %w", removeErr)
+				}
+				return syncPublicationDir(target)
 			}
-			return syncPublicationDir(target)
+			// 目标已被其他来源可信提交，绝不能把它当作本流程产物回滚。
+			return fmt.Errorf("目标已有不同来源的播放关联")
 		}
 		// 仅回滚本次创建的文件，不碰同名替换文件，更不删除源文件。
 		rollbackErr := removePublicationFile(target, targetInfo)
@@ -148,6 +160,14 @@ func finishPublication(source, target string, targetInfo, sourceInfo os.FileInfo
 // RecoverPublication 只恢复与持久化发布意图完全匹配的版本，并强制重新验证媒体。
 // 无意图时返回 false；不根据同名、时长或扩展名推测产物来源。
 func RecoverPublication(source, target string, sourceInfo os.FileInfo, validate func(string) error) (bool, error) {
+	return recoverPublication(source, target, sourceInfo, validate, false)
+}
+
+func RecoverDerivedPublication(source, target string, sourceInfo os.FileInfo, validate func(string) error) (bool, error) {
+	return recoverPublication(source, target, sourceInfo, validate, true)
+}
+
+func recoverPublication(source, target string, sourceInfo os.FileInfo, validate func(string) error, derived bool) (bool, error) {
 	source, err := filepath.Abs(source)
 	if err != nil {
 		return false, err
@@ -175,7 +195,7 @@ func RecoverPublication(source, target string, sourceInfo os.FileInfo, validate 
 	if err != nil {
 		return false, err
 	}
-	if sourceInfo == nil || validate == nil || intent.Version != 1 || filepath.Dir(source) != filepath.Dir(target) || intent.SourceName != filepath.Base(source) || intent.TargetName != filepath.Base(target) || !safeName(intent.TempName) || !strings.HasPrefix(intent.TempName, ".converting-") || stamp(sourceInfo) != intent.Source {
+	if sourceInfo == nil || validate == nil || (intent.Version != 1 && !derived) || (derived && (intent.Version != 2 || intent.SourcePath != source)) || (!derived && filepath.Dir(source) != filepath.Dir(target)) || intent.SourceName != filepath.Base(source) || intent.TargetName != filepath.Base(target) || !safeName(intent.TempName) || !strings.HasPrefix(intent.TempName, ".converting-") || stamp(sourceInfo) != intent.Source {
 		return false, fmt.Errorf("发布意图不匹配来源")
 	}
 	current, err := os.Lstat(source)
@@ -221,7 +241,7 @@ func RecoverPublication(source, target string, sourceInfo os.FileInfo, validate 
 			}
 		}
 	}
-	if err = finishPublication(source, target, targetInfo, sourceInfo, intentPath, intentInfo); err != nil {
+	if err = finishPublication(source, target, targetInfo, sourceInfo, intentPath, intentInfo, derived); err != nil {
 		return false, err
 	}
 	if tempInfo, e := os.Lstat(temp); e == nil && os.SameFile(tempInfo, targetInfo) {

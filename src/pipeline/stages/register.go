@@ -5,6 +5,8 @@ import "github.com/bililive-go/bililive-go/src/pipeline"
 
 // RegisterBuiltinStages 注册所有内置阶段到执行器
 func RegisterBuiltinStages(executor *pipeline.Executor) {
+	executor.RegisterStage(pipeline.StageNamePreparePlayback, NewPreparePlaybackStage)
+
 	// FLV 修复
 	executor.RegisterStage(pipeline.StageNameFixFlv, NewFixFlvStage)
 
@@ -29,6 +31,8 @@ func RegisterBuiltinStages(executor *pipeline.Executor) {
 
 // RegisterBuiltinStagesToManager 注册所有内置阶段到管理器
 func RegisterBuiltinStagesToManager(manager *pipeline.Manager) {
+	manager.RegisterStage(pipeline.StageNamePreparePlayback, NewPreparePlaybackStage)
+
 	// FLV 修复
 	manager.RegisterStage(pipeline.StageNameFixFlv, NewFixFlvStage)
 

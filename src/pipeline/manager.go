@@ -2,7 +2,10 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -24,6 +27,7 @@ type Manager struct {
 	config        *ManagerConfig
 	runningTasks  map[int64]context.CancelFunc
 	mu            sync.RWMutex
+	scheduleMu    sync.Mutex
 	wg            sync.WaitGroup
 	eventDispatch events.Dispatcher
 	ticker        *time.Ticker
@@ -79,7 +83,7 @@ func (m *Manager) RegisterStage(name string, factory StageFactory) {
 func (m *Manager) Start(ctx context.Context) error {
 	// 重置所有运行中的任务（处理程序非正常退出的情况）
 	if err := m.store.ResetRunningTasks(m.ctx); err != nil {
-		logrus.WithError(err).Warn("failed to reset running pipeline tasks")
+		return fmt.Errorf("恢复持久管道失败: %w", err)
 	}
 
 	// 启动轮询调度
@@ -94,9 +98,11 @@ func (m *Manager) Start(ctx context.Context) error {
 // Close 停止管理器（实现 Module 接口）
 func (m *Manager) Close(ctx context.Context) {
 	m.cancel()
+	m.scheduleMu.Lock()
 	if m.ticker != nil {
 		m.ticker.Stop()
 	}
+	m.scheduleMu.Unlock()
 
 	// 等待所有任务完成
 	m.wg.Wait()
@@ -122,6 +128,11 @@ func (m *Manager) pollLoop() {
 
 // scheduleNextTasks 调度下一批任务
 func (m *Manager) scheduleNextTasks() {
+	m.scheduleMu.Lock()
+	defer m.scheduleMu.Unlock()
+	if m.ctx.Err() != nil {
+		return
+	}
 	m.mu.RLock()
 	runningCount := len(m.runningTasks)
 	maxConcurrent := m.config.MaxConcurrent
@@ -163,6 +174,11 @@ func (m *Manager) startTask(task *PipelineTask) {
 	task.MarkStarted()
 	if err := m.store.UpdateTask(m.ctx, task); err != nil {
 		logrus.WithError(err).Error("failed to update pipeline task status")
+		cancel()
+		m.mu.Lock()
+		delete(m.runningTasks, task.ID)
+		m.mu.Unlock()
+		return
 	}
 
 	// 广播任务状态变化
@@ -201,6 +217,13 @@ func (m *Manager) executeTask(ctx context.Context, task *PipelineTask) {
 		WorkDir: "", // 后续可以从配置获取
 	}
 
+	if inst := instance.GetInstance(ctx); inst != nil {
+		pipelineCtx.Catalog = inst.RecordingCatalog
+	}
+	if prepStore, ok := m.store.(PreparationStore); ok {
+		pipelineCtx.Preparations = prepStore
+	}
+
 	// 执行管道
 	results, err := m.executor.Execute(
 		pipelineCtx,
@@ -217,13 +240,23 @@ func (m *Manager) executeTask(ctx context.Context, task *PipelineTask) {
 		},
 	)
 
+	if inst := instance.GetInstance(ctx); inst != nil && inst.RecordingCatalog != nil {
+		inst.RecordingCatalog.Notify()
+	}
 	// 保存阶段结果
 	task.StageResults = results
 
 	if err != nil {
-		if ctx.Err() == context.Canceled {
+		var paused *PreparationPausedError
+		if m.ctx.Err() != nil {
+			task.Status = PipelineStatusPaused
+			task.ErrorMessage = err.Error()
+		} else if ctx.Err() == context.Canceled {
 			task.MarkCancelled()
 			logrus.WithField("task_id", task.ID).Info("pipeline task cancelled")
+		} else if errors.As(err, &paused) {
+			task.Status = PipelineStatusPaused
+			task.ErrorMessage = err.Error()
 		} else {
 			task.MarkFailed(err)
 			logrus.WithError(err).WithField("task_id", task.ID).Error("pipeline task failed")
@@ -239,7 +272,7 @@ func (m *Manager) executeTask(ctx context.Context, task *PipelineTask) {
 	}
 
 	// 更新任务状态
-	if err := m.store.UpdateTask(m.ctx, task); err != nil {
+	if err := m.store.UpdateTask(context.WithoutCancel(m.ctx), task); err != nil {
 		logrus.WithError(err).Error("failed to update pipeline task status after execution")
 	}
 
@@ -256,6 +289,34 @@ func (m *Manager) broadcastTaskUpdate(task *PipelineTask) {
 
 // EnqueueTask 添加任务到队列
 func (m *Manager) EnqueueTask(task *PipelineTask) error {
+	if task.PipelineConfig != nil {
+		for _, stage := range task.PipelineConfig.Stages {
+			if stage.Name == StageNamePreparePlayback && stage.IsEnabled() {
+				for i := range task.InitialFiles {
+					file := &task.InitialFiles[i]
+					if file.Type != FileTypeVideo {
+						continue
+					}
+					absolute, err := filepath.Abs(file.Path)
+					if err != nil {
+						return err
+					}
+					file.Path = absolute
+					if recordingcatalog.IsRecording(file.Path) {
+						return recordingcatalog.ErrRecordingActive
+					}
+					if file.PreparationSourceVersion == "" {
+						file.PreparationSourceVersion, err = recordingcatalog.SnapshotVersion(file.Path)
+						if err != nil {
+							return err
+						}
+					}
+				}
+				task.CurrentFiles = task.InitialFiles
+			}
+		}
+	}
+
 	if err := m.store.CreateTask(m.ctx, task); err != nil {
 		return fmt.Errorf("failed to create pipeline task: %w", err)
 	}
@@ -296,6 +357,8 @@ func (m *Manager) EnqueueRecordingTask(
 
 // CancelTask 取消任务
 func (m *Manager) CancelTask(taskID int64) error {
+	m.scheduleMu.Lock()
+	defer m.scheduleMu.Unlock()
 	task, err := m.store.GetTask(m.ctx, taskID)
 	if err != nil {
 		return err
@@ -309,7 +372,7 @@ func (m *Manager) CancelTask(taskID int64) error {
 		// 取消正在运行的任务
 		cancel()
 		// 状态更新会在 executeTask 中完成
-	} else if task.Status == PipelineStatusPending {
+	} else if task.Status == PipelineStatusPending || task.Status == PipelineStatusPaused {
 		// 取消待执行的任务
 		task.MarkCancelled()
 		if err := m.store.UpdateTask(m.ctx, task); err != nil {
@@ -399,6 +462,7 @@ func (m *Manager) GetStats() (*ManagerStats, error) {
 	// 获取各状态的任务数
 	for _, status := range []PipelineStatus{
 		PipelineStatusPending,
+		PipelineStatusPaused,
 		PipelineStatusCompleted,
 		PipelineStatusFailed,
 		PipelineStatusCancelled,
@@ -410,6 +474,8 @@ func (m *Manager) GetStats() (*ManagerStats, error) {
 		switch status {
 		case PipelineStatusPending:
 			stats.PendingCount = len(tasks)
+		case PipelineStatusPaused:
+			stats.PausedCount = len(tasks)
 		case PipelineStatusCompleted:
 			stats.CompletedCount = len(tasks)
 		case PipelineStatusFailed:
@@ -426,6 +492,7 @@ func (m *Manager) GetStats() (*ManagerStats, error) {
 type ManagerStats struct {
 	MaxConcurrent  int `json:"max_concurrent"`
 	RunningCount   int `json:"running_count"`
+	PausedCount    int `json:"paused_count"`
 	PendingCount   int `json:"pending_count"`
 	CompletedCount int `json:"completed_count"`
 	FailedCount    int `json:"failed_count"`

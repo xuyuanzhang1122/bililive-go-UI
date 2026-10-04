@@ -882,19 +882,24 @@ var videoExtensions = map[string]bool{
 
 // VideoRoomInfo 视频库中的直播间信息
 type VideoRoomInfo struct {
-	HostName      string `json:"host_name"`
-	Platform      string `json:"platform"`
-	FolderPath    string `json:"folder_path"` // 相对于 output_path 的路径
-	VideoCount    int    `json:"video_count"`
-	TotalSize     int64  `json:"total_size"`
-	LatestVideoAt int64  `json:"latest_video_at"` // Unix 时间戳
-	LatestVideo   string `json:"latest_video"`    // 最新视频的相对路径（用于缩略图）
-	Recording     bool   `json:"recording"`       // 是否正在直播
-	URL           string `json:"url"`             // 直播间原始 URL（仅 recording=true 时有值）
+	HostName            string `json:"host_name"`
+	Platform            string `json:"platform"`
+	FolderPath          string `json:"folder_path"` // 相对于 output_path 的路径
+	VideoCount          int    `json:"video_count"`
+	TotalSize           int64  `json:"total_size"`
+	DerivedSize         int64  `json:"derived_size"`
+	TotalSizeText       string `json:"total_size_text"`
+	StatisticsStatus    string `json:"statistics_status"`
+	StatisticsCheckedAt int64  `json:"statistics_checked_at"`
+	LatestVideoAt       int64  `json:"latest_video_at"` // Unix 时间戳
+	LatestVideo         string `json:"latest_video"`    // 最新视频的相对路径（用于缩略图）
+	Recording           bool   `json:"recording"`       // 是否正在直播
+	URL                 string `json:"url"`             // 直播间原始 URL（仅 recording=true 时有值）
 }
 
 // getVideoLibrary 返回所有有录播视频的直播间汇总信息
 func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
 	inst := instance.GetInstance(r.Context())
 	cfg := configs.GetCurrentConfig()
 	if cfg == nil {
@@ -920,97 +925,35 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 	rooms := make([]VideoRoomInfo, 0)
 	activeRecordings := currentRecordingRoomIndex(r.Context())
 
-	platformEntries, err := os.ReadDir(rootPath)
-	if err != nil {
-		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
-			ErrNo:  http.StatusInternalServerError,
-			ErrMsg: "读取输出目录失败: " + err.Error(),
-		})
+	if inst == nil || inst.RecordingCatalog == nil || !inst.RecordingCatalog.MatchesRoot(rootPath) {
+		writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{ErrNo: 503, ErrMsg: "录播目录尚不可用，请稍后重试"})
 		return
 	}
-
-	for _, platformEntry := range platformEntries {
-		if !platformEntry.IsDir() {
+	catalogRooms, err := inst.RecordingCatalog.Rooms(r.Context())
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{ErrNo: 503, ErrMsg: "读取录播目录失败: " + err.Error()})
+		return
+	}
+	if len(catalogRooms) == 0 {
+		status, err := inst.RecordingCatalog.Status(r.Context())
+		if err != nil || status != "verified" {
+			writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{ErrNo: 503, ErrMsg: "录播目录尚未完成核验"})
+			return
+		}
+	}
+	for _, room := range catalogRooms {
+		if len(knownPlatforms) > 0 && !knownPlatforms[room.Platform] {
 			continue
 		}
-		// 跳过隐藏目录（以 . 开头）和 .appdata 等系统目录
-		if strings.HasPrefix(platformEntry.Name(), ".") {
-			continue
+		text := formatVideoLibrarySize(room.TotalSize)
+		if room.Status == "unavailable" {
+			text = "统计暂不可用"
+		} else if room.Status != "verified" {
+			text = "统计更新中"
 		}
-		// 只扫描已配置直播间对应的平台目录；如果没有配置任何直播间，则扫描所有平台目录
-		if len(knownPlatforms) > 0 && !knownPlatforms[platformEntry.Name()] {
-			continue
-		}
-		platformPath := filepath.Join(rootPath, platformEntry.Name())
-
-		hostEntries, err := os.ReadDir(platformPath)
-		if err != nil {
-			continue
-		}
-
-		for _, hostEntry := range hostEntries {
-			if !hostEntry.IsDir() {
-				continue
-			}
-			hostPath := filepath.Join(platformPath, hostEntry.Name())
-
-			var videoCount int
-			var totalSize int64
-			var latestModTime int64
-			var latestVideoRelPath string
-
-			err := filepath.WalkDir(hostPath, func(path string, d fs.DirEntry, err error) error {
-				if err != nil || d.IsDir() {
-					return nil
-				}
-				ext := strings.ToLower(filepath.Ext(d.Name()))
-				if !videoExtensions[ext] {
-					return nil
-				}
-				info, err := d.Info()
-				if err != nil {
-					return nil
-				}
-				videoCount++
-				totalSize += info.Size()
-				modTime := info.ModTime().Unix()
-				if modTime > latestModTime {
-					latestModTime = modTime
-					rel, _ := filepath.Rel(rootPath, path)
-					latestVideoRelPath = rel
-				}
-				return nil
-			})
-			if err != nil || videoCount == 0 {
-				continue
-			}
-
-			folderRel, _ := filepath.Rel(rootPath, hostPath)
-			hostName := hostEntry.Name()
-			inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
-				if l.GetPlatformCNName() == platformEntry.Name() {
-					if obj, err := inst.Cache.Get(l); err == nil && obj != nil {
-						info := obj.(*live.Info)
-						if info.HostName == hostEntry.Name() {
-							hostName = info.HostName
-							return false
-						}
-					}
-				}
-				return true
-			})
-
-			rooms = append(rooms, VideoRoomInfo{
-				HostName:      hostName,
-				Platform:      platformEntry.Name(),
-				FolderPath:    filepath.ToSlash(folderRel),
-				VideoCount:    videoCount,
-				TotalSize:     totalSize,
-				LatestVideoAt: latestModTime,
-				LatestVideo:   filepath.ToSlash(latestVideoRelPath),
-				Recording:     activeRecordings[platformEntry.Name()+"/"+hostName],
-			})
-		}
+		rooms = append(rooms, VideoRoomInfo{HostName: room.HostName, Platform: room.Platform, FolderPath: room.FolderPath,
+			VideoCount: room.VideoCount, TotalSize: room.TotalSize, DerivedSize: room.DerivedSize, TotalSizeText: text, StatisticsStatus: room.Status,
+			StatisticsCheckedAt: room.CheckedAt, LatestVideoAt: room.LatestAt, LatestVideo: room.LatestVideo, Recording: activeRecordings[room.Platform+"/"+room.HostName]})
 	}
 
 	// 合并 livestate：标记正在直播的房间，并补充尚无录像的直播房间占位卡
@@ -1042,10 +985,13 @@ func getVideoLibrary(writer http.ResponseWriter, r *http.Request) {
 				} else {
 					// 正在直播但还没有录播文件 → 插入占位卡
 					rooms = append(rooms, VideoRoomInfo{
-						HostName:  rr.HostName,
-						Platform:  rr.Platform,
-						Recording: true,
-						URL:       rr.URL,
+						HostName:            rr.HostName,
+						Platform:            rr.Platform,
+						Recording:           true,
+						URL:                 rr.URL,
+						TotalSizeText:       "尚无录播",
+						StatisticsStatus:    "pending",
+						StatisticsCheckedAt: time.Now().Unix(),
 					})
 				}
 			}
@@ -1146,6 +1092,8 @@ func getThumbnail(writer http.ResponseWriter, r *http.Request) {
 		http.Error(writer, "配置未加载", http.StatusInternalServerError)
 		return
 	}
+
+	videoRelPath = preparedThumbnailPath(cfg, videoRelPath)
 
 	rootPath := cfg.OutPutPath
 	if rootPath == "" {
@@ -1276,6 +1224,9 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
 		if !videoExtensions[ext] {
 			return nil
 		}
@@ -1311,6 +1262,7 @@ func getVideoFiles(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	files = preferPreparedFiles(r, cfg, files)
 	// 按修改时间降序
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].ModTime > files[j].ModTime
@@ -2669,6 +2621,9 @@ func translateOSError(err error) string {
 }
 
 func renameFile(writer http.ResponseWriter, r *http.Request) {
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		defer inst.RecordingCatalog.Notify()
+	}
 	vars := mux.Vars(r)
 	path := vars["path"]
 
@@ -2681,7 +2636,7 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := configs.GetCurrentConfig()
-	oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
+	oldAbsPath, err := resolvePlaybackOperationPath(cfg, path)
 	if err != nil {
 		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效或越权路径"})
 		return
@@ -2720,7 +2675,7 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
+	if err := renamePlaybackFile(cfg, path, oldAbsPath, newAbsPath); err != nil {
 		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "重命名失败: " + translateOSError(err)})
 		return
 	}
@@ -2729,6 +2684,9 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
 }
 
 func deleteFile(writer http.ResponseWriter, r *http.Request) {
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		defer inst.RecordingCatalog.Notify()
+	}
 	vars := mux.Vars(r)
 	path := vars["path"]
 
@@ -2738,13 +2696,13 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
 		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
 		return
 	}
-	absPath, err := getSafePath(cfg.OutPutPath, path)
+	absPath, err := resolvePlaybackOperationPath(cfg, path)
 	if err != nil || absPath == base {
 		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "禁止删除根目录或无效/越权路径"})
 		return
 	}
 
-	if err := os.RemoveAll(absPath); err != nil {
+	if err := deletePlaybackFile(cfg, path, absPath); err != nil {
 		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "删除失败: " + translateOSError(err)})
 		return
 	}
@@ -2753,6 +2711,9 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
 }
 
 func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		defer inst.RecordingCatalog.Notify()
+	}
 	var body struct {
 		Paths   []string `json:"paths"`
 		Find    string   `json:"find"`
@@ -2778,7 +2739,7 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
 	results := make([]Result, 0, len(body.Paths))
 
 	for _, path := range body.Paths {
-		oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
+		oldAbsPath, err := resolvePlaybackOperationPath(cfg, path)
 		if err != nil {
 			results = append(results, Result{Path: path, Success: false, Message: "无效或越权路径"})
 			continue
@@ -2821,7 +2782,7 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
+		if err := renamePlaybackFile(cfg, path, oldAbsPath, newAbsPath); err != nil {
 			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
 		} else {
 			results = append(results, Result{Path: path, Success: true, Message: "成功"})
@@ -2832,6 +2793,9 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
 }
 
 func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
+	if inst := instance.GetInstance(r.Context()); inst != nil && inst.RecordingCatalog != nil {
+		defer inst.RecordingCatalog.Notify()
+	}
 	var body struct {
 		Paths []string `json:"paths"`
 	}
@@ -2855,13 +2819,13 @@ func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
 	results := make([]Result, 0, len(body.Paths))
 
 	for _, path := range body.Paths {
-		absPath, err := getSafePath(cfg.OutPutPath, path)
+		absPath, err := resolvePlaybackOperationPath(cfg, path)
 		if err != nil || absPath == base {
 			results = append(results, Result{Path: path, Success: false, Message: "禁止操作根目录或越权路径"})
 			continue
 		}
 
-		if err := os.RemoveAll(absPath); err != nil {
+		if err := deletePlaybackFile(cfg, path, absPath); err != nil {
 			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
 		} else {
 			results = append(results, Result{Path: path, Success: true, Message: "成功"})

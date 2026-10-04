@@ -11,8 +11,16 @@ import (
 )
 
 func TestNewConfig(t *testing.T) {
-	file := "../../config.yml"
-	c, err := NewConfigWithFile("../../config.yml")
+	// 配置加载会执行迁移并回写，测试必须在副本上运行。
+	data, err := os.ReadFile("../../config.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(file, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewConfigWithFile(file)
 	assert.NoError(t, err)
 	assert.Equal(t, file, c.File)
 }
@@ -31,6 +39,7 @@ func TestConfig_Verify(t *testing.T) {
 	var cfg *Config
 	assert.Error(t, cfg.Verify())
 	cfg = &Config{
+		HLSCache:   defaultHLSCacheConfig,
 		RPC:        defaultRPC,
 		Interval:   30,
 		OutPutPath: os.TempDir(),

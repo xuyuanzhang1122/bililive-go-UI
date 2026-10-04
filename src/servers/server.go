@@ -310,6 +310,7 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Close(ctx context.Context) {
 	inst := instance.GetInstance(ctx)
 	inst.WaitGroup.Done()
+	globalHLSJobManager.Close()
 	// 先关闭所有 SSE 连接，避免 Shutdown 时等待
 	GetSSEHub().Close()
 	ctx2, cancel := context.WithCancel(ctx)

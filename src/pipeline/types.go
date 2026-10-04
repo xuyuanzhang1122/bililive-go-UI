@@ -9,6 +9,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -29,10 +30,11 @@ const (
 
 // FileInfo 表示管道中流转的文件信息
 type FileInfo struct {
-	Path       string         `json:"path"`                  // 文件绝对路径
-	Type       FileType       `json:"type"`                  // 文件类型
-	SourcePath string         `json:"source_path,omitempty"` // 来源文件路径（用于追踪转换链）
-	Metadata   map[string]any `json:"metadata,omitempty"`    // 额外元数据
+	PreparationSourceVersion string         `json:"preparation_source_version,omitempty"`
+	Path                     string         `json:"path"`                  // 文件绝对路径
+	Type                     FileType       `json:"type"`                  // 文件类型
+	SourcePath               string         `json:"source_path,omitempty"` // 来源文件路径（用于追踪转换链）
+	Metadata                 map[string]any `json:"metadata,omitempty"`    // 额外元数据
 }
 
 // NewVideoFileInfo 创建视频文件信息
@@ -81,7 +83,9 @@ type PipelineContext struct {
 	TempDir    string                 // 临时文件目录
 
 	// FFmpegPath 是 ffmpeg 可执行文件的路径
-	FFmpegPath string
+	FFmpegPath   string
+	Catalog      *recordingcatalog.Manager
+	Preparations PreparationStore
 }
 
 // Stage 管道阶段接口
@@ -184,6 +188,7 @@ type PipelineStatus string
 const (
 	// PipelineStatusPending 等待执行
 	PipelineStatusPending PipelineStatus = "pending"
+	PipelineStatusPaused  PipelineStatus = "paused"
 	// PipelineStatusRunning 正在执行
 	PipelineStatusRunning PipelineStatus = "running"
 	// PipelineStatusCompleted 已完成

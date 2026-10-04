@@ -144,8 +144,18 @@ func runHLSCacheJanitor(root string, maxAgeHours int, maxTotalSizeGB float64, no
 // removeHLSCacheEntryIfUnchanged 避免 janitor 删除正在生成或刚被访问的缓存。
 // 扫描后的目录 mtime 若已变化，说明该条目已经被使用，本轮跳过并留待下次重算。
 func removeHLSCacheEntryIfUnchanged(entry hlsCacheEntry) (bool, error) {
-	// 检查是否有活跃任务
-	if job := globalHLSJobManager.GetJob(entry.key); job != nil && job.IsActive() {
+	// 作业登记、读租约与删除在同一同步协议内决定。
+	m := globalHLSJobManager
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	grace := hlsReadGrace
+	if job := m.jobs[entry.key]; job != nil {
+		grace = job.readGrace()
+	}
+	if m.readers[entry.key] > 0 || time.Since(m.lastRead[entry.key]) < grace {
+		return false, nil
+	}
+	if job := m.jobs[entry.key]; job != nil && job.IsActive() {
 		// 任务正在运行，不删除
 		return false, nil
 	}
@@ -173,7 +183,8 @@ func removeHLSCacheEntryIfUnchanged(entry hlsCacheEntry) (bool, error) {
 	if removeErr == nil {
 		deleteHLSCacheLockIfUnused(entry.key)
 		// 清理任务管理器中的记录
-		globalHLSJobManager.RemoveJob(entry.key)
+		delete(m.jobs, entry.key)
+		delete(m.lastRead, entry.key)
 	}
 	return removeErr == nil, removeErr
 }

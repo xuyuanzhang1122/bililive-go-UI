@@ -75,6 +75,7 @@ export const apiEndpoints = {
   putRawConfig_put: { method: 'PUT', path: '/api/raw-config', handler: 'putRawConfig', params: [] },
   removeLive_delete: { method: 'DELETE', path: '/api/lives/{id}', handler: 'removeLive', params: ['id'] },
   renameFile_put: { method: 'PUT', path: '/api/file/{path:.*}', handler: 'renameFile', params: ['path'] },
+  resolvePlayback_get: { method: 'GET', path: '/api/playback/resolve/{path:.*}', handler: 'resolvePlayback', params: ['path'] },
   resolveUrl_get: { method: 'GET', path: '/api/resolve-url', handler: 'resolveUrl', params: [] },
   restoreBackup_post: { method: 'POST', path: '/api/backups/restore', handler: 'restoreBackup', params: [] },
   setUpdateChannel_put: { method: 'PUT', path: '/api/update/channel', handler: 'setUpdateChannel', params: [] },

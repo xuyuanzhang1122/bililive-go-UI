@@ -107,8 +107,8 @@ func hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath string) []string 
 		"-hide_banner",
 		"-loglevel", "error",
 		"-y",
-		"-probesize", "1000000",      // 限制探测只读取 1MB
-		"-analyzeduration", "1000000", // 限制分析时长为 1 秒
+		"-probesize", "1000000", // 流信息探测预算，不是输入总读取上限
+		"-analyzeduration", "1000000", // 分析媒体时间预算，不是墙钟超时
 		"-fflags", "+genpts",
 		"-i", sourcePath,
 		"-map", "0:v:0",
@@ -128,4 +128,13 @@ func hlsTranscodeArgs(sourcePath, segmentPattern, playlistPath string) []string 
 		"-hls_segment_filename", segmentPattern,
 		playlistPath,
 	}
+}
+
+// hlsCopyArgs 与转码路径使用相同的轨道选择，避免探测和实际输出不一致。
+func hlsCopyArgs(source, segments, playlist string) []string {
+	return []string{"-hide_banner", "-loglevel", "error", "-y",
+		"-probesize", "1000000", "-analyzeduration", "1000000", "-i", source,
+		"-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero",
+		"-f", "hls", "-hls_time", "6", "-hls_playlist_type", "event",
+		"-hls_flags", "temp_file", "-hls_segment_filename", segments, playlist}
 }

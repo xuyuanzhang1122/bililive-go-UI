@@ -1,0 +1,55 @@
+ M CHANGELOG.md
+ M src/cmd/bililive/bililive.go
+ M src/configs/config.go
+ M src/configs/config_comments.go
+ M src/configs/config_test.go
+ M src/instance/instance.go
+ M src/pipeline/manager.go
+ M src/pipeline/stages/convert_mp4.go
+ M src/pkg/playbackasset/publish.go
+ M src/pkg/playbackasset/publish_test.go
+ M src/recorders/recorder.go
+ M src/servers/auth.go
+ M src/servers/handler.go
+ M src/servers/hls_cache_janitor.go
+ M src/servers/hls_handler.go
+ M src/servers/hls_handler_test.go
+ M src/servers/hls_job_manager.go
+ M src/servers/media_probe.go
+ M src/servers/playback_resolver.go
+ M src/servers/server.go
+ M src/webapp/src/utils/generated-api.ts
+ M src/webapp/yarn.lock
+?? docs/JIT-HLS-IMPLEMENTATION-PLAN.md
+?? docs/contracts/
+?? docs/superpowers/
+?? src/configs/hls_resource_config_test.go
+?? src/pipeline/stages/convert_mp4_test.go
+?? src/pipeline/stages/convert_mp4_validation.go
+?? src/pkg/mediawork/
+?? src/pkg/migration/config_hls_resources_v210.go
+?? src/pkg/migration/config_hls_resources_v210_test.go
+?? src/pkg/playbackasset/source_delete.go
+?? src/pkg/playbackasset/source_delete_test.go
+?? src/pkg/playbackasset/sync.go
+?? src/pkg/playbackasset/sync_test.go
+?? src/pkg/playbackasset/sync_unix.go
+?? src/pkg/playbackasset/sync_windows.go
+?? src/pkg/recordingcatalog/
+?? src/servers/hls_fixture_test.go
+?? src/servers/hls_job_manager_test.go
+?? src/servers/hls_lifecycle_test.go
+?? src/servers/hls_prepared_asset.go
+?? src/servers/hls_prepared_asset_test.go
+?? src/servers/hls_resource_limits_test.go
+?? src/servers/hls_retry.go
+?? src/servers/hls_retry_test.go
+?? src/servers/media_probe_cache.go
+?? src/servers/media_probe_cache_test.go
+?? src/servers/playback_asset.go
+?? src/servers/playback_asset_operations.go
+?? src/servers/playback_asset_operations_test.go
+?? src/servers/playback_asset_test.go
+?? src/servers/playback_mp4_integration_test.go
+?? src/servers/video_library_statistics.go
+?? src/servers/video_library_statistics_test.go
