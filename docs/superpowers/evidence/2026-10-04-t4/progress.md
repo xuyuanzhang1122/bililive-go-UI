@@ -29,3 +29,5 @@ Final: Ruling: 生产规模/长 GOP 性能未判断 — 保留 source GOP，独�
 Final: Ruling: 能力/质量选择未判断 — 按主计划留在 T5，当前显式 profile 与旧入口兼容 — 成本是尚无统一会话自适应决策。
 Final: Ruling: 审查未判断最终全仓验证 — 主线程修复后实际执行六组最终验证并读取退出码 — 成本是结果只证明当前源码与本机环境。
 Task T4: complete（自动验证范围，BASE 3cd117e；make build-web dev / make lint / make test / 相关包 race / Windows与Linux make dev 全部退出 0）。真机、真正断电与生产容量不能据此标为完成；T5 未开始。
+
+Task T4: committed fd83210e7e026e73b357f1162f6958781cca78a4；最终受测源码 SHA256 与 verification.json 一致，六组退出码均为 0；本轮修复与证据已保存，后续文档提交只记录本检查点。
