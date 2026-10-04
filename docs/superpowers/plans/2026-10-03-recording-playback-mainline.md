@@ -128,7 +128,7 @@
 
 ## T6：鸿蒙统一消费与验收
 
-**状态：** prepared 生命周期、取消、严格 resolver/URL/批删修复已有本地证据；签名真机未验收。
+**状态：** v2与prepared生命周期、取消、URL/批删及签名样片真机证据已有；指定大录播MatePad时间线仍待设备连接。
 
 **文件：** `Live-os-Harmony/entry/src/main/ets/{net/APIClient.ets,player/PlayerController.ets,viewmodel/PlayerViewModel.ets,cache/ThumbnailCache.ets}` 及页面/测试。
 
@@ -185,3 +185,5 @@
 - 2026-10-04：T5 核心实现、共享契约及自动验证/独立审查修复完成；[T5 实施记录](../../../bililive-T5-实施记录-2026-10-04.md)记录并发、句柄与安全删除修复和平台边界。下一阶段 T6，按要求主动本地提交，未 push 或部署。
 
 - T5 本地检查点：`c2d09342ee83092ec6e3fd7b36c31b20ba977bd3`，包含共享契约、核心实现、六项审查修复和最终验证证据；下一阶段 T6，真机/生产状态保持独立待验。
+
+- 2026-10-04最终更新：T7指定5.63GB录播副本iPhone时间线通过；T8/T9实现、联合检查与一次跨仓独立审查修复完成。服务器已部署v2.1.2-rc.3，GitHub多平台包/Docker RC发布成功；最近3条真实录播经用户授权保源准备完成，实际媒体/Range/刷新/取消与Web帧/跳转/暂停通过。鸿蒙功能分支已推，iOS v2.0.3-rc.5的GitHub IPA构建成功并下载校验。T6指定MatePad时间线、旧本机配置恢复来源和审计预览清理仍待补齐；此前“不push/不部署/待文件”是历史检查点状态。

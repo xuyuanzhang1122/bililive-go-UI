@@ -1,0 +1,32 @@
+{
+  "release": {
+    "app_name": "BiliLive-go",
+    "app_version": "v2.1.2-rc.3",
+    "build_time": "1791116922",
+    "git_hash": "b8acf09a9a42e608668cf3b6684483bb3afd9c21",
+    "pid": 311735,
+    "platform": "linux/amd64",
+    "go_version": "go1.27.1",
+    "is_docker": "",
+    "puid": "",
+    "pgid": "",
+    "umask": "",
+    "is_launcher_managed": false,
+    "bgo_exe_path": "/home/xumy/bililive-go/bililive-go"
+  },
+  "binary_sha256": "ca2a79448535cdfa3bdef70f49576d0ee5ecdee0f92bdabc2d5a0e1c6263dd91",
+  "backup": "/home/xumy/bililive-go/backups/codex-t7-t9-20261004-rc3",
+  "policy_unchanged": true,
+  "task_counts": {
+    "completed": 816,
+    "failed": 12
+  },
+  "authorized_recent_task_ids": [
+    826,
+    827,
+    828
+  ],
+  "recent_three_completed": true,
+  "other_sources_not_confirmed": 13,
+  "recordings_count": 16
+}

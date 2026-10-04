@@ -1,0 +1,86 @@
+{
+  "tag": "v2.1.2-rc.3",
+  "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/tag/v2.1.2-rc.3",
+  "prerelease": true,
+  "binary_asset_count": 12,
+  "assets": [
+    {
+      "name": "bililive-darwin-amd64.tar.gz",
+      "size": 12954428,
+      "digest": "sha256:c938ee95a9da294800e3272aed63e544fbd1a471fef4bfdda93e0f022eaa4751",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-darwin-amd64.tar.gz"
+    },
+    {
+      "name": "bililive-darwin-arm64.tar.gz",
+      "size": 12382107,
+      "digest": "sha256:38b69b57a4125e11da5077cd9271912d290e5697163b71073571010fac3c7908",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-darwin-arm64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-386.tar.gz",
+      "size": 12328918,
+      "digest": "sha256:f18099fbe410f6a2d2164dac57c1898f5f66bebff9b57489fe45a2b5ec5482f1",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-linux-386.tar.gz"
+    },
+    {
+      "name": "bililive-linux-amd64.tar.gz",
+      "size": 12839900,
+      "digest": "sha256:f7687e34584f361387b1855d7f4b0966ba6817098a992d59042271b92e451fbb",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-linux-amd64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-arm.tar.gz",
+      "size": 12282919,
+      "digest": "sha256:9ad000cb95b0acabe7de94e3cb0bd648f8a8cab50899b4c24bb81de42934fceb",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-linux-arm.tar.gz"
+    },
+    {
+      "name": "bililive-linux-arm64.tar.gz",
+      "size": 11980980,
+      "digest": "sha256:097e82178705eedd1ea5789f6927345ee9d396087a09ca08382921e615bb8374",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-linux-arm64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-ppc64le.tar.gz",
+      "size": 12063484,
+      "digest": "sha256:d57dd5b8a8f0dabf4eb83073174496dd79abdee4e9f6e62cda470b12b23aff16",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-linux-ppc64le.tar.gz"
+    },
+    {
+      "name": "bililive-linux-riscv64.tar.gz",
+      "size": 12370785,
+      "digest": "sha256:6df7021326d0458a9e7f5556ec42966eb4cf5d4cacb68f512fdcdf2a91169bce",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-linux-riscv64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-s390x.tar.gz",
+      "size": 12678891,
+      "digest": "sha256:ed189cf24464b323f3ed517583e0976a5d19bbc2687f082f98262f36416aebd5",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-linux-s390x.tar.gz"
+    },
+    {
+      "name": "bililive-windows-386.zip",
+      "size": 12635988,
+      "digest": "sha256:3ca3b0ee2fd712def104e6ba043a35fa6eb8026a782a1c4fccba0dbbc1086e69",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-windows-386.zip"
+    },
+    {
+      "name": "bililive-windows-amd64.zip",
+      "size": 13011547,
+      "digest": "sha256:89b124e01ce3610fba0df98cd2ba99a723fa8bc0f6b32834155b2426ad4b4475",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-windows-amd64.zip"
+    },
+    {
+      "name": "bililive-windows-arm64.zip",
+      "size": 12030055,
+      "digest": "sha256:ee001b96aa16087bce690be5fc899bff4e976d09b4ed5a179dd2081f493a5c8a",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.3/bililive-windows-arm64.zip"
+    }
+  ],
+  "download_verified": {
+    "asset": "bililive-linux-amd64.tar.gz",
+    "sha256": "f7687e34584f361387b1855d7f4b0966ba6817098a992d59042271b92e451fbb",
+    "binary_sha256": "2b32c6269abac06aa02d0421e64b3c45850c23c6fae6c38f90087e1ab713166f",
+    "version_and_commit_match": true
+  }
+}
