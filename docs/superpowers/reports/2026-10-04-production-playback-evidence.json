@@ -1,0 +1,40 @@
+{
+  "recording_id": "39ed1615-9a11-4e63-80dc-4afdd44fa9c7",
+  "source_version": "10108949797e4501052a684887cdb1fcbba5681c59ab9a67c6fb28c41ca8b4fd",
+  "asset_version": "10108949797e4501052a684887cdb1fcbba5681c59ab9a67c6fb28c41ca8b4fd-sdr-h264-main-1080p30-aac-stereo-v1",
+  "session_status": "ready",
+  "decision": "video-transcode",
+  "protocol": "file",
+  "range_status": 206,
+  "range_bytes": 1024,
+  "content_range": "bytes 0-1023/757272958",
+  "range_matches_asset": true,
+  "refresh_same_asset": true,
+  "cancel_status": "cancelled",
+  "source_sha256_after": "e877800f31539b454af130b119cf6ce0b78a607f156df6a024c44e6faf12d2b3",
+  "source_preserved": true,
+  "prepared_probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "profile": "Main",
+        "width": 608,
+        "height": 1080,
+        "r_frame_rate": "30/1"
+      },
+      {
+        "codec_name": "aac",
+        "profile": "LC",
+        "sample_rate": "48000",
+        "channels": 2,
+        "r_frame_rate": "0/0"
+      }
+    ],
+    "format": {
+      "duration": "11686.333333",
+      "size": "757272958"
+    }
+  }
+}

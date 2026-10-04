@@ -1,0 +1,86 @@
+{
+  "tag": "v2.1.2-rc.2",
+  "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/tag/v2.1.2-rc.2",
+  "prerelease": true,
+  "asset_count": 12,
+  "assets": [
+    {
+      "name": "bililive-darwin-amd64.tar.gz",
+      "size": 12954055,
+      "digest": "sha256:59f89937b70ea2f38535041ff1631ad8d98224212c6f2de8587492de673ee4a5",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-darwin-amd64.tar.gz"
+    },
+    {
+      "name": "bililive-darwin-arm64.tar.gz",
+      "size": 12381942,
+      "digest": "sha256:40c833a4ca155f87b32b87d91a9d97b1d00b9a5aeef4c0d03d14060c33f7c05d",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-darwin-arm64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-386.tar.gz",
+      "size": 12329105,
+      "digest": "sha256:3aeb156613d8771dd432651415d5017101f8a075454eb183cf60979b9b065de0",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-linux-386.tar.gz"
+    },
+    {
+      "name": "bililive-linux-amd64.tar.gz",
+      "size": 12839994,
+      "digest": "sha256:cba3c790dde757d428c3c4341207c438e35a0d553ba7f6829b1b1fbba2027ab5",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-linux-amd64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-arm.tar.gz",
+      "size": 12282749,
+      "digest": "sha256:30f0eebf4bfa77341b467bab8a88f34f087f8c2ab6d529c9ed51dcebe00c47d2",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-linux-arm.tar.gz"
+    },
+    {
+      "name": "bililive-linux-arm64.tar.gz",
+      "size": 11981723,
+      "digest": "sha256:f16f725334f2571a15007abb6f4390d8572315db2196c7d1ba1c7ce03de338c2",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-linux-arm64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-ppc64le.tar.gz",
+      "size": 12062547,
+      "digest": "sha256:e106c573eab3ed90ac75a302318995103f7339e6e555ef31ff312e1fa08acf50",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-linux-ppc64le.tar.gz"
+    },
+    {
+      "name": "bililive-linux-riscv64.tar.gz",
+      "size": 12370643,
+      "digest": "sha256:195649d9501a9fff7fa27cd989bee91cf58a3c9a6205aa94bd1f2ec2eff2da5a",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-linux-riscv64.tar.gz"
+    },
+    {
+      "name": "bililive-linux-s390x.tar.gz",
+      "size": 12680164,
+      "digest": "sha256:4a740aa9698dac8c759f656d7c4a0cbf7e17e53391666b021fd812bf191f28d4",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-linux-s390x.tar.gz"
+    },
+    {
+      "name": "bililive-windows-386.zip",
+      "size": 12636167,
+      "digest": "sha256:2239af32523bffd6358cdd5a7ade57cbf5c7fcae14514064628e52b9973a7cf5",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-windows-386.zip"
+    },
+    {
+      "name": "bililive-windows-amd64.zip",
+      "size": 13011376,
+      "digest": "sha256:859a220f0a2d6b4c6a4ea847d590295b9e731259adcad3a1f48347d1356cca2d",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-windows-amd64.zip"
+    },
+    {
+      "name": "bililive-windows-arm64.zip",
+      "size": 12030289,
+      "digest": "sha256:704a581cb7adacc6158a211af25dde971de48837d96dc59778d9846df5395c61",
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/v2.1.2-rc.2/bililive-windows-arm64.zip"
+    }
+  ],
+  "download_verified": {
+    "asset": "bililive-linux-amd64.tar.gz",
+    "sha256": "cba3c790dde757d428c3c4341207c438e35a0d553ba7f6829b1b1fbba2027ab5",
+    "binary_sha256": "f5f9a23da93de315642dca1c7fcf09bda781504aa39d4de3e73b67639336e833",
+    "contains_expected_version_and_commit": true
+  }
+}

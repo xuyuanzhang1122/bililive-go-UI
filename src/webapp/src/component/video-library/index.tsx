@@ -581,7 +581,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         const art = new Artplayer({
             container: containerRef.current,
             url: effectivePlayUrl,
-            type: resolvedPlay?.protocol === 'hls' ? 'm3u8' : undefined,
+            type: resolvedPlay?.protocol === 'hls' ? 'm3u8' : '',
             title: file.name,
             volume: 0.9,
             autoplay: true,
