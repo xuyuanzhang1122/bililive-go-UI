@@ -1,0 +1,20 @@
+{
+  "docs/contracts/openapi-v2.yaml": "4520c753fb6ada74296c653acec9a14ee3547f8b4aa41380dc153a569797c5b9",
+  "docs/superpowers/reports/2026-10-04-t7-t9-progress.md": "2ef90aff784d381db487178ae6e42cceb94aff2eaa145681427d493d6c7b591c",
+  "src/pipeline/manager.go": "b7778a3963b1d6aaa2190d051cf84f4cd3ba076fe042ab1eee5695f0dad7dbd9",
+  "src/pipeline/stages/prepare_playback.go": "07d5a3ba18914eb7f8359c1b345a3cb1cfb7de4a84d58aa0f61235ec50af66a9",
+  "src/pipeline/stages/prepare_playback_regression_test.go": "1f17327791b66d5f3326cdab6044b698512e0f0d26c3308737621f6789c2ce86",
+  "src/pipeline/store.go": "5b1b2573110282a04f6f0285a093ebebd25e8f907f5f61f68126ac6eb05a3eed",
+  "src/pkg/recordingcatalog/manager.go": "50e3a2e612e36891c7e203c36115e84f88797c827c8c0d4ea1c7705fe43472ab",
+  "src/servers/handler.go": "dafeb8bc4e8bad5774dd7e3eb3436347d11cc8fa6f61b533aca599d705c68889",
+  "src/servers/server.go": "5f1e5def53425a3fe8dc64200c371ead368a8a6f31d0b9178e5606ef93b03bb1",
+  "src/servers/watch_identity_test.go": "30138b3ab19810c295028269deb770783af25d29fd742ef3363edc64fe3aad0a",
+  "src/webapp/src/component/video-library/index.tsx": "960f44dfa326f493ba77b860f1a8a18cc2b80841391e77e822415fa61f44156f",
+  "src/webapp/src/utils/generated-api-v2.ts": "28a5502a340f7d1ea57afedb88f0776c2830f33deb39006a7f82b6b7daf2a1d9",
+  "src/webapp/src/utils/playback-v2.ts": "f9b8bd86e18f41835d4e48bed4b5b3e8bbed83d9a1d012fee42fa3e840c78a6a",
+  "test/web-contracts/playback.cjs": "144d4e8fdbebe43be7dbc3fbd3c44e0dbe02ab2a2167212139cd3245ff799b6c",
+  "src/pipeline/history_governance.go": "c8448234dbf76bd763d28afb946e87208fe702246ddb1ec1b5286ef6bf91ee5a",
+  "src/pipeline/history_governance_test.go": "62eb5484715ef72e90b0ffbcb6e412c2abd66db46d29a9f3d9bfcdc18e1abaa3",
+  "src/servers/history_governance.go": "471138d4596de5142b510b11a424de1ae10fca53e480a344ab8816d02f4741b6",
+  "src/servers/history_governance_test.go": "3fe865ec7583354931d8bba5e01e90d4ac4fbdc584b99d1bc3cdd150b978eb65"
+}

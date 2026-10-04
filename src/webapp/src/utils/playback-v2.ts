@@ -64,6 +64,16 @@ export class PlaybackAPI {
   private origin = window.location.origin;
   isCurrent(): boolean { return this.key === getAPIKey() && this.origin === window.location.origin; }
   assertCurrent(): void { if (!this.isCurrent()) throw new Error('服务器或认证已变化，请重新打开'); }
+  async saveHistory(videoPath: string, videoName: string, positionSeconds: number, durationSeconds: number, identity?: {recording_id:string;source_version:string}): Promise<void> {
+    this.assertCurrent();
+    const headers = new Headers({'Content-Type':'application/json'});
+    if(this.key) headers.set('Authorization',`Bearer ${this.key}`);
+    const response = await fetch(new URL('/api/history',this.origin),{method:'POST',headers,redirect:'error',body:JSON.stringify({...identity,video_path:videoPath,video_name:videoName,position_seconds:positionSeconds,duration_seconds:durationSeconds})});
+    if(!response.ok) throw new Error('观看历史同步失败');
+    const result = await response.json();
+    if(result.err_no !== 0) throw new Error(result.err_msg || '观看历史同步失败');
+    this.assertCurrent();
+  }
   async list(folder: string): Promise<RecordingFile[]> {
     this.assertCurrent();
     if (this.mode === 'legacy') return this.legacyList(folder);

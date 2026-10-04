@@ -1,9 +1,13 @@
 package servers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	"github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,4 +45,29 @@ func TestWatchIdentityRenameDedupAndReplacement(t *testing.T) {
 	entries, err = canonicalWatchHistory(ctx, saved, cat)
 	require.NoError(t, err)
 	require.Empty(t, entries)
+}
+
+func TestWatchWriteRequiresCapturedSourceIdentity(t *testing.T) {
+	_, _, _, _, entry, _, ctx := v2Fixture(t, "mp4")
+	require.NoError(t, metadata.Init(t.TempDir()))
+	t.Cleanup(func() { require.NoError(t, metadata.Close()) })
+	request := func(body map[string]any) int {
+		data, err := json.Marshal(body)
+		require.NoError(t, err)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/history", bytes.NewReader(data)).WithContext(ctx)
+		upsertWatchHistory(rec, req)
+		return rec.Code
+	}
+	body := map[string]any{"video_path": entry.Path, "position_seconds": 30, "duration_seconds": 100}
+	require.Equal(t, http.StatusConflict, request(body))
+	body["recording_id"] = entry.RecordingID
+	body["source_version"] = "stale"
+	require.Equal(t, http.StatusConflict, request(body))
+	body["source_version"] = entry.SourceVersion
+	require.Equal(t, http.StatusOK, request(body))
+	saved, err := metadata.GetStore().GetWatchHistoryForUser(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, saved, 1)
+	require.Equal(t, entry.SourceVersion, saved[0].SourceVersion)
 }

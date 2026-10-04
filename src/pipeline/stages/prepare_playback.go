@@ -33,6 +33,9 @@ type PreparePlaybackStage struct {
 }
 
 func NewPreparePlaybackStage(config pipeline.StageConfig) (pipeline.Stage, error) {
+	if expected, ok := config.Options["expected_profile_version"]; ok && expected != PreparationProfileVersion {
+		return nil, fmt.Errorf("准备规则已变化，需要重新预览确认")
+	}
 	return &PreparePlaybackStage{}, nil
 }
 func (s *PreparePlaybackStage) Name() string          { return pipeline.StageNamePreparePlayback }

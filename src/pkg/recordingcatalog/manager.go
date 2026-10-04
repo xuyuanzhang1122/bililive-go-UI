@@ -65,3 +65,5 @@ func (s *Store) Status(ctx context.Context) (string, error) {
 	err := s.db.QueryRowContext(ctx, "SELECT value FROM catalog_meta WHERE key='status'").Scan(&status)
 	return status, err
 }
+
+func (m *Manager) RootPath() string { return m.store.root }

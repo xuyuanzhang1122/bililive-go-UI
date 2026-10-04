@@ -280,6 +280,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
     const overlayRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const artRef = useRef<Artplayer | null>(null);
+    const historyAPIRef = useRef<PlaybackAPI | null>(null);
+    const identityRef = useRef(file.recording_id && file.source_version ? {recording_id:file.recording_id,source_version:file.source_version} : undefined);
     const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const uiTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -319,6 +321,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         let timer: ReturnType<typeof setTimeout> | null = null;
         const abort = new AbortController();
         const boundAPI = new PlaybackAPI();
+        historyAPIRef.current = boundAPI;
         const fail = (error: Error) => {
             if (cancelled) return;
             setStatusText(error.message); setResolvingPlay(false);
@@ -326,6 +329,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
         };
         const session = new WebPlaybackSession(boundAPI, async value => {
             if (cancelled) return;
+            identityRef.current = {recording_id:value.recording_id,source_version:value.source_version};
             if (artRef.current) await refreshVideo(artRef.current.video, value.url!, abort.signal);
             else setResolvedPlay({url:value.url!,protocol:value.protocol,status:value.status});
             if (!cancelled) { setStatusText('');setResolvingPlay(false); }
@@ -487,10 +491,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             : Math.floor(art.currentTime);
         const record = savePlayRecord(file.rel_path, file.name, position, rawDuration);
         if (record) onRecordSaved?.(record);
-        api.saveWatchHistory(file.rel_path, file.name, position, rawDuration, file.recording_id && file.source_version ? {recording_id:file.recording_id,source_version:file.source_version} : undefined).catch(() => {
+        historyAPIRef.current?.saveHistory(file.rel_path, file.name, position, rawDuration, identityRef.current).catch(() => {
             // 播放历史服务端写入失败时保留本地兜底即可。
         });
-    }, [file.name, file.rel_path, file.recording_id, file.source_version, onRecordSaved]);
+    }, [file.name, file.rel_path, onRecordSaved]);
 
     const safeSeekTo = useCallback((rawTarget: number) => {
         const art = artRef.current;

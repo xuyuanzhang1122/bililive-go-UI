@@ -1,0 +1,30 @@
+{
+  "scope": "仅临时测试样片；快照已过期，不可作为生产确认",
+  "preview": {
+    "id": "56ba3ed1-47a3-48ba-9ec5-a37335906801",
+    "digest": "4c6ced80c57ec40cd5ac1e3a979e463ee05c57721723baf8c6571cb33e60affe",
+    "state": "dry_run",
+    "profile_version": "sdr-h264-main-1080p30-aac-stereo-v1",
+    "source_root": "/var/folders/yz/52z5640s02gbk2ylqwpz6v3c0000gn/T/TestHistoryAPIRequiresExplicitConfirmationAndRunsOriginalPrepara1067426309/001",
+    "items": [
+      {
+        "recording_id": "dae40a3e-0af8-4ab0-a4b0-38a2356a8fe6",
+        "source_version": "18c2848ce2ec710d6bd4549132b4f4acdf8316bada0f49d27aa6ec7dfb3d749e",
+        "path": "平台/主播/clip.mkv",
+        "source_path": "/var/folders/yz/52z5640s02gbk2ylqwpz6v3c0000gn/T/TestHistoryAPIRequiresExplicitConfirmationAndRunsOriginalPrepara1067426309/001/平台/主播/clip.mkv",
+        "size_bytes": 108129
+      }
+    ],
+    "skipped": [],
+    "estimated_additional_bytes": 1000324387,
+    "estimated_additional_text": "1000324387 字节（保守预估）",
+    "strategy": "复用录后 SDR H264/AAC 准备规则；探测后决定复制或转码，保留来源；不上传、不删源",
+    "next_cursor": "",
+    "expires_at": 1791113916,
+    "min_start_interval_seconds": 60,
+    "max_concurrent": 1,
+    "paused": false,
+    "preserve_source": true,
+    "task_ids": []
+  }
+}

@@ -3527,7 +3527,7 @@ func upsertWatchHistory(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusConflict, commonResp{ErrNo: 409, ErrMsg: "录播身份不可用"})
 			return
 		}
-		if entry.RecordingID != "" && (entry.RecordingID != recording.RecordingID || entry.SourceVersion != recording.SourceVersion) {
+		if entry.RecordingID == "" || entry.SourceVersion == "" || entry.RecordingID != recording.RecordingID || entry.SourceVersion != recording.SourceVersion {
 			writeJsonWithStatusCode(writer, http.StatusConflict, commonResp{ErrNo: 409, ErrMsg: "录播来源已变化"})
 			return
 		}

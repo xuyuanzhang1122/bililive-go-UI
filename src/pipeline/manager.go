@@ -20,17 +20,18 @@ import (
 // Manager 管道任务管理器
 // 负责管理任务队列、持久化存储、并发执行控制
 type Manager struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	store         Store
-	executor      *Executor
-	config        *ManagerConfig
-	runningTasks  map[int64]context.CancelFunc
-	mu            sync.RWMutex
-	scheduleMu    sync.Mutex
-	wg            sync.WaitGroup
-	eventDispatch events.Dispatcher
-	ticker        *time.Ticker
+	ctx                context.Context
+	cancel             context.CancelFunc
+	store              Store
+	executor           *Executor
+	config             *ManagerConfig
+	runningTasks       map[int64]context.CancelFunc
+	historyPausedTasks map[int64]bool
+	mu                 sync.RWMutex
+	scheduleMu         sync.Mutex
+	wg                 sync.WaitGroup
+	eventDispatch      events.Dispatcher
+	ticker             *time.Ticker
 }
 
 // ManagerConfig 管理器配置
@@ -62,13 +63,14 @@ func NewManager(ctx context.Context, store Store, config *ManagerConfig, dispatc
 	managerCtx, cancel := context.WithCancel(ctx)
 
 	m := &Manager{
-		ctx:           managerCtx,
-		cancel:        cancel,
-		store:         store,
-		executor:      NewExecutor(logrus.StandardLogger()),
-		config:        config,
-		runningTasks:  make(map[int64]context.CancelFunc),
-		eventDispatch: dispatcher,
+		ctx:                managerCtx,
+		cancel:             cancel,
+		store:              store,
+		executor:           NewExecutor(logrus.StandardLogger()),
+		config:             config,
+		runningTasks:       make(map[int64]context.CancelFunc),
+		historyPausedTasks: make(map[int64]bool),
+		eventDispatch:      dispatcher,
 	}
 
 	return m
@@ -152,6 +154,16 @@ func (m *Manager) scheduleNextTasks() {
 	}
 
 	for _, task := range tasks {
+		if s, ok := m.store.(*SQLiteStore); ok {
+			allowed, err := s.startHistoryTask(m.ctx, task.ID)
+			if err != nil {
+				logrus.WithError(err).Warn("历史任务限速核验失败")
+				continue
+			}
+			if !allowed {
+				continue
+			}
+		}
 		m.startTask(task)
 	}
 }
@@ -197,6 +209,7 @@ func (m *Manager) executeTask(ctx context.Context, task *PipelineTask) {
 	defer func() {
 		m.mu.Lock()
 		delete(m.runningTasks, task.ID)
+		delete(m.historyPausedTasks, task.ID)
 		m.mu.Unlock()
 	}()
 
@@ -248,7 +261,10 @@ func (m *Manager) executeTask(ctx context.Context, task *PipelineTask) {
 
 	if err != nil {
 		var paused *PreparationPausedError
-		if m.ctx.Err() != nil {
+		m.mu.RLock()
+		historyPaused := m.historyPausedTasks[task.ID]
+		m.mu.RUnlock()
+		if m.ctx.Err() != nil || historyPaused {
 			task.Status = PipelineStatusPaused
 			task.ErrorMessage = err.Error()
 		} else if ctx.Err() == context.Canceled {

@@ -105,3 +105,8 @@ func TestPreparationRecoveryRejectsTargetChangedAfterProbe(t *testing.T) {
 	require.NoError(t, db.QueryRow("SELECT status FROM media_assets WHERE kind='compat' AND recording_id=?", entry.RecordingID).Scan(&status))
 	require.NotEqual(t, "verified", status, "后台核验不能只凭相同大小mtime把失效产物再次标为可信")
 }
+
+func TestHistoryPreparationRejectsChangedApprovedProfile(t *testing.T) {
+	_, err := NewPreparePlaybackStage(pipeline.StageConfig{Options: map[string]any{"expected_profile_version": "obsolete-profile"}})
+	require.Error(t, err)
+}

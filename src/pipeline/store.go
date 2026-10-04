@@ -100,7 +100,7 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_pipeline_tasks_created_at ON pipeline_tasks(created_at);
 	`
 
-	_, err := s.db.Exec(schema + preparationSchema)
+	_, err := s.db.Exec(schema + preparationSchema + historySchema)
 	return err
 }
 
@@ -109,13 +109,18 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, task *PipelineTask) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.createTask(ctx, s.db, task)
+}
+func (s *SQLiteStore) createTask(ctx context.Context, executor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, task *PipelineTask) error {
 	recordInfoJSON, _ := json.Marshal(task.RecordInfo)
 	pipelineConfigJSON, _ := json.Marshal(task.PipelineConfig)
 	initialFilesJSON, _ := json.Marshal(task.InitialFiles)
 	currentFilesJSON, _ := json.Marshal(task.CurrentFiles)
 	stageResultsJSON, _ := json.Marshal(task.StageResults)
 
-	result, err := s.db.ExecContext(ctx, `
+	result, err := executor.ExecContext(ctx, `
 		INSERT INTO pipeline_tasks (
 			status, record_info_json, pipeline_config_json,
 			initial_files_json, current_files_json,
@@ -275,7 +280,10 @@ func (s *SQLiteStore) GetPendingTasks(ctx context.Context, limit int) ([]*Pipeli
 			progress, created_at, started_at, completed_at,
 			error_message, can_retry
 		FROM pipeline_tasks
-		WHERE status IN (?, ?)
+        WHERE status IN (?, ?) AND (
+          NOT EXISTS(SELECT 1 FROM history_tasks h WHERE h.task_id=pipeline_tasks.id) OR
+          EXISTS(SELECT 1 FROM history_tasks h JOIN history_previews p ON p.id=h.preview_id WHERE h.task_id=pipeline_tasks.id AND p.state='confirmed' AND p.paused=0 AND (SELECT last_started FROM history_control WHERE id=1)<=CAST(strftime('%s','now') AS INTEGER)-60 AND NOT EXISTS(SELECT 1 FROM history_tasks running JOIN pipeline_tasks task ON task.id=running.task_id WHERE task.status='running'))
+        )
 		ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, COALESCE(started_at,created_at) ASC
 		LIMIT ?
 	`, PipelineStatusPending, PipelineStatusPaused, limit)

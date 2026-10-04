@@ -355,6 +355,7 @@ func registerV2Routes(m *mux.Router) *v2Service {
 	route := m.PathPrefix("/api/v2").Subrouter()
 	route.Use(mux.CORSMethodMiddleware(route))
 	route.Use(service.middleware)
+	registerHistoryRoutes(route)
 	route.HandleFunc("/recordings", getV2Recordings).Methods("GET")
 	route.HandleFunc("/recordings/batch-delete", batchDeleteV2Recordings).Methods("POST")
 	route.HandleFunc("/playback-sessions", createV2PlaybackSession).Methods("POST")
