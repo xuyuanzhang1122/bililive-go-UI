@@ -24,7 +24,7 @@ import (
 )
 
 // 修改准备规则时必须升版本，不能复用旧规则的完成标记。
-const PreparationProfileVersion = "sdr-h264-main-1080p30-aac-stereo-v1"
+const PreparationProfileVersion = "sdr-h264-main-1080p30-aac-stereo-v2"
 
 type PreparePlaybackStage struct {
 	commands  []string
@@ -166,9 +166,12 @@ func (s *PreparePlaybackStage) prepare(ctx *pipeline.PipelineContext, file pipel
 	if err != nil {
 		return err
 	}
-	media, err := probePreparation(ctx.Ctx, ffmpeg, file.Path)
+	media, err := probePreparationSource(ctx.Ctx, ffmpeg, file.Path)
 	if err != nil {
 		return err
+	}
+	if media.recoveryRequired {
+		s.logs += fmt.Sprintf("FLV 来源有读取诊断或缺少容器时长，按包时间线恢复并重新编码：视频包=%d，时长=%.3f 秒；诊断=%s\n", media.timelinePackets, media.duration, media.probeWarnings)
 	}
 	mode := media.mode()
 	derived := mode != "copy"
@@ -186,6 +189,7 @@ func (s *PreparePlaybackStage) prepare(ctx *pipeline.PipelineContext, file pipel
 	}
 	candidateOutput = target
 	validatedVersion := ""
+	validatedDuration := 0.0
 	validate := func(path string) error {
 		before, e := recordingcatalog.SnapshotVersion(path)
 		if e != nil {
@@ -195,8 +199,12 @@ func (s *PreparePlaybackStage) prepare(ctx *pipeline.PipelineContext, file pipel
 		if e != nil {
 			return e
 		}
-		if inspected.mode() != "copy" || inspected.audio != media.audio || math.Abs(inspected.duration-media.duration) > math.Max(1, media.duration*0.01) {
-			return fmt.Errorf("准备产物编码、轨道或时长不符")
+		tolerance := math.Max(1, media.duration*0.01)
+		if media.recoveryRequired {
+			tolerance = preparationDurationTolerance(media.duration)
+		}
+		if inspected.mode() != "copy" || inspected.audio != media.audio || math.Abs(inspected.duration-media.duration) > tolerance {
+			return fmt.Errorf("准备产物编码、轨道或时长不符：来源 %.3f 秒，产物 %.3f 秒，容差 %.3f 秒", media.duration, inspected.duration, tolerance)
 		}
 		if err := checkMP4Faststart(path); err != nil {
 			return err
@@ -209,6 +217,7 @@ func (s *PreparePlaybackStage) prepare(ctx *pipeline.PipelineContext, file pipel
 			return fmt.Errorf("媒体探测期间准备产物身份变化")
 		}
 		validatedVersion = after
+		validatedDuration = inspected.duration
 		return nil
 	}
 	if strings.EqualFold(filepath.Ext(file.Path), ".mp4") && mode == "copy" && checkMP4Faststart(file.Path) == nil {
@@ -339,6 +348,9 @@ func (s *PreparePlaybackStage) prepare(ctx *pipeline.PipelineContext, file pipel
 	if _, err := ctx.Catalog.PreparationEntry(ctx.Ctx, file.Path, file.PreparationSourceVersion); err != nil {
 		return err
 	}
+	if media.recoveryRequired {
+		s.logs += fmt.Sprintf("恢复产物已验证：来源时长=%.3f 秒，产物时长=%.3f 秒，差值=%.3f 秒，容差=%.3f 秒\n", media.duration, validatedDuration, math.Abs(validatedDuration-media.duration), preparationDurationTolerance(media.duration))
+	}
 	output = target
 	s.logs += mode + " " + target + "\n"
 	return nil
@@ -411,6 +423,7 @@ func (s *PreparePlaybackStage) run(ctx context.Context, ffmpeg string, args []st
 
 type preparationStream struct {
 	Type       string `json:"codec_type"`
+	Index      int    `json:"index"`
 	Codec      string `json:"codec_name"`
 	Profile    string `json:"profile"`
 	Level      int    `json:"level"`
@@ -424,13 +437,28 @@ type preparationStream struct {
 	Packets    string `json:"nb_read_packets"`
 }
 type preparationMedia struct {
-	video       preparationStream
-	audio       bool
-	audioStream preparationStream
-	duration    float64
+	video            preparationStream
+	audio            bool
+	audioStream      preparationStream
+	duration         float64
+	recoveryRequired bool
+	timelinePackets  int64
+	probeWarnings    string
+}
+
+func preparationDurationTolerance(duration float64) float64 {
+	return math.Min(duration*0.5, math.Max(0.5, math.Min(10, duration*0.002)))
+}
+
+func probePreparationSource(ctx context.Context, ffmpeg, path string) (preparationMedia, error) {
+	return probePreparationWithPolicy(ctx, ffmpeg, path, strings.EqualFold(filepath.Ext(path), ".flv"))
 }
 
 func probePreparation(ctx context.Context, ffmpeg, path string) (preparationMedia, error) {
+	return probePreparationWithPolicy(ctx, ffmpeg, path, false)
+}
+
+func probePreparationWithPolicy(ctx context.Context, ffmpeg, path string, recoverFLV bool) (preparationMedia, error) {
 	var media preparationMedia
 	probe := filepath.Join(filepath.Dir(ffmpeg), "ffprobe"+filepath.Ext(ffmpeg))
 	if _, err := os.Stat(probe); err != nil {
@@ -441,7 +469,7 @@ func probePreparation(ctx context.Context, ffmpeg, path string) (preparationMedi
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, probe, "-v", "error", "-count_packets", "-show_entries", "stream=codec_type,codec_name,profile,level,pix_fmt,width,height,avg_frame_rate,color_transfer,channels,sample_rate,nb_read_packets:format=duration", "-of", "json", path)
+	cmd := exec.CommandContext(ctx, probe, "-v", "error", "-count_packets", "-show_entries", "stream=index,codec_type,codec_name,profile,level,pix_fmt,width,height,avg_frame_rate,color_transfer,channels,sample_rate,nb_read_packets:format=duration", "-of", "json", path)
 	var stdout bytes.Buffer
 	stderr := &mp4LimitedBuffer{}
 	cmd.Stdout = &stdout
@@ -452,7 +480,7 @@ func probePreparation(ctx context.Context, ffmpeg, path string) (preparationMedi
 		}
 		return media, fmt.Errorf("准备媒体探测失败: %w: %s", err, stderr.String())
 	}
-	if stderr.Len() > 0 {
+	if stderr.Len() > 0 && !recoverFLV {
 		return media, fmt.Errorf("准备媒体读取错误: %s", stderr.String())
 	}
 	var data struct {
@@ -465,7 +493,7 @@ func probePreparation(ctx context.Context, ffmpeg, path string) (preparationMedi
 		return media, err
 	}
 	media.duration, _ = strconv.ParseFloat(data.Format.Duration, 64)
-	if media.duration <= 0 || math.IsNaN(media.duration) || math.IsInf(media.duration, 0) {
+	if !recoverFLV && (media.duration <= 0 || math.IsNaN(media.duration) || math.IsInf(media.duration, 0)) {
 		return media, fmt.Errorf("源时长无效")
 	}
 	for _, stream := range data.Streams {
@@ -485,9 +513,38 @@ func probePreparation(ctx context.Context, ffmpeg, path string) (preparationMedi
 	if media.video.Type == "" {
 		return media, fmt.Errorf("缺少视频轨道")
 	}
+	if recoverFLV && (stderr.Len() > 0 || media.duration <= 0 || math.IsNaN(media.duration) || math.IsInf(media.duration, 0)) {
+		timeline, warnings, err := probePreparationTimeline(ctx, probe, path, media.video.Index, media.audioStream.Index, media.audio)
+		if err != nil {
+			return media, fmt.Errorf("FLV 包时间线无法恢复: %w", err)
+		}
+		videoPackets, _ := strconv.ParseInt(media.video.Packets, 10, 64)
+		if timeline.video.count != videoPackets {
+			return media, fmt.Errorf("FLV 视频包计数不符: %d != %d", timeline.video.count, videoPackets)
+		}
+		if media.audio {
+			audioPackets, _ := strconv.ParseInt(media.audioStream.Packets, 10, 64)
+			if timeline.audio.count != audioPackets || math.Abs(timeline.audio.end-timeline.video.end) > 2 {
+				return media, fmt.Errorf("FLV 音视频时间线不一致")
+			}
+		}
+		media.duration = timeline.video.end - timeline.video.start
+		if media.audio && timeline.audio.start < timeline.video.start {
+			media.duration = timeline.video.end - timeline.audio.start
+		}
+		if !finitePreparationTime(media.duration) || media.duration <= 0 {
+			return media, fmt.Errorf("FLV 包时间线时长无效")
+		}
+		media.recoveryRequired = true
+		media.timelinePackets = timeline.video.count
+		media.probeWarnings = strings.TrimSpace(stderr.String() + warnings)
+	}
 	return media, nil
 }
 func (m preparationMedia) mode() string {
+	if m.recoveryRequired {
+		return "recovery-transcode"
+	}
 	v := m.video
 	fps := 0.0
 	parts := strings.Split(v.FrameRate, "/")
@@ -508,8 +565,12 @@ func (m preparationMedia) mode() string {
 	return "copy"
 }
 func preparationArgs(source, target, mode string, media preparationMedia) []string {
-	args := []string{"-nostdin", "-v", "error", "-i", source, "-map", "0:v:0", "-map", "0:a:0?"}
-	if mode == "video-transcode" {
+	args := []string{"-nostdin", "-v", "error"}
+	if mode == "recovery-transcode" {
+		args = append(args, "-fflags", "+discardcorrupt", "-err_detect", "ignore_err")
+	}
+	args = append(args, "-i", source, "-map", "0:v:0", "-map", "0:a:0?")
+	if mode == "video-transcode" || mode == "recovery-transcode" {
 		filter := "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
 		if media.video.Transfer == "smpte2084" || media.video.Transfer == "arib-std-b67" {
 			filter = "zscale=t=linear:npl=100,format=gbrpf32le,tonemap=tonemap=hable:desat=0,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=yuv420p," + filter
@@ -518,7 +579,7 @@ func preparationArgs(source, target, mode string, media preparationMedia) []stri
 	} else {
 		args = append(args, "-c:v", "copy")
 	}
-	if media.audio && (mode == "audio-transcode" || (mode == "video-transcode" && !compatiblePreparationAudio(media.audioStream))) {
+	if media.audio && (mode == "audio-transcode" || mode == "recovery-transcode" || (mode == "video-transcode" && !compatiblePreparationAudio(media.audioStream))) {
 		args = append(args, "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000")
 	} else {
 		args = append(args, "-c:a", "copy")
