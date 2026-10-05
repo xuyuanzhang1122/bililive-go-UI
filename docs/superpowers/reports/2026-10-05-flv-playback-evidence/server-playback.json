@@ -1,0 +1,233 @@
+{
+  "verified_at": "2026-10-05T16:09:14.363897+08:00",
+  "server": "192.168.1.189:8686",
+  "version": "v2.1.2-rc.3-playback-repair-queue-20261005",
+  "git_hash": "a51c5d8afa712166e2efcdb6a5ae5d7859b414b9",
+  "binary_sha256": "5a35efc9c46c3f3d20b9f9654ce7ef7577048807c4687b29e0466821f4c7653f",
+  "service": "active",
+  "prepare_playback": true,
+  "recordings": [
+    {
+      "recording_id": "189af291-47f1-48a3-a2a9-e0a097371265",
+      "source_version": "abb0c1e5b39b2534afa241f553d29e664f1f5163226df6aded86c70807efce61",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-03 12-04-53][镁战队®健身❤️肖然「备赛版」][放假快乐].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 361245932,
+      "size_text": "361.2 MB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "abb0c1e5b39b2534afa241f553d29e664f1f5163226df6aded86c70807efce61-sdr-h264-main-1080p30-aac-stereo-v1"
+    },
+    {
+      "recording_id": "2d7d707c-fb73-44fc-81a4-87fb355102d7",
+      "source_version": "2cd289f3d0182dbabc4f79366defe1f4432b9ef728a218696e253ad72b4376cf",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-04 22-50-41][镁战队®健身❤️肖然「备赛版」][真空腹开内腔收腰腹].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 1109131264,
+      "size_text": "1.1 GB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "2cd289f3d0182dbabc4f79366defe1f4432b9ef728a218696e253ad72b4376cf-sdr-h264-main-1080p30-aac-stereo-v2"
+    },
+    {
+      "recording_id": "33092186-69a2-4674-aaf7-03058fa112be",
+      "source_version": "b6bbba925e64c96d65cbe3bcbbbdf7af20ddc0d9b942fef68fa093eba1141116",
+      "path": "抖音/屈屈真腹肌（力量塑形）/[2026-10-05 01-27-03][屈屈真腹肌（力量塑形）][0基础 新手小白 大基数 小基数燃脂塑形].flv",
+      "room": "抖音/屈屈真腹肌（力量塑形）",
+      "size_bytes": 7198592298,
+      "size_text": "7.2 GB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "b6bbba925e64c96d65cbe3bcbbbdf7af20ddc0d9b942fef68fa093eba1141116-sdr-h264-main-1080p30-aac-stereo-v1"
+    },
+    {
+      "recording_id": "337ecfc0-4a7c-404c-8780-2d8b78d93f9d",
+      "source_version": "97542aba3bb54cca95579ff5e22adf0e33503108199dca3f6b533bd1b01566b3",
+      "path": "抖音/屈屈真腹肌（力量塑形）/[2026-10-03 10-58-15][屈屈真腹肌（力量塑形）][0基础 新手小白 大基数 小基数燃脂塑形].flv",
+      "room": "抖音/屈屈真腹肌（力量塑形）",
+      "size_bytes": 8915894328,
+      "size_text": "8.9 GB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "97542aba3bb54cca95579ff5e22adf0e33503108199dca3f6b533bd1b01566b3-sdr-h264-main-1080p30-aac-stereo-v1"
+    },
+    {
+      "recording_id": "39ed1615-9a11-4e63-80dc-4afdd44fa9c7",
+      "source_version": "10108949797e4501052a684887cdb1fcbba5681c59ab9a67c6fb28c41ca8b4fd",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-04 00-53-28][镁战队®健身❤️肖然「备赛版」][体能训练].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 3357389972,
+      "size_text": "3.4 GB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "10108949797e4501052a684887cdb1fcbba5681c59ab9a67c6fb28c41ca8b4fd-sdr-h264-main-1080p30-aac-stereo-v1"
+    },
+    {
+      "recording_id": "9a10b27b-03f5-41f4-b28d-748c4d6e3936",
+      "source_version": "67480d6c71c2d8b13d4f8654c95a12fe1591f519ed83ad543515569efe1224ed",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-05 00-38-12][镁战队®健身❤️肖然「备赛版」][TUN训].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 5063311360,
+      "size_text": "5.1 GB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "67480d6c71c2d8b13d4f8654c95a12fe1591f519ed83ad543515569efe1224ed-sdr-h264-main-1080p30-aac-stereo-v2"
+    },
+    {
+      "recording_id": "a2aff616-499c-4f1d-8e0c-d85797cfe5f9",
+      "source_version": "c54999227c73d3b4bf6e1bad12d2a873e3634a138b118af5883b6790185389a4",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-05 04-49-42][镁战队®健身❤️肖然「备赛版」][TUN训].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 258840902,
+      "size_text": "258.8 MB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "c54999227c73d3b4bf6e1bad12d2a873e3634a138b118af5883b6790185389a4-sdr-h264-main-1080p30-aac-stereo-v1"
+    },
+    {
+      "recording_id": "db9a7869-c4c9-4969-909c-9d305f1a240c",
+      "source_version": "2b814f7bcf5e75001c41f58bff72fa06bf9aaf2e0f0b3d31c09ae723c517119c",
+      "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-05 04-49-43][镁战队®健身❤️肖然「备赛版」][TUN训].flv",
+      "room": "抖音/镁战队®健身❤️肖然「备赛版」",
+      "size_bytes": 258736128,
+      "size_text": "258.7 MB",
+      "status": "ready",
+      "protocol": "file",
+      "asset_version": "2b814f7bcf5e75001c41f58bff72fa06bf9aaf2e0f0b3d31c09ae723c517119c-sdr-h264-main-1080p30-aac-stereo-v2"
+    }
+  ],
+  "recovered_assets": [
+    {
+      "task_id": 834,
+      "status": "completed",
+      "source_version_unchanged": true,
+      "source_path": "/home/xumy/bililive-go/Videos/抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-05 04-49-43][镁战队®健身❤️肖然「备赛版」][TUN训].flv",
+      "source_size": 258736128,
+      "prepared_bytes": 46737856,
+      "profile_version": "sdr-h264-main-1080p30-aac-stereo-v2",
+      "source_timeline_seconds": 770.268,
+      "prepared_duration_seconds": 770.2,
+      "duration_difference_seconds": 0.06799999999998363,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "profile": "Main",
+            "codec_type": "video",
+            "width": 608,
+            "height": 1080,
+            "pix_fmt": "yuv420p",
+            "level": 41,
+            "avg_frame_rate": "30/1",
+            "nb_read_packets": "23106"
+          },
+          {
+            "index": 1,
+            "codec_name": "aac",
+            "profile": "LC",
+            "codec_type": "audio",
+            "sample_rate": "48000",
+            "channels": 2,
+            "avg_frame_rate": "0/0",
+            "nb_read_packets": "36091"
+          }
+        ],
+        "format": {
+          "duration": "770.200000"
+        }
+      },
+      "probe_stderr": ""
+    },
+    {
+      "task_id": 835,
+      "status": "completed",
+      "source_version_unchanged": true,
+      "source_path": "/home/xumy/bililive-go/Videos/抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-04 22-50-41][镁战队®健身❤️肖然「备赛版」][真空腹开内腔收腰腹].flv",
+      "source_size": 1109131264,
+      "prepared_bytes": 637727455,
+      "profile_version": "sdr-h264-main-1080p30-aac-stereo-v2",
+      "source_timeline_seconds": 4516.637,
+      "prepared_duration_seconds": 4516.4,
+      "duration_difference_seconds": 0.23700000000008004,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "profile": "Main",
+            "codec_type": "video",
+            "width": 608,
+            "height": 1080,
+            "pix_fmt": "yuv420p",
+            "level": 41,
+            "avg_frame_rate": "30/1",
+            "nb_read_packets": "135492"
+          },
+          {
+            "index": 1,
+            "codec_name": "aac",
+            "profile": "LC",
+            "codec_type": "audio",
+            "sample_rate": "48000",
+            "channels": 2,
+            "avg_frame_rate": "0/0",
+            "nb_read_packets": "211703"
+          }
+        ],
+        "format": {
+          "duration": "4516.400000"
+        }
+      },
+      "probe_stderr": ""
+    },
+    {
+      "task_id": 836,
+      "status": "completed",
+      "source_version_unchanged": true,
+      "source_path": "/home/xumy/bililive-go/Videos/抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-05 00-38-12][镁战队®健身❤️肖然「备赛版」][TUN训].flv",
+      "source_size": 5063311360,
+      "prepared_bytes": 1275788873,
+      "profile_version": "sdr-h264-main-1080p30-aac-stereo-v2",
+      "source_timeline_seconds": 15069.2,
+      "prepared_duration_seconds": 15069.133333,
+      "duration_difference_seconds": 0.06666700000096171,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "profile": "Main",
+            "codec_type": "video",
+            "width": 608,
+            "height": 1080,
+            "pix_fmt": "yuv420p",
+            "level": 41,
+            "avg_frame_rate": "30/1",
+            "nb_read_packets": "452074"
+          },
+          {
+            "index": 1,
+            "codec_name": "aac",
+            "profile": "LC",
+            "codec_type": "audio",
+            "sample_rate": "48000",
+            "channels": 2,
+            "avg_frame_rate": "0/0",
+            "nb_read_packets": "706355"
+          }
+        ],
+        "format": {
+          "duration": "15069.133333"
+        }
+      },
+      "probe_stderr": ""
+    }
+  ]
+}

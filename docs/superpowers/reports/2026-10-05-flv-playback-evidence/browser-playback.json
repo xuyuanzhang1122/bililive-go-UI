@@ -1,0 +1,101 @@
+[
+  {
+    "recording_id": "db9a7869-c4c9-4969-909c-9d305f1a240c",
+    "source_version": "2b814f7bcf5e75001c41f58bff72fa06bf9aaf2e0f0b3d31c09ae723c517119c",
+    "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-05 04-49-43][镁战队®健身❤️肖然「备赛版」][TUN训].flv",
+    "duration": 770.2,
+    "samples": [
+      {
+        "current_time": 3.011756,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1081,
+        "decoded_frames": 99,
+        "error": null
+      },
+      {
+        "current_time": 386.11656,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1081,
+        "decoded_frames": 187,
+        "error": null
+      },
+      {
+        "current_time": 767.22003,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1081,
+        "decoded_frames": 460,
+        "error": null
+      }
+    ],
+    "page_errors": []
+  },
+  {
+    "recording_id": "2d7d707c-fb73-44fc-81a4-87fb355102d7",
+    "source_version": "2cd289f3d0182dbabc4f79366defe1f4432b9ef728a218696e253ad72b4376cf",
+    "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-04 22-50-41][镁战队®健身❤️肖然「备赛版」][真空腹开内腔收腰腹].flv",
+    "duration": 4516.4,
+    "samples": [
+      {
+        "current_time": 3.023014,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1080,
+        "decoded_frames": 100,
+        "error": null
+      },
+      {
+        "current_time": 2259.20798,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1080,
+        "decoded_frames": 174,
+        "error": null
+      },
+      {
+        "current_time": 4513.407741,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1080,
+        "decoded_frames": 348,
+        "error": null
+      }
+    ],
+    "page_errors": []
+  },
+  {
+    "recording_id": "9a10b27b-03f5-41f4-b28d-748c4d6e3936",
+    "source_version": "67480d6c71c2d8b13d4f8654c95a12fe1591f519ed83ad543515569efe1224ed",
+    "path": "抖音/镁战队®健身❤️肖然「备赛版」/[2026-10-05 00-38-12][镁战队®健身❤️肖然「备赛版」][TUN训].flv",
+    "duration": 15069.133333,
+    "samples": [
+      {
+        "current_time": 3.007197,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1081,
+        "decoded_frames": 99,
+        "error": null
+      },
+      {
+        "current_time": 7535.58781,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1081,
+        "decoded_frames": 172,
+        "error": null
+      },
+      {
+        "current_time": 15066.141293,
+        "ready_state": 4,
+        "width": 608,
+        "height": 1081,
+        "decoded_frames": 372,
+        "error": null
+      }
+    ],
+    "page_errors": []
+  }
+]
