@@ -1,0 +1,172 @@
+{
+  "assets": [
+    {
+      "digest": "sha256:d4234da78448f5f655a14a8292066946d326b8e73f7645f75d4cc2ff03d9e302",
+      "name": "bililive-darwin-amd64.tar.gz",
+      "size": 12970411,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-darwin-amd64.tar.gz"
+    },
+    {
+      "digest": "sha256:626acae4907cc130b0efe3f83c7d14bebaa01802bd034333b6139b3a6acf4892",
+      "name": "bililive-darwin-arm64.tar.gz",
+      "size": 12394374,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-darwin-arm64.tar.gz"
+    },
+    {
+      "digest": "sha256:5ac87bd0f7d8cad26b33f32f2facef6f0753406aba86f82bc899ddf22912d38b",
+      "name": "bililive-linux-386.tar.gz",
+      "size": 12341203,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-linux-386.tar.gz"
+    },
+    {
+      "digest": "sha256:e2dea80ee5af917472a24864076196d1cd0f09016ec382f3bdd956febe48ac05",
+      "name": "bililive-linux-amd64.tar.gz",
+      "size": 12853361,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-linux-amd64.tar.gz"
+    },
+    {
+      "digest": "sha256:bf28a73973350a018b46f621c20615338210ee6be6f2ead8094c368b053d583a",
+      "name": "bililive-linux-arm.tar.gz",
+      "size": 12296759,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-linux-arm.tar.gz"
+    },
+    {
+      "digest": "sha256:4e59542759276605bdc63c688539445e76b85bb26cb6b9e501adca3f26fc1b8a",
+      "name": "bililive-linux-arm64.tar.gz",
+      "size": 11995072,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-linux-arm64.tar.gz"
+    },
+    {
+      "digest": "sha256:217362f25b2249ec2ec655199e3ae0f7690208ad81990807ab0b34e4e39ccc18",
+      "name": "bililive-linux-ppc64le.tar.gz",
+      "size": 12073077,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-linux-ppc64le.tar.gz"
+    },
+    {
+      "digest": "sha256:980cded6e6251a487a2a7352c6ecae73a0c391bdb64f02e003043a882a89f35e",
+      "name": "bililive-linux-riscv64.tar.gz",
+      "size": 12383125,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-linux-riscv64.tar.gz"
+    },
+    {
+      "digest": "sha256:6e772e310db8b9cae3af68d5ed5ff11502aa12c7dd1571a2832cc6697a24d8b8",
+      "name": "bililive-linux-s390x.tar.gz",
+      "size": 12693538,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-linux-s390x.tar.gz"
+    },
+    {
+      "digest": "sha256:34605c11eb2741c80ad876105216be1dddfeb279bb371f6584bdfb51777d4a7c",
+      "name": "bililive-windows-386.zip",
+      "size": 12651417,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-windows-386.zip"
+    },
+    {
+      "digest": "sha256:a1c78df99ee4b9675fe055e6c8efb939bd5fad88559eaf49f49d34a6a4986a07",
+      "name": "bililive-windows-amd64.zip",
+      "size": 13024763,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-windows-amd64.zip"
+    },
+    {
+      "digest": "sha256:e0ce496bfb0da49b791275dbc9d1c2988a2ee49e121beeed33ed027b9b0c149e",
+      "name": "bililive-windows-arm64.zip",
+      "size": 12040830,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/bililive-windows-arm64.zip"
+    },
+    {
+      "digest": "sha256:fad125849254233987ef3c62c9243d042dc30d0dcebc850401b1623106b14b20",
+      "name": "config.docker.yml",
+      "size": 1738,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/config.docker.yml"
+    },
+    {
+      "digest": "sha256:a3314b341b41936474db875dc5b2d03f73c78aaeb5c77201e7096d6f16a2f307",
+      "name": "config.yml",
+      "size": 4991,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/config.yml"
+    },
+    {
+      "digest": "sha256:29bbc35d2a5b4d6f87cd7c5970011cfba59b2b952a311931557697adb2757a98",
+      "name": "docker-compose.yml",
+      "size": 1416,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/docker-compose.yml"
+    },
+    {
+      "digest": "sha256:a07cc2355288a93fa0a773399c29b585c553fb1914e3355913f3b8302e55c974",
+      "name": "install.ps1",
+      "size": 20287,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/install.ps1"
+    },
+    {
+      "digest": "sha256:0e3c0c57799bfa89d150ce10b396930726ae8311f5e68066e24d50c88969d9d7",
+      "name": "install.sh",
+      "size": 41425,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/install.sh"
+    },
+    {
+      "digest": "sha256:866d9314f4d4e3aa5966c7411045f8bd62f20363dbfd365dac59e99368464e53",
+      "name": "SHA256SUMS",
+      "size": 1526,
+      "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/download/sun/SHA256SUMS"
+    }
+  ],
+  "draft": false,
+  "prerelease": false,
+  "tag": "sun",
+  "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/releases/tag/sun",
+  "verified_downloads": [
+    {
+      "name": "install.sh",
+      "size": 41425,
+      "sha256": "0e3c0c57799bfa89d150ce10b396930726ae8311f5e68066e24d50c88969d9d7"
+    },
+    {
+      "name": "install.ps1",
+      "size": 20287,
+      "sha256": "a07cc2355288a93fa0a773399c29b585c553fb1914e3355913f3b8302e55c974"
+    },
+    {
+      "name": "config.yml",
+      "size": 4991,
+      "sha256": "a3314b341b41936474db875dc5b2d03f73c78aaeb5c77201e7096d6f16a2f307"
+    },
+    {
+      "name": "docker-compose.yml",
+      "size": 1416,
+      "sha256": "29bbc35d2a5b4d6f87cd7c5970011cfba59b2b952a311931557697adb2757a98"
+    },
+    {
+      "name": "bililive-windows-amd64.zip",
+      "size": 13024763,
+      "sha256": "a1c78df99ee4b9675fe055e6c8efb939bd5fad88559eaf49f49d34a6a4986a07"
+    },
+    {
+      "name": "bililive-linux-amd64.tar.gz",
+      "size": 12853361,
+      "sha256": "e2dea80ee5af917472a24864076196d1cd0f09016ec382f3bdd956febe48ac05"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 1526,
+      "sha256": "866d9314f4d4e3aa5966c7411045f8bd62f20363dbfd365dac59e99368464e53"
+    },
+    {
+      "name": "config.docker.yml",
+      "size": 1738,
+      "sha256": "fad125849254233987ef3c62c9243d042dc30d0dcebc850401b1623106b14b20"
+    },
+    {
+      "name": "bililive-darwin-arm64.tar.gz",
+      "size": 12394374,
+      "sha256": "626acae4907cc130b0efe3f83c7d14bebaa01802bd034333b6139b3a6acf4892"
+    }
+  ],
+  "checks": {
+    "manifest_covers_all_assets": true,
+    "darwin_version": "sun",
+    "linux_version": "sun",
+    "linux_binary_sha256": "ad72b69876588c1b35a35ae2834577e1f5c0fcfa1ba6cc7dfc6781d2712ce9aa",
+    "windows_pe_valid": true,
+    "templates_prepare_playback": true,
+    "scripts_match_tagged_source": true
+  }
+}

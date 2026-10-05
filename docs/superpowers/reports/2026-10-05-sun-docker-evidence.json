@@ -1,0 +1,13 @@
+{
+  "image": "xuniubi/bililive-go:sun",
+  "digest": "sha256:7343717068b8bb246933367e045ecfda67b9da535fdd8c9bd0cfd7cbced70630",
+  "latest_digest": "sha256:7343717068b8bb246933367e045ecfda67b9da535fdd8c9bd0cfd7cbced70630",
+  "os": "linux",
+  "architecture": "amd64",
+  "entrypoint": [
+    "sh"
+  ],
+  "cmd": [
+    "/entrypoint.sh"
+  ]
+}

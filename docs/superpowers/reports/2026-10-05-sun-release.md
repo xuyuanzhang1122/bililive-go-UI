@@ -30,4 +30,18 @@
 
 ## 公开发布
 
-等待正式标签推送和实际 CI 产物完成后，追加运行状态、下载版本与摘要。
+三个仓库主分支已快进推送，sun 标签分别指向：服务端 ff71bc923b6692a97f28b753149381e50aee0532、iOS aca28eafda65b701dfff892dc9b6d57c42554c4d、鸿蒙 c304933。未移动或覆盖既有标签。
+
+- 服务端正式 Release：https://github.com/xuyuanzhang1122/bililive-go-UI/releases/tag/sun ，18 个资产（12 个平台包、5 个安装/配置文件、SHA256SUMS）。GitHub 运行 37300318446 全部 12 个 job success（10 分片、发布、Docker）。sun 为非草稿、非预发布，并已设为 latest。
+- 下载 Linux amd64、macOS arm64、Windows amd64 及安装/配置文件共 9 个资产；全部匹配 GitHub digest 与 SHA256SUMS，摘要清单覆盖所有发布资产。macOS / Linux 二进制实际运行 --version 返回 sun；Windows ZIP / PE 和模板录后准备配置通过。
+- 公开固定版本安装脚本实际下载、解包 sun，与手动下载二进制逐字节一致；安装脚本和模板与标签源码一致。Raw 地址可达，帮助和 Bash / PowerShell 语法通过。
+- 实际公开 Linux 包在远端隔离目录和回环 18687 端口运行，API 版本 sun / GitHash ff71bc9，Web 版本 sun，浏览器系统状态显示 6 条内置迭代详情，page_errors 为空；截图及运行证据已保存。测试实例已关闭。
+- Docker xuniubi/bililive-go:sun 发布成功，注册表实际核对 linux/amd64 与入口。sun 和 latest 镜像 digest 一致，详见 sun-docker-evidence.json。
+- iOS GitHub 运行 37300317425（Xcode26.4.1）success，Actions IPA 与公开 Release IPA 逐字节相同，ZIP / Mach-O / 3.0.0 / build6 / sun 和 GitHub digest 通过。大小 8,699,764 字节，SHA256 e15416859de9c9eb734e2779f8f4aa16f99bab97f9caf54943fbfe2ab2aaf663；已附 SHA256SUMS。正式地址：https://github.com/xuyuanzhang1122/bililive-ios/releases/tag/sun 。
+- 鸿蒙公开 HAP 与本地 Release 构建逐字节一致，ZIP / 3.0.0 / code3 / release 模式及 GitHub digest 通过。大小 4,324,855 字节，SHA256 35284254a270a7ff84223527e1cf437ff9ebf2469fbaf2f52fe786b77ed3c220。正式地址：https://github.com/xuyuanzhang1122/Live-os-Harmony/releases/tag/sun 。
+
+## 生产运行状态
+
+验收结束时服务器仍有 1 个直播录制任务，运行此前已修复的 v2.1.2-rc.3-playback-repair-queue-20261005 / a51c5d8；没有为版本名称同步中断录制，因此生产运行实例尚未切换 sun。on_record_finished.prepare_playback 已开启，录播修复代码与本次正式版一致；本次新增主要是版本、安装保护和展示。正式包已实际在该服务器隔离运行通过。
+
+生产 config.yml SHA256 a909eab989a7e2a76455d156d432e5538f0c16e85a3007ee8620458a5e723a0d 与事前一致。未修改生产配置、管理 Key 或观看进度；未执行历史批量转换。

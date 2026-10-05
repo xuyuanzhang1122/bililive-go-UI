@@ -1,0 +1,69 @@
+{
+  "conclusion": "success",
+  "headBranch": "sun",
+  "headSha": "ff71bc923b6692a97f28b753149381e50aee0532",
+  "jobs": [
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (1)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (9)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (5)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (3)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (7)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (8)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (6)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (4)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (0)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-bins-sharded (2)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "publish-release",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "name": "release-docker-images",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "url": "https://github.com/xuyuanzhang1122/bililive-go-UI/actions/runs/37300318446"
+}
