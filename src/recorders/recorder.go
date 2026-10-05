@@ -68,6 +68,16 @@ var (
 	}
 )
 
+// hasRecordedOutput 判断录制文件或录播姬分段文件中是否已写入数据
+func hasRecordedOutput(fileName string) bool {
+	for _, f := range append([]string{fileName}, findBililiveRecorderOutputFiles(fileName)...) {
+		if stat, err := os.Stat(f); err == nil && stat.Size() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // findBililiveRecorderOutputFiles 查找录播姬生成的分段文件
 // 录播姬的输出文件命名模式: {原文件名}_PART{3位序号}{扩展名}
 // 例如: video.flv -> video_PART000.flv, video_PART001.flv, ...
@@ -440,7 +450,11 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to parse live stream")
-		return
+		// 下播时 Close 会终止下载进程（signal: killed），此时已录数据仍需后处理
+		if !hasRecordedOutput(fileName) {
+			return
+		}
+		r.getLogger().Warn("录制异常结束但已有录制数据，继续后处理")
 	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
