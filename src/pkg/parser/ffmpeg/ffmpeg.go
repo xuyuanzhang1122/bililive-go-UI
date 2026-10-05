@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -27,6 +28,8 @@ const (
 	Name      = "ffmpeg"
 	userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36"
 )
+
+var errStoppedBeforeStart = errors.New("ffmpeg parser stopped before start")
 
 func init() {
 	parser.Register(Name, new(builder))
@@ -60,6 +63,7 @@ type Parser struct {
 	statusReq  chan struct{}
 	statusResp chan map[string]interface{}
 	cmdLock    sync.Mutex
+	stopped    bool // Stop 早于启动时阻止 FFmpeg 再被拉起，受 cmdLock 保护
 	logger     *livelogger.LiveLogger
 
 	// FLV 代理相关
@@ -270,6 +274,10 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	func() {
 		p.cmdLock.Lock()
 		defer p.cmdLock.Unlock()
+		if p.stopped {
+			err = errStoppedBeforeStart
+			return
+		}
 		p.cmd = exec.Command(ffmpegPath, args...)
 		if p.cmdStdIn, err = p.cmd.StdinPipe(); err != nil {
 			return
@@ -341,6 +349,7 @@ func (p *Parser) Stop() (err error) {
 
 		p.cmdLock.Lock()
 		defer p.cmdLock.Unlock()
+		p.stopped = true
 		if p.cmd != nil && p.cmd.ProcessState == nil {
 			if p.cmdStdIn != nil && p.cmd.Process != nil {
 				if _, err = p.cmdStdIn.Write([]byte("q")); err != nil {

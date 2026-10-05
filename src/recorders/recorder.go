@@ -38,7 +38,6 @@ import (
 
 const (
 	begin uint32 = iota
-	pending
 	running
 	stopped
 )
@@ -434,7 +433,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
 	}
-	r.setAndCloseParser(p)
+	if !r.setAndCloseParser(p) {
+		return
+	}
 	r.startTime = time.Now()
 
 	// 设置当前录制文件路径
@@ -675,25 +676,31 @@ func (r *recorder) getParser() parser.Parser {
 	return r.parser
 }
 
-func (r *recorder) setAndCloseParser(p parser.Parser) {
+func (r *recorder) setAndCloseParser(p parser.Parser) bool {
 	r.parserLock.Lock()
 	defer r.parserLock.Unlock()
+	if atomic.LoadUint32(&r.state) == stopped {
+		if err := p.Stop(); err != nil {
+			r.getLogger().WithError(err).Warn("failed to end recorder")
+		}
+		return false
+	}
 	if r.parser != nil {
 		if err := r.parser.Stop(); err != nil {
 			r.getLogger().WithError(err).Warn("failed to end recorder")
 		}
 	}
 	r.parser = p
+	return true
 }
 
 func (r *recorder) Start(ctx context.Context) error {
-	if !atomic.CompareAndSwapUint32(&r.state, begin, pending) {
+	if !atomic.CompareAndSwapUint32(&r.state, begin, running) {
 		return nil
 	}
 	bilisentry.GoWithContext(ctx, func(ctx context.Context) { r.run(ctx) })
 	r.getLogger().Info("Record Start ", r.Live.GetRawUrl())
 	r.ed.DispatchEvent(events.NewEvent(RecorderStart, r.Live))
-	atomic.CompareAndSwapUint32(&r.state, pending, running)
 	return nil
 }
 
