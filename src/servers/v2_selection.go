@@ -262,16 +262,17 @@ func (s *v2Service) resolve(r *http.Request, session v2Session) v2Session {
 			}
 			if paused != nil {
 				session.DTO.Status = "paused"
-				session.DTO.Error = v2Problem("preparation_paused", paused.Reason, true)
+				session.DTO.Error = v2Problem("preparation_paused", "视频准备已暂停，请检查服务器可用空间或稍后重试", true)
 				session.DTO.RetryAfter = 2
 				return session
 			}
 			if failed != nil {
-				return v2SessionFailure(session, "preparation_failed", failed.Reason, true, false)
+				// 原始诊断保留在持久任务中，播放接口仅返回可操作的用户提示。
+				return v2SessionFailure(session, "preparation_failed", "视频准备失败，请在任务列表重试；原始录像已保留", true, false)
 			}
 		}
 	}
-	return v2SessionFailure(session, "asset_not_ready", "没有匹配的已准备资产；需按服务端准备策略完成准备", true, false)
+	return v2SessionFailure(session, "asset_not_ready", "这段录像尚未完成播放准备，请先在服务器准备该录像", true, false)
 }
 
 // 这里只判断有限策略是否可能满足能力，不宣称尚未生成的文件已兼容。

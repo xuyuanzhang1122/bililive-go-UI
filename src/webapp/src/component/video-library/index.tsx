@@ -318,7 +318,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
             if (artRef.current) await refreshVideo(artRef.current.video, value.url!, abort.signal);
             else setResolvedPlay({url:value.url!,protocol:value.protocol,status:value.status});
             if (!cancelled) { setStatusText('');setResolvingPlay(false); }
-        }, fail);
+        }, fail, undefined, value => {
+            if (cancelled) return;
+            setStatusText(value.status === 'paused' ? '视频准备已暂停，请检查服务器可用空间或稍后重试' : '服务器正在准备视频，完成后会自动播放…');
+        });
         const legacy = async () => {
             try {
                 const result = await api.resolvePlayback(file.rel_path);
@@ -332,7 +335,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onBack, onRecordSaved }
                 } else fail(new Error(result.error || '视频暂时无法播放'));
             } catch (error) { fail(error as Error); }
         };
-        setResolvedPlay(null);setResolvingPlay(true);
+        setResolvedPlay(null);setResolvingPlay(true);setStatusText('正在检查播放文件…');
         void detectCapabilities().then(capabilities=>session.start(file,capabilities)).then(v2=>{if(!v2&&!cancelled)void legacy();}).catch(fail);
         return () => { cancelled=true;abort.abort();if(timer)clearTimeout(timer);void session.close(); };
     }, [file]);

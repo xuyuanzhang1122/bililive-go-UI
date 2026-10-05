@@ -10,6 +10,22 @@ export interface RecordingFile {
 const utils = new Utils();
 const path = (value: string) => value.split('/').map(encodeURIComponent).join('/');
 
+// 按稳定错误码显示提示，兼容仍返回 FFmpeg 原始诊断的旧服务器。
+export function playbackProblemMessage(problem: Session['error']): string {
+  switch (problem?.code) {
+    case 'preparation_failed': return '视频准备失败，请在任务列表重试；原始录像已保留';
+    case 'preparation_paused': return '视频准备已暂停，请检查服务器可用空间或稍后重试';
+    case 'asset_not_ready': return '这段录像尚未完成播放准备，请先在服务器准备该录像';
+    case 'media_probe_failed': return '暂时无法读取这段录像，请检查服务器任务详情后重试';
+    case 'recording_active': return '这段录像仍在录制，结束并完成准备后即可播放';
+    case 'source_changed': return '录像文件已变化，请返回列表重新打开';
+    case 'no_matching_capabilities': return '当前浏览器无法播放这段录像，请使用支持 H264/AAC 的浏览器';
+    case 'catalog_unavailable':
+    case 'preparation_unavailable': return '服务器正在检查录像，请稍后重试';
+    default: return '视频暂时无法播放，请稍后重试';
+  }
+}
+
 export function validateSession(session: Session): Session {
   if (!['ready','processing','paused','failed','cancelled'].includes(session.status)) throw new Error('未知播放状态');
   if (session.status !== 'ready') {

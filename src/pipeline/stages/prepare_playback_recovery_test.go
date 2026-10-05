@@ -2,17 +2,80 @@ package stages
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/pipeline"
 	"github.com/bililive-go/bililive-go/src/pkg/recordingcatalog"
 	"github.com/stretchr/testify/require"
 )
+
+// 模拟录制进程被中止：不写容器时长，并在最后一个视频包中途结束。
+// 使用真实 FFmpeg/FFprobe 验证录后自动队列，避免仅用探测桩掩盖恢复问题。
+func TestStoppedFLVAutoPreparationProducesVerifiedPlayback(t *testing.T) {
+	ctx, input, store, _ := preparationFixture(t, "libx264", "aac")
+	flv := strings.TrimSuffix(input.Path, filepath.Ext(input.Path)) + ".flv"
+	output, err := exec.Command(ctx.FFmpegPath, "-v", "error", "-i", input.Path, "-c", "copy", "-flvflags", "no_duration_filesize", "-y", flv).CombinedOutput()
+	require.NoError(t, err, string(output))
+	data, err := os.ReadFile(flv)
+	require.NoError(t, err)
+	lastVideo, lastSize := 0, 0
+	for offset := int(binary.BigEndian.Uint32(data[5:9])) + 4; offset+11 <= len(data); {
+		size := int(data[offset+1])<<16 | int(data[offset+2])<<8 | int(data[offset+3])
+		if offset+11+size+4 > len(data) {
+			break
+		}
+		if data[offset] == 9 && size > 16 {
+			lastVideo, lastSize = offset, size
+		}
+		offset += 11 + size + 4
+	}
+	require.Positive(t, lastVideo)
+	data = data[:lastVideo+11+lastSize/2]
+	require.NoError(t, os.WriteFile(flv, data, 0600))
+	require.NoError(t, ctx.Catalog.Reconcile(ctx.Ctx))
+	version, err := recordingcatalog.SnapshotVersion(flv)
+	require.NoError(t, err)
+	media, err := probePreparationSource(ctx.Ctx, ctx.FFmpegPath, flv)
+	require.NoError(t, err)
+	require.True(t, media.recoveryRequired)
+	managerCtx := context.WithValue(ctx.Ctx, instance.Key, &instance.Instance{RecordingCatalog: ctx.Catalog})
+	manager := pipeline.NewManager(managerCtx, store, &pipeline.ManagerConfig{MaxConcurrent: 1, PollInterval: 10 * time.Millisecond}, nil)
+	RegisterBuiltinStagesToManager(manager)
+	require.NoError(t, manager.Start(managerCtx))
+	defer manager.Close(managerCtx)
+	task := pipeline.NewPipelineTask(pipeline.RecordInfo{}, pipeline.GetEffectivePipelineConfig(&configs.OnRecordFinished{PreparePlayback: true, FixFlvAtFirst: true}), []pipeline.FileInfo{pipeline.NewVideoFileInfo(flv)})
+	require.NoError(t, manager.EnqueueTask(task))
+	var completed *pipeline.PipelineTask
+	require.Eventually(t, func() bool {
+		var e error
+		completed, e = manager.GetTask(task.ID)
+		return e == nil && (completed.Status == pipeline.PipelineStatusCompleted || completed.Status == pipeline.PipelineStatusFailed)
+	}, 15*time.Second, 20*time.Millisecond)
+	require.Equal(t, pipeline.PipelineStatusCompleted, completed.Status, completed.ErrorMessage)
+	after, err := os.ReadFile(flv)
+	require.NoError(t, err)
+	require.Equal(t, data, after, "自动准备不得改写或删除原始录像")
+	entry, err := ctx.Catalog.PreparationEntry(ctx.Ctx, flv, version)
+	require.NoError(t, err)
+	job, err := store.PreparationStatus(ctx.Ctx, pipeline.PreparationKey{RecordingID: entry.RecordingID, SourceVersion: version, ProfileVersion: PreparationProfileVersion})
+	require.NoError(t, err)
+	require.Equal(t, pipeline.PreparationReady, job.Status)
+	require.NoError(t, ctx.Catalog.VerifyPreparedAsset(ctx.Ctx, entry, job.OutputPath, job.OutputVersion, PreparationProfileVersion))
+	prepared, err := probePreparation(ctx.Ctx, ctx.FFmpegPath, job.OutputPath)
+	require.NoError(t, err)
+	require.InDelta(t, media.duration, prepared.duration, preparationDurationTolerance(media.duration))
+	require.Equal(t, "copy", prepared.mode())
+	require.NoError(t, checkMP4Faststart(job.OutputPath))
+}
 
 func preparationFLVProbeFixture(t *testing.T, videoEnd, audioEnd float64, warning, packetOutput string) (*pipeline.PipelineContext, pipeline.FileInfo, *pipeline.SQLiteStore) {
 	t.Helper()

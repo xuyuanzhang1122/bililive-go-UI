@@ -1,5 +1,5 @@
 import { Capabilities, CreateSession, Session, V2HTTPError } from './generated-api-v2';
-import { PlaybackAPI, RecordingFile, validateSession } from './playback-v2';
+import { PlaybackAPI, RecordingFile, validateSession, playbackProblemMessage } from './playback-v2';
 
 const delay = (seconds: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
   const cancel = () => { clearTimeout(timer); reject(new Error('播放已退出')); };
@@ -11,7 +11,7 @@ export class WebPlaybackSession {
   private controller = new AbortController();
   private current: Session | null = null;
   private playedAsset: string | null = null;
-  constructor(private api: PlaybackAPI, private onReady: (session: Session) => Promise<void>, private onError: (error: Error) => void, private sleep = delay) {}
+  constructor(private api: PlaybackAPI, private onReady: (session: Session) => Promise<void>, private onError: (error: Error) => void, private sleep = delay, private onStatus?: (session: Session) => void) {}
   private active(): boolean { return !this.controller.signal.aborted; }
   private check(value: Session, body: CreateSession): Session {
     this.api.assertCurrent();
@@ -49,7 +49,8 @@ export class WebPlaybackSession {
       while (this.active()) {
         value=this.check(value,body);this.current=value;
         if (value.status==='ready') { this.playedAsset = this.playedAsset || value.asset_version;await this.onReady(value); }
-        else if (value.status!=='processing'&&value.status!=='paused') throw new Error(value.error?.message || '播放会话已取消');
+        else if (value.status==='processing'||value.status==='paused') this.onStatus?.(value);
+        else throw new Error(value.status==='cancelled' ? '播放会话已取消' : playbackProblemMessage(value.error));
         await this.sleep(value.status==='ready'?Math.max(1,value.refresh_after_seconds || 1):Math.min(60,Math.max(1,value.retry_after_seconds || 2)),this.controller.signal);
         if (!this.active()) return;
         for (;;) {

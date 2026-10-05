@@ -2,6 +2,25 @@ require('./setup.cjs');const assert=require('assert/strict'),fs=require('fs');
 const ready=JSON.parse(fs.readFileSync('docs/contracts/examples/v2-session-ready.json')).value.data;
 (async()=>{
  const {WebPlaybackSession,refreshVideo}=require('../../src/webapp/src/utils/playback-session.ts');
+ for (const code of ['preparation_failed','asset_not_ready','media_probe_failed']) {
+  const shown=[];
+  const failedAPI={assertCurrent(){},client:{createV2PlaybackSession:async()=>({data:{...ready,id:'failed',status:'failed',url:null,error:{code,message:'[flv @ 0x123] Invalid NAL unit size /private/server/media',retryable:true}}}),cancelV2PlaybackSession:async()=>{}}};
+  const failed=new WebPlaybackSession(failedAPI,async()=>assert.fail('失败会话不能播放'),e=>shown.push(e));
+  await failed.start({rel_path:'x',recording_id:ready.recording_id,source_version:ready.source_version},{video:[{}],containers:['mp4'],protocols:['file']});
+  await new Promise(r=>setTimeout(r,0));
+  assert.equal(shown.length,1);assert(!/0x123|Invalid NAL|\/private\/server/.test(shown[0].message),'旧服务器诊断不能显示在播放器');
+  assert(/[\u4e00-\u9fff]/.test(shown[0].message),'应显示可理解的播放提示');
+ }
+ {
+  const states=[],pending=[];
+  const processing={...ready,id:'preparing',status:'processing',url:null,asset_version:'',error:null,retry_after_seconds:2};
+  const stateAPI={assertCurrent(){},client:{createV2PlaybackSession:async()=>({data:processing}),getV2PlaybackSession:async()=>({data:{...processing,status:'paused',error:{code:'preparation_paused',message:'internal log',retryable:true}}}),cancelV2PlaybackSession:async()=>{}}};
+  const stateSession=new WebPlaybackSession(stateAPI,async()=>assert.fail('未准备完成不能播放'),e=>assert.fail(e.message),()=>new Promise(r=>pending.push(r)),s=>states.push(s.status));
+  await stateSession.start({rel_path:'x',recording_id:ready.recording_id,source_version:ready.source_version},{video:[{}],containers:['mp4'],protocols:['file']});
+  await new Promise(r=>setTimeout(r,0));assert.deepEqual(states,['processing'],'播放器须能显示正在准备状态');
+  pending.shift()();await new Promise(r=>setTimeout(r,0));assert.deepEqual(states,['processing','paused']);
+  await stateSession.close();pending.forEach(r=>r());
+ }
  let create=0,get=0,cancel=[],applied=[],errors=[],ticks=[];
  const api={mode:'v2',assertCurrent(){},client:{createV2PlaybackSession:async()=>({data:{...ready,id:String(++create)}}),getV2PlaybackSession:async({params})=>({data:{...ready,id:params.id}}),cancelV2PlaybackSession:async({params})=>{cancel.push(params.id)}}};
  const sleep=(seconds,signal)=>new Promise(resolve=>{ticks.push({seconds,resolve})});
