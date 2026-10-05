@@ -21,6 +21,11 @@ read_only_tool_folder: /opt/bililive/tools
 tool_root_folder: /srv/bililive/.appdata/tools
 feature:
   use_native_flv_parser: false
+on_record_finished:
+  # 录制结束后自动核验并准备播放资产；原文件始终保留。
+  prepare_playback: true
+  convert_to_mp4: false
+  delete_flv_after_convert: false
 live_rooms:
 
 # 通知服务配置

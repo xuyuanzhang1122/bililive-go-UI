@@ -1,16 +1,24 @@
 {
-  "uiVersion": "1.0.0",
-  "buildDate": "2026-01-05",
-  "minBackendVersion": "0.7.39",
+  "uiVersion": "sun",
+  "buildDate": "2026-10-05",
+  "minBackendVersion": "sun",
   "maxBackendVersion": null,
   "changelog": [
-    "初始版本",
-    "支持下载器类型选择 (FFmpeg/Native/BililiveRecorder)",
-    "支持层级配置 (全局/平台/房间)"
+    "sun 正式大版本：统一 Web、iOS、鸿蒙录播目录和播放会话",
+    "录制结束后自动核验并准备播放资产，排队和转换期间自动等待，完成后自动播放",
+    "修复零时长 FLV 和可诊断尾部损坏，恢复时间线并严格核验产物，始终保留原文件",
+    "播放能力协商、短期授权刷新、退出取消和稳定来源身份，续播进度跨端同步",
+    "历史库提供预览、确认、暂停恢复和低空间保护，避免未经确认的全库转换",
+    "统一存储统计、逐项删除与清晰的错误提示，完善一键安装和升级说明"
   ],
   "features": [
     "downloader_type_selection",
     "hierarchical_config",
-    "remote_webui_support"
-  ]
+    "remote_webui_support",
+    "recording_catalog_v2",
+    "prepared_playback",
+    "playback_sessions_v2",
+    "safe_history_preparation"
+  ],
+  "releaseVersion": "3.0.0"
 }

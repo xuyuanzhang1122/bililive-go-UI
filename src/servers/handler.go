@@ -42,6 +42,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/types"
+	"github.com/bililive-go/bililive-go/src/webapp"
 )
 
 // FIXME: remove this
@@ -3260,9 +3261,22 @@ func fetchRemoteWebuiInfo(appVersion string) (*RemoteWebuiInfo, error) {
 
 // getLocalUIVersion 获取本地 UI 版本
 func getLocalUIVersion() string {
-	// 尝试从嵌入的 version.json 读取
-	// 如果读取失败，返回 "unknown"
-	return "1.0.0" // TODO: 从嵌入的资源中读取
+	assets, err := webapp.FS()
+	if err != nil {
+		return "unknown"
+	}
+	file, err := assets.Open("/version.json")
+	if err != nil {
+		return "unknown"
+	}
+	defer file.Close()
+	var metadata struct {
+		UIVersion string `json:"uiVersion"`
+	}
+	if err := json.NewDecoder(file).Decode(&metadata); err != nil || metadata.UIVersion == "" {
+		return "unknown"
+	}
+	return metadata.UIVersion
 }
 
 // checkRemoteWebuiUpdate 检查远程 WebUI 是否有更新

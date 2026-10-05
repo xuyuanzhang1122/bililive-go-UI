@@ -6,7 +6,7 @@
 
 录抖音、B站、斗鱼…… 主播一开播自动开录，录完直接在网页里看，手机上也能刷。
 
-[![Release](https://img.shields.io/github/v/release/xuyuanzhang1122/bililive-go-UI?style=flat-square&color=4c8eda&label=最新版本)](https://github.com/xuyuanzhang1122/bililive-go-UI/releases)
+[![Release](https://img.shields.io/badge/release-sun-4c8eda?style=flat-square)](https://github.com/xuyuanzhang1122/bililive-go-UI/releases)
 [![Docker](https://img.shields.io/docker/pulls/xuniubi/bililive-go.svg?style=flat-square&color=2496ed&label=Docker%20拉取)](https://hub.docker.com/r/xuniubi/bililive-go)
 [![CI](https://img.shields.io/github/actions/workflow/status/xuyuanzhang1122/bililive-go-UI/ci.yaml?branch=main&style=flat-square&label=CI)](https://github.com/xuyuanzhang1122/bililive-go-UI/actions)
 [![License](https://img.shields.io/github/license/xuyuanzhang1122/bililive-go-UI?style=flat-square&color=green)](LICENSE)
@@ -34,16 +34,18 @@
 
 ## 🚀 30 秒上手
 
+当前正式大版本：**[sun](https://github.com/xuyuanzhang1122/bililive-go-UI/releases/tag/sun)**（2026-10-05）。Web、iOS、鸿蒙统一以 sun 展示，完整变化见 [sun 更新说明](docs/releases/sun.md)。
+
 打开终端，粘贴一行命令，按提示回车就行（Linux / macOS / WSL）：
 
 ```bash
-# 作者源（国内速度快，自动处理依赖）
-curl -fsSL https://image.xumy.art/install.sh | bash
+# 安装 sun 正式版（固定脚本和安装包版本）
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/scripts/install.sh | bash -s -- --source github --version sun
 ```
 
 ```bash
-# 或者走 GitHub 官方源
-curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash
+# 作者源可选：固定安装 sun，源站未同步时从 GitHub 获取
+curl -fsSL https://image.xumy.art/install.sh | bash -s -- --version sun
 ```
 
 脚本会带你走一遍：**检测系统 → 选安装方式 → 确认目录和端口 → 自动装依赖 → 体检自检**，全程回车默认即可。装完浏览器打开 `http://你的IP:8080` 就是控制台。
@@ -51,8 +53,12 @@ curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main
 **已有安装就地更新：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/scripts/install.sh | bash -s -- --update
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/scripts/install.sh | bash -s -- --update --source github --version sun --dir ~/bililive-go
 ```
+
+将 `--dir` 改成实际安装目录；脚本默认目录为 `~/bililive-go`。升级前备份配置及 Data，等待正在进行的录制结束。
+
+新安装默认启用 `on_record_finished.prepare_playback: true`，转换核验完成后才能播放，原文件保留。升级不会覆盖旧配置；旧安装需在设置中开启录后播放准备。历史录像仍通过预览确认后准备，不自动批量转换。
 
 Web UI 内的应用更新与 `install.sh --update` 是两条等价通道。后者会保留现有配置，并自动识别二进制或 Docker 安装，适合服务器运维、应用内更新失败以及 Docker 场景。
 
@@ -64,13 +70,13 @@ Web UI 内的应用更新与 `install.sh --update` 是两条等价通道。后�
 **一键全默认（适合服务器 / CI）：**
 
 ```bash
-curl -fsSL https://image.xumy.art/install.sh | bash -s -- --yes --port 8080 --enable-api-key
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/scripts/install.sh | bash -s -- --source github --version sun --yes --port 8080 --enable-api-key
 ```
 
 **用 Docker 装：**
 
 ```bash
-curl -fsSL https://image.xumy.art/install.sh | bash -s -- --docker --port 8080
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/scripts/install.sh | bash -s -- --docker --version sun --port 8080
 ```
 
 **全部参数：**
@@ -85,11 +91,18 @@ curl -fsSL https://image.xumy.art/install.sh | bash -s -- --docker --port 8080
 | `--port N` | 网页端口，默认 `8080` |
 | `--enable-api-key` | 开启鉴权并自动生成随机 Key |
 | `--api-key STR` | 手动指定 Key |
-| `--version TAG` | 装指定版本 |
+| `--version TAG` | 装指定版本；本次正式版为 `sun`，无需加 v |
 | `--update` | 就地更新现有安装，保留配置与数据 |
 | `--yes` / `-y` | 全程不询问，走默认值 |
 
-> 🪟 **Windows 用户**：用 PowerShell 跑 `irm https://image.xumy.art/install.ps1 | iex`
+**Windows PowerShell（固定 sun）：**
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/scripts/install.ps1 -OutFile install.ps1
+.\install.ps1 -Version sun -Source github
+```
+
+Windows 已安装用户先备份并停止程序，再用同一目录执行脚本；不要将 Linux 的 `--update` 参数传给 PowerShell。
 
 </details>
 
@@ -104,7 +117,7 @@ curl -fsSL https://image.xumy.art/install.sh | bash -s -- --docker --port 8080
 mkdir -p ~/bililive-go/{Videos,Data} && cd ~/bililive-go
 
 # 拉配置模板
-curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/config.docker.yml -o config.docker.yml
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/config.docker.yml -o config.docker.yml
 
 docker run -d \
   --name bililive-go \
@@ -113,19 +126,19 @@ docker run -d \
   -v $(pwd)/Videos:/srv/bililive \
   -v $(pwd)/Data:/var/lib/bililive \
   -v $(pwd)/config.docker.yml:/etc/bililive-go/config.yml \
-  xuniubi/bililive-go:latest
+  xuniubi/bililive-go:sun
 ```
 
 **Docker Compose：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/docker-compose.yml -o docker-compose.yml
-curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/main/config.docker.yml -o config.docker.yml
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/xuyuanzhang1122/bililive-go-UI/sun/config.docker.yml -o config.docker.yml
 mkdir -p Videos Data
 docker compose up -d
 ```
 
-> 需要抖音等短链解析时，把镜像 tag 换成 `:full`（内置 Chromium 无头浏览器，体积更大）。
+> `sun` Docker 镜像支持 Linux amd64；二进制包支持多架构。其他架构请使用对应 Release 二进制包，不要直接运行 amd64 镜像。
 
 </details>
 

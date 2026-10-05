@@ -1,113 +1,72 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -o errexit
 set -o nounset
 set -o pipefail
 
-# ============================================================
-# release.sh — 版本号写回 + git tag + git push
-# 用法: bash scripts/release.sh [--dry-run] <VERSION>
-# 示例: bash scripts/release.sh 1.3.0
-#       bash scripts/release.sh --dry-run 1.3.0-rc1
-# ============================================================
-
+# 正式发布：版本写回、提交、标签与原子推送；sun 保留特殊标签名称。
+# 用法：bash scripts/release.sh [--dry-run] <sun|x.y.z[-rc.N]>
 DRY_RUN=false
-if [[ "${1:-}" == "--dry-run" ]]; then
-    DRY_RUN=true
-    shift
-fi
-
+if [[ "${1:-}" == "--dry-run" ]]; then DRY_RUN=true; shift; fi
 VERSION="${1:-}"
-USAGE="用法: bash scripts/release.sh [--dry-run] <x.y.z[-rcN]>"
-
-# ---- 1. 参数校验 ----
-if [[ -z "$VERSION" ]]; then
-    echo "错误：缺少版本号参数"
-    echo "$USAGE"
-    exit 1
-fi
-
-if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$'; then
-    echo "错误：版本号格式不合法: $VERSION"
-    echo "期望格式: x.y.z 或 x.y.z-rcN"
-    echo "$USAGE"
-    exit 1
-fi
-
-TAG="v${VERSION}"
-
-# ---- 2. 前置检查 ----
-if [[ "$DRY_RUN" == "true" ]]; then
-    echo "→ 预演模式：仅展示将要替换的内容，不提交不推送"
+if [[ "$VERSION" == "sun" ]]; then
+    TAG=sun
+elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?$ ]]; then
+    TAG="v${VERSION}"
 else
-    BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    if [[ "$BRANCH" != "main" ]]; then
-        echo "错误：当前分支为 '$BRANCH'，必须在 main 分支上发布"
-        exit 1
-    fi
-
-    if ! git diff --quiet || ! git diff --cached --quiet; then
-        echo "错误：工作区不干净，请先提交或暂存所有更改"
-        exit 1
-    fi
-
-    if git tag -l "$TAG" | grep -q .; then
-        echo "错误：tag '$TAG' 已存在"
-        exit 1
-    fi
+    echo "错误：版本格式应为 sun 或 x.y.z[-rc.N]" >&2
+    exit 1
 fi
 
-# ---- 3. 版本号写回 ----
-echo "→ 写回版本号 ${TAG} …"
-
-# sed 双兼容：GNU sed 和 BSD sed（macOS）都接受 -i.bak（无空格）
-# -E 在 BSD sed 上启用扩展正则，GNU sed 中 -E 等价于 -r（均支持）
-sed_cmd() {
-    local pattern="$1"
-    local file="$2"
-    sed -E -i.bak "$pattern" "$file" && rm -f "${file}.bak"
+update_versions() {
+    local root_dir="$1"
+    python3 - "$root_dir" "$TAG" "$VERSION" <<'PYVERSIONS'
+from pathlib import Path
+import json, re, sys
+root, tag, version = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+for name in ['README.md', 'docker-compose.yml']:
+    p = root / name
+    text = re.sub(r'xuniubi/bililive-go:(?:v[0-9][A-Za-z0-9._-]*|sun)', f'xuniubi/bililive-go:{tag}', p.read_text())
+    text = re.sub(r'--build-arg VERSION=(?:v[0-9][A-Za-z0-9._-]*|sun)', f'--build-arg VERSION={tag}', text)
+    p.write_text(text)
+p = root / 'src/webapp/public/version.json'
+metadata = json.loads(p.read_text())
+metadata['uiVersion'] = version
+metadata['releaseVersion'] = '3.0.0' if version == 'sun' else version
+metadata['minBackendVersion'] = tag
+p.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
+PYVERSIONS
 }
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    # 预演：在临时副本上执行，然后 diff
-    tmpdir=$(mktemp -d)
-    trap 'rm -rf "$tmpdir"' EXIT
-    for f in README.md docker-compose.yml; do
-        cp "$f" "$tmpdir/$f"
+    task_tmp=$(mktemp -d)
+    trap 'rm -rf "$task_tmp"' EXIT
+    mkdir -p "$task_tmp/src/webapp/public"
+    cp README.md docker-compose.yml "$task_tmp/"
+    cp src/webapp/public/version.json "$task_tmp/src/webapp/public/"
+    update_versions "$task_tmp"
+    echo "预演发布标签：${TAG}（不修改、不提交、不推送）"
+    for file in README.md docker-compose.yml src/webapp/public/version.json; do
+        diff -u "$file" "$task_tmp/$file" || true
     done
-    sed_cmd "s/xuniubi\/bililive-go:v[0-9.]+(-rc[0-9]+)?/xuniubi\/bililive-go:${TAG}/g" "$tmpdir/README.md"
-    sed_cmd "s/标签：\`v[0-9.]+(-rc[0-9]+)?\`/标签：\`${TAG}\`/g" "$tmpdir/README.md"
-    sed_cmd "s/--build-arg VERSION=v[0-9.]+(-rc[0-9]+)?/--build-arg VERSION=${TAG}/g" "$tmpdir/README.md"
-    sed_cmd "s/xuniubi\/bililive-go:v[0-9.]+(-rc[0-9]+)?/xuniubi\/bililive-go:${TAG}/g" "$tmpdir/docker-compose.yml"
-
-    echo ""
-    echo "--- README.md diff ---"
-    diff -u README.md "$tmpdir/README.md" || true
-    echo ""
-    echo "--- docker-compose.yml diff ---"
-    diff -u docker-compose.yml "$tmpdir/docker-compose.yml" || true
-    echo ""
-    echo "→ 预演完成。确认无误后执行："
-    echo "  bash scripts/release.sh ${VERSION}"
     exit 0
 fi
 
-sed_cmd "s/xuniubi\/bililive-go:v[0-9.]+(-rc[0-9]+)?/xuniubi\/bililive-go:${TAG}/g" README.md
-sed_cmd "s/标签：\`v[0-9.]+(-rc[0-9]+)?\`/标签：\`${TAG}\`/g" README.md
-sed_cmd "s/--build-arg VERSION=v[0-9.]+(-rc[0-9]+)?/--build-arg VERSION=${TAG}/g" README.md
-sed_cmd "s/xuniubi\/bililive-go:v[0-9.]+(-rc[0-9]+)?/xuniubi\/bililive-go:${TAG}/g" docker-compose.yml
-
-echo "→ 版本号写回完成"
-
-# ---- 4. Git 操作 ----
-echo "→ 提交并推送 …"
-git add README.md docker-compose.yml
-git commit -m "release: bump version to ${TAG}"
-git tag "$TAG"
-git push origin main
-git push origin "$TAG"
-
-# ---- 5. 输出摘要 ----
-echo ""
-echo "✅ ${TAG} 已发布"
-echo "🔗 GitHub Actions: https://github.com/xuyuanzhang1122/bililive-go-UI/actions"
-echo "🔗 Docker Hub:      https://hub.docker.com/r/xuniubi/bililive-go"
+if [[ "$(git branch --show-current)" != main ]]; then
+    echo "错误：正式发布脚本须在 main 分支执行" >&2
+    exit 1
+fi
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo "错误：工作区须先验证并提交，不能混入未提交改动" >&2
+    exit 1
+fi
+if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+    echo "错误：标签已存在：$TAG" >&2
+    exit 1
+fi
+update_versions .
+git add README.md docker-compose.yml src/webapp/public/version.json
+if ! git diff --cached --quiet; then git commit -m "release: 同步 ${TAG} 版本元数据"; fi
+git tag -a "$TAG" -m "${TAG} 正式发布"
+git push --atomic origin main "refs/tags/$TAG"
+echo "已触发构建，请等待 GitHub Actions 产物与 Docker 全部成功后验收。"
+echo "https://github.com/xuyuanzhang1122/bililive-go-UI/actions"

@@ -3,9 +3,11 @@ import API from '../../utils/api';
 import {
     Descriptions,
     Button,
-    Tag
+    Tag,
+    Card
 } from 'antd';
 import copy from 'copy-to-clipboard';
+import { authFetch } from '../../utils/common';
 
 const api = new API();
 
@@ -14,6 +16,7 @@ interface Props {
 }
 
 interface IState {
+    releaseInfo: { uiVersion: string; buildDate: string; changelog: string[] } | null
     appName: string
     appVersion: string
     buildTime: string
@@ -36,6 +39,7 @@ class LiveInfo extends React.Component<Props, IState> {
     constructor(props: Props) {
         super(props);
         this.state = {
+            releaseInfo: null,
             appName: "",
             appVersion: "",
             buildTime: "",
@@ -55,6 +59,14 @@ class LiveInfo extends React.Component<Props, IState> {
     }
 
     componentDidMount() {
+        authFetch(`${process.env.PUBLIC_URL || ''}/version.json`)
+            .then(response => response.ok ? response.json() : null)
+            .then(info => {
+                if (info && typeof info.uiVersion === 'string' && Array.isArray(info.changelog)) {
+                    this.setState({ releaseInfo: info });
+                }
+            })
+            .catch(() => {});
         api.getLiveInfo()
             .then((rsp: any) => {
                 this.setState({
@@ -148,6 +160,12 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}${launcherInfo}
                         <Descriptions.Item label="Launcher Path">{this.state.launcherExePath || "-"}</Descriptions.Item>
                     )}
                 </Descriptions>
+                {this.state.releaseInfo && <Card title={`${this.state.releaseInfo.uiVersion} · 版本迭代详情`} style={{ marginTop: 16 }}>
+                    <p>{this.state.releaseInfo.buildDate} · 正式大版本</p>
+                    <ul>
+                        {this.state.releaseInfo.changelog.map((note) => <li key={note}>{note}</li>)}
+                    </ul>
+                </Card>}
                 <Button
                     type="default"
                     style={{
@@ -171,4 +189,3 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}${launcherInfo}
 }
 
 export default LiveInfo;
-

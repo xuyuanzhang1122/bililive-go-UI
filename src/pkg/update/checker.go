@@ -335,8 +335,8 @@ func (c *Checker) fetchGitHubReleases() ([]githubRelease, error) {
 // isNewerVersion 检查指定版本是否比当前版本新
 func (c *Checker) isNewerVersion(tagName string) (bool, error) {
 	// 移除 'v' 前缀
-	currentVer := strings.TrimPrefix(c.currentVersion, "v")
-	newVer := strings.TrimPrefix(tagName, "v")
+	currentVer := comparableVersion(c.currentVersion)
+	newVer := comparableVersion(tagName)
 
 	current, err := semver.NewVersion(currentVer)
 	if err != nil {
@@ -364,17 +364,25 @@ func (c *Checker) getExpectedAssetName() string {
 // CompareVersions 比较两个版本号
 // 返回: -1 (v1 < v2), 0 (v1 == v2), 1 (v1 > v2)
 func CompareVersions(v1, v2 string) (int, error) {
-	ver1, err := semver.NewVersion(strings.TrimPrefix(v1, "v"))
+	ver1, err := semver.NewVersion(comparableVersion(v1))
 	if err != nil {
 		return 0, fmt.Errorf("解析版本 %s 失败: %w", v1, err)
 	}
 
-	ver2, err := semver.NewVersion(strings.TrimPrefix(v2, "v"))
+	ver2, err := semver.NewVersion(comparableVersion(v2))
 	if err != nil {
 		return 0, fmt.Errorf("解析版本 %s 失败: %w", v2, err)
 	}
 
 	return ver1.Compare(ver2), nil
+}
+
+// comparableVersion 将特殊正式版名称映射到数字版本，仅用于排序，不改变下载标签。
+func comparableVersion(version string) string {
+	if version == "sun" {
+		return "3.0.0"
+	}
+	return strings.TrimPrefix(version, "v")
 }
 
 // =============================================================================
@@ -449,7 +457,7 @@ func (c *Checker) CheckForUpdateViaBililiveGoCom(includePrerelease bool) (*Relea
 
 	info := &ReleaseInfo{
 		Version:     response.LatestVersion,
-		TagName:     "v" + response.LatestVersion,
+		TagName:     releaseTag(response.LatestVersion),
 		ReleaseDate: releaseDate,
 		Changelog:   response.Changelog,
 		Prerelease:  response.Prerelease,
@@ -463,6 +471,13 @@ func (c *Checker) CheckForUpdateViaBililiveGoCom(includePrerelease bool) (*Relea
 	}
 
 	return info, nil
+}
+
+func releaseTag(version string) string {
+	if version == "sun" || strings.HasPrefix(version, "v") {
+		return version
+	}
+	return "v" + version
 }
 
 // CheckForUpdateWithFallback 检查更新

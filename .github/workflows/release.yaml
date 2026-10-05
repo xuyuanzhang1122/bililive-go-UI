@@ -3,6 +3,7 @@ on:
   push:
     tags:
       - 'v*'
+      - 'sun'
 jobs:
   release-bins-sharded:
     runs-on: ubuntu-latest
@@ -75,13 +76,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Prepare release notes and checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p published
+          find dist -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.7z' \) -exec cp {} published/ \;
+          cp scripts/install.sh scripts/install.ps1 config.yml config.docker.yml docker-compose.yml published/
+          if [ -f "docs/releases/${RELEASE_TAG}.md" ]; then
+            cp "docs/releases/${RELEASE_TAG}.md" release-notes.md
+          else
+            printf '%s\n' "${RELEASE_TAG}" > release-notes.md
+          fi
+          cd published
+          sha256sum * > SHA256SUMS
       - name: Publish GitHub Release with all packaged files
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            dist/**/*.tar.gz
-            dist/**/*.zip
-            dist/**/*.7z
+          files: published/*
+          body_path: release-notes.md
           prerelease: ${{ contains(env.GIT_TAG, 'rc') }}
 
   release-docker-images:

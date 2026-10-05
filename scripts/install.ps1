@@ -29,6 +29,9 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = "xuyuanzhang1122/bililive-go-UI"
 $RawBase = "https://raw.githubusercontent.com/$Repo/main"
+if ($Version -and $Version -ne "latest") {
+    $RawBase = "https://raw.githubusercontent.com/$Repo/$Version"
+}
 # 由源站 /install.ps1 动态注入为该源站地址；直接从 GitHub raw 获取时为空
 $DefaultMirror = ""
 
@@ -194,7 +197,8 @@ if ($EnableApiKey -and [string]::IsNullOrWhiteSpace($ApiKey)) {
     $ApiKey = New-RandomApiKey
 }
 
-New-Item -ItemType Directory -Force -Path $Dir, $VideosDir, "$Dir\Data" | Out-Null
+$AppDataDir = "$Dir\Data"
+New-Item -ItemType Directory -Force -Path $Dir, $VideosDir, $AppDataDir | Out-Null
 Ok "安装目录: $Dir"
 Ok "视频目录: $VideosDir"
 Ok "端口: $Port"
@@ -332,17 +336,41 @@ if ($Mode -eq "binary") {
     Ok "已安装到 $TargetBin"
 
     $ConfigFile = "$Dir\config.yml"
+    $configureTemplate = $false
     if (Test-Path $ConfigFile) {
         Warn "配置文件已存在: $ConfigFile"
         if ((Ask-YesNo "用最新模板覆盖？（旧文件会备份为 .bak）" "n") -eq "y") {
             Copy-Item $ConfigFile "$ConfigFile.bak.$(Get-Date -Format yyyyMMddHHmmss)" -Force
             Invoke-WebRequest -Uri "$RawBase/config.yml" -OutFile $ConfigFile -UseBasicParsing
+            $configureTemplate = $true
         }
     } else {
         Log "下载配置模板 → $ConfigFile"
         Invoke-WebRequest -Uri "$RawBase/config.yml" -OutFile $ConfigFile -UseBasicParsing
+        $configureTemplate = $true
     }
-    Set-ConfigValues $ConfigFile
+    if ($configureTemplate) {
+        Set-ConfigValues $ConfigFile
+    } else {
+        Log "保留现有配置、目录、端口和鉴权，不写回安装向导的默认值"
+        # doctor 与完成摘要也沿用旧配置，避免显示错误端口或尚未写入的新 Key。
+        $inRpc = $false
+        foreach ($line in (Get-Content $ConfigFile)) {
+            if ($line -match '^rpc:\s*$') { $inRpc = $true; continue }
+            if ($line -match '^[A-Za-z]') { $inRpc = $false }
+            if ($inRpc -and $line -match '^\s+bind:\s*[''\"]?[^''\"]*:(\d+)[''\"]?\s*(?:#.*)?$') {
+                $Port = [int]$Matches[1]
+            }
+            if ($line -match '^out_put_path:\s*(.+)$') {
+                $VideosDir = $Matches[1].Trim().Trim([char[]]@('"', "'"))
+            }
+            if ($line -match '^app_data_path:\s*(.+)$') {
+                $AppDataDir = $Matches[1].Trim().Trim([char[]]@('"', "'"))
+            }
+        }
+        $EnableApiKey = $false
+        $ApiKey = ""
+    }
 
     # 注册开机自启（计划任务，登录即启动）并立即启动
     $taskName = "bililive-go"
@@ -439,7 +467,7 @@ Write-Host ""
 Write-Host "  Web UI       : http://<服务器 IP>:$Port"
 Write-Host "  本机访问     : http://127.0.0.1:$Port"
 Write-Host "  配置文件     : $ConfigFile"
-Write-Host "  数据目录     : $Dir\Data"
+    Write-Host "  数据目录     : $AppDataDir"
 Write-Host "  视频目录     : $VideosDir"
 if ($EnableApiKey) {
     Write-Host ""
