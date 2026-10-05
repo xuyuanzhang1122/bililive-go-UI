@@ -240,6 +240,18 @@ func (s *v2Service) resolve(r *http.Request, session v2Session) v2Session {
 			var failed, paused *pipeline.PreparationJob
 			for _, profile := range profiles {
 				job, err := manager.PreparationStatus(r.Context(), pipeline.PreparationKey{RecordingID: session.DTO.RecordingID, SourceVersion: session.DTO.SourceVersion, ProfileVersion: profile})
+				if errors.Is(err, sql.ErrNoRows) || err == nil && (job.Status == pipeline.PreparationFailed || job.Status == pipeline.PreparationPaused) {
+					stageName := pipeline.StageNamePreparePlayback
+					if profile != stages.PreparationProfileVersion {
+						stageName = pipeline.StageNamePrepareHLS
+					}
+					status, queuedErr := manager.ScheduledPreparationStatus(r.Context(), source.Path, session.DTO.SourceVersion, stageName, profile)
+					if queuedErr == nil {
+						job.Status, err = status, nil
+					} else if !errors.Is(queuedErr, sql.ErrNoRows) {
+						return v2SessionFailure(session, "preparation_unavailable", "准备队列查询失败", true, false)
+					}
+				}
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
 				}

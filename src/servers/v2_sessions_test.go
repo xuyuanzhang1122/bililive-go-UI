@@ -180,6 +180,16 @@ func TestV2SessionMissingCapabilityAndExistingPreparationState(t *testing.T) {
 	pm := pipeline.NewManager(ctx, store, nil, nil)
 	defer pm.Close(context.Background())
 	instance.GetInstance(ctx).PipelineManager = pm
+	// 排队任务尚未进入阶段执行时，也必须让已打开的播放器继续等待。
+	queued := pipeline.NewPipelineTask(pipeline.RecordInfo{}, &pipeline.PipelineConfig{Stages: []pipeline.StageConfig{{Name: pipeline.StageNamePreparePlayback}}}, []pipeline.FileInfo{{Path: source, Type: pipeline.FileTypeVideo, PreparationSourceVersion: e.SourceVersion}})
+	require.NoError(t, store.CreateTask(ctx, queued))
+	queuedSession := v2ReadSession(t, v2Request(t, h, "GET", "/api/v2/playback-sessions/"+session.ID, cfg.Security.APIKey, nil))
+	require.Equal(t, "processing", queuedSession.Status, "准备阶段还未开始时不能显示未准备并终止网页轮询")
+	require.Empty(t, queuedSession.URL)
+	queued.MarkCancelled()
+	require.NoError(t, store.UpdateTask(ctx, queued))
+	queuedSession = v2ReadSession(t, v2Request(t, h, "GET", "/api/v2/playback-sessions/"+session.ID, cfg.Security.APIKey, nil))
+	require.Equal(t, "asset_not_ready", queuedSession.Error.Code, "取消的排队任务不能冒称仍在准备")
 	key := pipeline.PreparationKey{RecordingID: e.RecordingID, SourceVersion: e.SourceVersion, ProfileVersion: stages.PreparationProfileVersion}
 	_, err = store.QueuePreparation(ctx, key)
 	require.NoError(t, err)
